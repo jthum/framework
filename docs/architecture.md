@@ -202,7 +202,7 @@ Do not grow a `KernelConfig` junk drawer. Adapter URLs belong to adapters. Secre
 
 ## 4. What is not in the Kernel or v1 Spec
 
-- recursive Workspaces, `parentWorkspaceId`, permission inheritance, and re-parenting;
+- custom multi-level Workspace ACL, permission inheritance, and re-parenting;
 - topology plugins encoding Space/App or Organisation/Workspace;
 - a second Collection-owner type beside Workspace;
 - Store in the Spec;

@@ -25,6 +25,44 @@ afterEach(async () => {
 });
 
 describe("SQLite catalog adapter", () => {
+  it("persists live Attachment bindings and revocation across sessions", async () => {
+    expect.hasAssertions();
+    const path = join(await makeTemporaryDirectory(), "attachments.sqlite");
+    const first = await openKernel(path);
+    const { workspace: root, user } = await first.createRootWorkspace({
+      name: "Space",
+      user: { name: "Jane" },
+    });
+    const origin = { workspaceId: root.id, actorId: user.id };
+    const { workspace: app } = await first.createWorkspace(origin, { name: "CRM" });
+    const target = { ...origin, workspaceId: app.id };
+    await first.applySpec(origin, {
+      ...root.spec,
+      collections: [{ id: "contacts", key: "contact", label: "Contact", fields: [] }],
+    });
+    await first.applySpec(target, {
+      ...app.spec,
+      sources: [{ id: "shared-contacts", key: "contacts", label: "Contacts" }],
+    });
+    const attachment = await first.createAttachment(origin, {
+      collectionKey: "contact",
+      targetId: app.id,
+      key: "contacts",
+    });
+    const record = await first.createRecord(origin, "contact", {});
+    await first.close();
+    const second = await openKernel(path);
+    expect(await second.listAttachments(target)).toEqual([attachment]);
+    expect(await second.listAttachedRecords(target, "contacts")).toEqual([record]);
+    await second.revokeAttachment(origin, attachment.id);
+    await second.close();
+    const third = await openKernel(path);
+    await expect(third.listAttachedRecords(target, "contacts")).rejects.toMatchObject({
+      code: ERROR_CODES.resourceNotFound,
+    });
+    expect((await third.listAttachments(target))[0]?.revokedBy).toBe(user.id);
+    await third.close();
+  });
   it("closes a failed record-store initialization and preserves its error", async () => {
     expect.hasAssertions();
     const database = openNodeSqlite();
@@ -137,7 +175,7 @@ describe("SQLite catalog adapter", () => {
 
     await expect(persistence.open()).rejects.toMatchObject({
       code: ERROR_CODES.persistenceUnsupported,
-      details: { actualVersion: 99, supportedVersion: 4 },
+      details: { actualVersion: 99, supportedVersion: 5 },
     });
 
     await expect(database.get("SELECT 1")).rejects.toThrow();

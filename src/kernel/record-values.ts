@@ -149,7 +149,7 @@ function validateLifecycleTransition(
   }
 }
 
-function evaluateCondition(
+export function evaluateCondition(
   condition: FieldCondition | undefined,
   collection: CollectionDefinition,
   values: RecordValues,

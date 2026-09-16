@@ -1,5 +1,5 @@
 import { resourceConflict, resourceNotFound } from "../errors/error.ts";
-import type { Actor, Membership, Workspace } from "../kernel/model.ts";
+import type { Actor, Attachment, Membership, Workspace } from "../kernel/model.ts";
 import type { CollectionDefinition } from "../spec/model.ts";
 import type {
   CatalogRepository,
@@ -10,6 +10,7 @@ import type {
 import type { CollectionRecord, RecordStore } from "./records.ts";
 import {
   assertActorIntegrity,
+  assertAttachmentIntegrity,
   assertMembershipIntegrity,
   assertWorkspaceIntegrity,
   assertWorkspaceTopologyUnchanged,
@@ -19,6 +20,7 @@ interface MemoryState {
   workspaces: Map<string, Workspace>;
   actors: Map<string, Actor>;
   memberships: Map<string, Membership>;
+  attachments: Map<string, Attachment>;
 }
 
 export class MemoryPersistenceAdapter implements PersistenceAdapter {
@@ -107,6 +109,35 @@ export class MemoryCatalogRepository implements CatalogRepository, CatalogTransa
   async insertWorkspace(workspace: Workspace): Promise<void> {
     await assertWorkspaceIntegrity(this, workspace);
     insertUnique(this.state.workspaces, workspace, "Workspace");
+  }
+
+  async getAttachment(id: string): Promise<Attachment | null> {
+    return cloneOptional(this.state.attachments.get(id));
+  }
+
+  async getAttachmentByKey(targetId: string, key: string): Promise<Attachment | null> {
+    return (
+      cloneValues(this.state.attachments).find(
+        (item) => item.targetId === targetId && item.key === key && item.revokedAt === undefined,
+      ) ?? null
+    );
+  }
+
+  async listAttachments(targetId: string): Promise<Attachment[]> {
+    return cloneValues(this.state.attachments).filter((item) => item.targetId === targetId);
+  }
+
+  async insertAttachment(attachment: Attachment): Promise<void> {
+    await assertAttachmentIntegrity(this, attachment);
+    insertUnique(this.state.attachments, attachment, "Attachment");
+  }
+
+  async revokeAttachment(id: string, actorId: string, stamp: string): Promise<void> {
+    const attachment = this.state.attachments.get(id);
+    if (!attachment) throw resourceNotFound("Attachment", id);
+    if (!this.state.actors.has(actorId)) throw resourceNotFound("Actor", actorId);
+    if (attachment.revokedAt !== undefined) return;
+    this.state.attachments.set(id, clone({ ...attachment, revokedAt: stamp, revokedBy: actorId }));
   }
 
   async insertActor(actor: Actor): Promise<void> {
@@ -246,6 +277,7 @@ function emptyState(): MemoryState {
     workspaces: new Map(),
     actors: new Map(),
     memberships: new Map(),
+    attachments: new Map(),
   };
 }
 
@@ -263,6 +295,7 @@ function cloneState(state: MemoryState): MemoryState {
     workspaces: cloneMap(state.workspaces),
     actors: cloneMap(state.actors),
     memberships: cloneMap(state.memberships),
+    attachments: cloneMap(state.attachments),
   };
 }
 

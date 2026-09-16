@@ -1,4 +1,4 @@
-import type { Actor, Membership, Workspace } from "../kernel/model.ts";
+import type { Actor, Attachment, Membership, Workspace } from "../kernel/model.ts";
 import type { RecordStore } from "./records.ts";
 
 export interface CatalogReader {
@@ -13,6 +13,9 @@ export interface CatalogReader {
   getMembership(actorId: string, workspaceId: string): Promise<Membership | null>;
   listMembershipsForActor(actorId: string): Promise<Membership[]>;
   listMembershipsForWorkspace(workspaceId: string): Promise<Membership[]>;
+  getAttachment(id: string): Promise<Attachment | null>;
+  getAttachmentByKey(targetId: string, key: string): Promise<Attachment | null>;
+  listAttachments(targetId: string): Promise<Attachment[]>;
 }
 
 export interface CatalogTransaction extends CatalogReader {
@@ -20,6 +23,8 @@ export interface CatalogTransaction extends CatalogReader {
   insertActor(actor: Actor): Promise<void>;
   insertMembership(membership: Membership): Promise<void>;
   updateWorkspace(workspace: Workspace): Promise<void>;
+  insertAttachment(attachment: Attachment): Promise<void>;
+  revokeAttachment(id: string, actorId: string, stamp: string): Promise<void>;
 }
 
 export interface CatalogRepository extends CatalogReader {

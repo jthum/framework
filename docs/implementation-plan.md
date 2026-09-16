@@ -12,10 +12,11 @@ No compatibility with the current Spec, `Host`, `TypeDef`, `WorkflowDef`, widget
 
 ## Progress
 
-| Phase | Status   | Delivered                                                                                      |
-| ----- | -------- | ---------------------------------------------------------------------------------------------- |
-| 0     | Complete | Package boundary, Kernel, Workspace/Actor/Membership, authorization, environment, SQLite       |
-| 1     | Complete | Collection/Field Spec, runtime validation, RecordStore contracts, CRUD, schema materialization |
+| Phase | Status   | Delivered                                                                                          |
+| ----- | -------- | -------------------------------------------------------------------------------------------------- |
+| 0     | Complete | Package boundary, Kernel, Workspace/Actor/Membership, authorization, environment, SQLite           |
+| 1     | Complete | Collection/Field Spec, runtime validation, RecordStore contracts, CRUD, schema materialization     |
+| 2     | Complete | Persisted live Attachments, semantic binding, filtered reads, origin schema, rights and revocation |
 
 Later phases remain intentionally unimplemented; their entries below are the source of truth for scope.
 
@@ -134,6 +135,10 @@ Builder UI tracks S1. S2 and S3 remain conformance fixtures until their products
 **Out:** rolling materialisation; implicit copies; full spawn UI.
 
 **Tests:** S1 and S2 shared records live once; target loses access after revocation; concrete binding is absent from exported Spec.
+
+**Delivered:** Attachment uses `originId`, `targetId`, `collectionId`, and target semantic `key`; rights (`read`, `create`, `update`, `delete`), `allowReshare` default false, creation provenance, and terminal idempotent revocation. Memory and SQLite persist detached bindings. Creation requires an origin member acting in the origin and explicit target Membership, with separate create/accept authorization checks. Target Source declarations resolve live schema/records by key without copying definitions or records. Reads check target Attachment authority, declared read rights, and the origin resource with `attachmentId` conveyed to the Authorizer. Filter conditions reuse stable Field IDs and the existing condition primitive; current schema is revalidated on every access, failing closed on removed filter Fields. No binding/schema cache bypasses revocation.
+
+Attachment write and derived re-share APIs are not exposed yet. Their rights are persisted, not treated as implemented capabilities. General Source contracts arrive in Phase 3; full member/`others` policy and attenuation arrive in Phase 6. The permissive local Authorizer remains intentionally unsuitable as a production multi-user ACL. See [live Attachments](./attachments.md).
 
 ### Phase 3 — Sources, Views, relationships, and Blocks
 

@@ -1,4 +1,4 @@
-import type { Spec } from "../spec/model.ts";
+import type { FieldCondition, Spec } from "../spec/model.ts";
 
 export const ACTOR_KINDS = ["user", "agent", "system"] as const;
 export type ActorKind = (typeof ACTOR_KINDS)[number];
@@ -38,4 +38,23 @@ export interface Membership {
 export interface ExecutionContext {
   readonly workspaceId: string;
   readonly actorId: string;
+}
+
+export const ATTACHMENT_RIGHTS = ["read", "create", "update", "delete"] as const;
+export type AttachmentRight = (typeof ATTACHMENT_RIGHTS)[number];
+
+/** Instance binding; never serialized into a portable Spec. */
+export interface Attachment {
+  readonly id: string;
+  readonly key: string;
+  readonly originId: string;
+  readonly targetId: string;
+  readonly collectionId: string;
+  readonly filter?: FieldCondition;
+  readonly rights: readonly AttachmentRight[];
+  readonly allowReshare: boolean;
+  readonly createdBy: string;
+  readonly createdAt: string;
+  readonly revokedBy?: string;
+  readonly revokedAt?: string;
 }

@@ -4,7 +4,7 @@ import {
   resourceConflict,
   resourceNotFound,
 } from "../errors/error.ts";
-import type { Actor, ActorKind, Membership, Workspace } from "../kernel/model.ts";
+import type { Actor, ActorKind, Attachment, Membership, Workspace } from "../kernel/model.ts";
 import type {
   CatalogRepository,
   CatalogTransaction,
@@ -14,6 +14,7 @@ import type {
 import { SqliteRecordStore } from "./records.ts";
 import {
   assertActorIntegrity,
+  assertAttachmentIntegrity,
   assertMembershipIntegrity,
   assertWorkspaceIntegrity,
   assertWorkspaceTopologyUnchanged,
@@ -58,10 +59,20 @@ export class SqlitePersistenceAdapter implements PersistenceAdapter {
   }
 }
 
-export const SQLITE_CATALOG_SCHEMA_VERSION = 4;
+export const SQLITE_CATALOG_SCHEMA_VERSION = 5;
 
 export class SqliteCatalogRepository implements CatalogRepository {
   constructor(private readonly database: SqliteDatabase) {}
+
+  getAttachment(id: string): Promise<Attachment | null> {
+    return reader(this.database).getAttachment(id);
+  }
+  getAttachmentByKey(targetId: string, key: string): Promise<Attachment | null> {
+    return reader(this.database).getAttachmentByKey(targetId, key);
+  }
+  listAttachments(targetId: string): Promise<Attachment[]> {
+    return reader(this.database).listAttachments(targetId);
+  }
 
   getWorkspace(id: string): Promise<Workspace | null> {
     return reader(this.database).getWorkspace(id);
@@ -116,6 +127,41 @@ export class SqliteCatalogRepository implements CatalogRepository {
 
 class SqliteCatalogTransaction implements CatalogTransaction {
   constructor(private readonly connection: SqliteConnection) {}
+
+  getAttachment(id: string): Promise<Attachment | null> {
+    return reader(this.connection).getAttachment(id);
+  }
+  getAttachmentByKey(targetId: string, key: string): Promise<Attachment | null> {
+    return reader(this.connection).getAttachmentByKey(targetId, key);
+  }
+  listAttachments(targetId: string): Promise<Attachment[]> {
+    return reader(this.connection).listAttachments(targetId);
+  }
+
+  async insertAttachment(attachment: Attachment): Promise<void> {
+    await assertAttachmentIntegrity(this, attachment);
+    await insert(this.connection, "attachments", [
+      attachment.id,
+      attachment.key,
+      attachment.originId,
+      attachment.targetId,
+      attachment.collectionId,
+      attachment.filter === undefined ? null : JSON.stringify(attachment.filter),
+      JSON.stringify(attachment.rights),
+      attachment.allowReshare ? 1 : 0,
+      attachment.createdBy,
+      attachment.createdAt,
+    ]);
+  }
+
+  async revokeAttachment(id: string, actorId: string, stamp: string): Promise<void> {
+    if (!(await this.getAttachment(id))) throw resourceNotFound("Attachment", id);
+    if (!(await this.getActor(actorId))) throw resourceNotFound("Actor", actorId);
+    await this.connection.run(
+      "UPDATE attachments SET revoked_at = ?, revoked_by = ? WHERE id = ? AND revoked_at IS NULL",
+      [stamp, actorId, id],
+    );
+  }
 
   getWorkspace(id: string): Promise<Workspace | null> {
     return reader(this.connection).getWorkspace(id);
@@ -227,6 +273,28 @@ async function updateWorkspace(connection: SqliteConnection, workspace: Workspac
 
 class SqliteCatalogReader {
   constructor(private readonly connection: SqliteConnection) {}
+
+  async getAttachment(id: string): Promise<Attachment | null> {
+    const row = await this.connection.get<AttachmentRow>("SELECT * FROM attachments WHERE id = ?", [
+      id,
+    ]);
+    return row ? attachmentFromRow(row) : null;
+  }
+  async getAttachmentByKey(targetId: string, key: string): Promise<Attachment | null> {
+    const row = await this.connection.get<AttachmentRow>(
+      "SELECT * FROM attachments WHERE target_id = ? AND key = ? AND revoked_at IS NULL",
+      [targetId, key],
+    );
+    return row ? attachmentFromRow(row) : null;
+  }
+  async listAttachments(targetId: string): Promise<Attachment[]> {
+    return (
+      await this.connection.all<AttachmentRow>(
+        "SELECT * FROM attachments WHERE target_id = ? ORDER BY created_at, id",
+        [targetId],
+      )
+    ).map(attachmentFromRow);
+  }
 
   async getWorkspace(id: string): Promise<Workspace | null> {
     const row = await this.connection.get<WorkspaceRow>("SELECT * FROM workspaces WHERE id = ?", [
@@ -389,6 +457,26 @@ async function initializeCatalog(database: SqliteDatabase): Promise<void> {
     CREATE INDEX IF NOT EXISTS memberships_actor_id ON memberships(actor_id);
     CREATE INDEX IF NOT EXISTS memberships_workspace_id ON memberships(workspace_id);
 
+    CREATE TABLE IF NOT EXISTS attachments (
+      id TEXT PRIMARY KEY,
+      key TEXT NOT NULL,
+      origin_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      target_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      collection_id TEXT NOT NULL,
+      filter_json TEXT,
+      rights_json TEXT NOT NULL,
+      allow_reshare INTEGER NOT NULL CHECK (allow_reshare IN (0, 1)),
+      created_by TEXT NOT NULL REFERENCES actors(id),
+      created_at TEXT NOT NULL,
+      revoked_by TEXT REFERENCES actors(id),
+      revoked_at TEXT,
+      CHECK (origin_id != target_id),
+      CHECK ((revoked_at IS NULL AND revoked_by IS NULL) OR (revoked_at IS NOT NULL AND revoked_by IS NOT NULL))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS attachments_active_key ON attachments(target_id, key) WHERE revoked_at IS NULL;
+    CREATE INDEX IF NOT EXISTS attachments_origin_id ON attachments(origin_id);
+    CREATE INDEX IF NOT EXISTS attachments_target_id ON attachments(target_id);
+
     PRAGMA user_version = ${SQLITE_CATALOG_SCHEMA_VERSION};
   `);
 }
@@ -399,6 +487,8 @@ async function readSchemaVersion(database: SqliteDatabase): Promise<number> {
 }
 
 const insertStatements = {
+  attachments:
+    "INSERT INTO attachments (id, key, origin_id, target_id, collection_id, filter_json, rights_json, allow_reshare, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   workspaces:
     "INSERT INTO workspaces (id, is_root, parent_id, root_id, name, created_by, spec_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
   actors:
@@ -442,6 +532,40 @@ interface WorkspaceRow {
   spec_json: string;
   created_at: string;
   updated_at: string;
+}
+
+interface AttachmentRow {
+  id: string;
+  key: string;
+  origin_id: string;
+  target_id: string;
+  collection_id: string;
+  filter_json: string | null;
+  rights_json: string;
+  allow_reshare: number;
+  created_by: string;
+  created_at: string;
+  revoked_by: string | null;
+  revoked_at: string | null;
+}
+
+function attachmentFromRow(row: AttachmentRow): Attachment {
+  return {
+    id: row.id,
+    key: row.key,
+    originId: row.origin_id,
+    targetId: row.target_id,
+    collectionId: row.collection_id,
+    ...(row.filter_json === null
+      ? {}
+      : { filter: JSON.parse(row.filter_json) as NonNullable<Attachment["filter"]> }),
+    rights: JSON.parse(row.rights_json) as Attachment["rights"],
+    allowReshare: row.allow_reshare === 1,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+    ...(row.revoked_at === null ? {} : { revokedAt: row.revoked_at }),
+    ...(row.revoked_by === null ? {} : { revokedBy: row.revoked_by }),
+  };
 }
 
 interface ActorRow {

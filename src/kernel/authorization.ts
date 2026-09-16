@@ -1,10 +1,11 @@
 import type { ExecutionContext } from "./model.ts";
 
 export interface AuthorizationResource {
-  readonly kind: "workspace" | "actor" | "membership" | "collection" | "record";
+  readonly kind: "workspace" | "actor" | "membership" | "collection" | "record" | "attachment";
   readonly id: string;
   readonly workspaceId?: string;
   readonly collectionId?: string;
+  readonly attachmentId?: string;
 }
 
 export interface AuthorizationRequest {

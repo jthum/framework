@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import { ERROR_CODES } from "../errors/error.ts";
-import type { Actor, Membership, Workspace } from "../kernel/model.ts";
+import type { Actor, Attachment, Membership, Workspace } from "../kernel/model.ts";
 import type { PersistenceAdapter } from "./catalog.ts";
 
 export function catalogAdapterContract(
@@ -177,6 +177,74 @@ export function catalogAdapterContract(
       expect(await catalog.listMembers(hr.id)).toEqual([jane]);
       expect(await catalog.listMembers(recruiting.id)).toEqual([candidate]);
       expect(await catalog.listActorsByRoot(root.id)).toHaveLength(2);
+      await persistence.close();
+    });
+
+    it("detaches and rolls back Attachment data, retaining idempotent revocation", async () => {
+      expect.hasAssertions();
+      const persistence = await createAdapter().open();
+      const { workspace: root, actor } = catalogFixture();
+      const collection = {
+        id: "jobs",
+        key: "job",
+        label: "Job",
+        fields: [{ id: "status", key: "status", label: "Status", type: "text" as const }],
+      };
+      const origin = { ...root, spec: { ...root.spec, collections: [collection] } };
+      const target = { ...root, id: "target", isRoot: false, parentId: root.id };
+      await persistence.catalog.transaction(async (transaction) => {
+        await transaction.insertWorkspace(origin);
+        await transaction.insertWorkspace(target);
+        await transaction.insertActor(actor);
+      });
+      const attachment: Attachment = {
+        id: "attachment",
+        key: "jobs",
+        originId: origin.id,
+        targetId: target.id,
+        collectionId: collection.id,
+        filter: { fieldId: "status", operator: "eq", value: "open" },
+        rights: ["read"],
+        allowReshare: false,
+        createdBy: actor.id,
+        createdAt: root.createdAt,
+      };
+      await expect(
+        persistence.catalog.transaction(async (transaction) => {
+          await transaction.insertAttachment(attachment);
+          throw new Error("rollback");
+        }),
+      ).rejects.toThrow("rollback");
+      expect(await persistence.catalog.getAttachment(attachment.id)).toBeNull();
+      await persistence.catalog.transaction((transaction) =>
+        transaction.insertAttachment(attachment),
+      );
+      (attachment.rights as string[]).push("delete");
+      const first = (await persistence.catalog.getAttachment(attachment.id))!;
+      expect(first.rights).toEqual(["read"]);
+      (first.rights as string[]).push("update");
+      expect(
+        (await persistence.catalog.getAttachmentByKey(target.id, attachment.key))?.rights,
+      ).toEqual(["read"]);
+      await expect(
+        persistence.catalog.transaction(async (transaction) => {
+          await transaction.revokeAttachment(attachment.id, actor.id, root.updatedAt);
+          throw new Error("rollback");
+        }),
+      ).rejects.toThrow("rollback");
+      expect(
+        await persistence.catalog.getAttachmentByKey(target.id, attachment.key),
+      ).not.toBeNull();
+      await persistence.catalog.transaction((transaction) =>
+        transaction.revokeAttachment(attachment.id, actor.id, root.updatedAt),
+      );
+      await persistence.catalog.transaction((transaction) =>
+        transaction.revokeAttachment(attachment.id, actor.id, "later"),
+      );
+      expect(await persistence.catalog.getAttachmentByKey(target.id, attachment.key)).toBeNull();
+      expect((await persistence.catalog.listAttachments(target.id))[0]?.revokedAt).toBe(
+        root.updatedAt,
+      );
       await persistence.close();
     });
 

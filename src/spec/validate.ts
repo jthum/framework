@@ -44,6 +44,27 @@ export function assertValidSpec(input: unknown): asserts input is Spec {
   });
 }
 
+export function assertValidFieldCondition(
+  input: unknown,
+  collection: CollectionDefinition,
+): asserts input is FieldCondition {
+  const issues: ValidationIssue[] = [];
+  requireConditionShape(input, "filter", issues);
+  if (issues.length === 0)
+    validateCondition(
+      input as FieldCondition,
+      "filter",
+      new Map(collection.fields.map((field) => [field.id, field])),
+      issues,
+    );
+  if (issues.length > 0)
+    throw new FrameworkError({
+      code: ERROR_CODES.validationInvalidInput,
+      message: "The Field condition is invalid.",
+      issues,
+    });
+}
+
 function hasSpecStructure(input: unknown, issues: ValidationIssue[]): input is Spec {
   if (!isRecord(input)) {
     issue(issues, "", "SPEC.INVALID", "Spec must be an object.");

@@ -13,6 +13,7 @@ import type { CollectionRecord, RecordValues } from "../persistence/records.ts";
 import { createEmptySpec, type CollectionDefinition, type Spec } from "../spec/model.ts";
 import { assertValidSpec } from "../spec/validate.ts";
 import { AllowAllAuthorizer, type AuthorizationRequest, type Authorizer } from "./authorization.ts";
+import { AttachmentService, type CreateAttachmentInput } from "./attachments.ts";
 import {
   NanoIdGenerator,
   semanticKey,
@@ -62,6 +63,7 @@ export interface CreateActorInput {
 }
 
 export class Kernel {
+  private readonly attachments: AttachmentService;
   private constructor(
     private readonly persistence: PersistenceSession,
     private readonly catalog: CatalogRepository,
@@ -69,7 +71,36 @@ export class Kernel {
     private readonly ids: IdGenerator,
     private readonly clock: Clock,
     readonly environment: EnvironmentProfile,
-  ) {}
+  ) {
+    this.attachments = new AttachmentService(
+      catalog,
+      persistence.records,
+      ids,
+      clock,
+      (context) => this.assertContext(context),
+      (request) => this.assertAuthorized(request),
+    );
+  }
+
+  createAttachment(context: ExecutionContext, input: CreateAttachmentInput) {
+    return this.attachments.create(context, input);
+  }
+
+  listAttachments(context: ExecutionContext) {
+    return this.attachments.list(context);
+  }
+  revokeAttachment(context: ExecutionContext, id: string) {
+    return this.attachments.revoke(context, id);
+  }
+  getAttachedSchema(context: ExecutionContext, key: string) {
+    return this.attachments.schema(context, key);
+  }
+  listAttachedRecords(context: ExecutionContext, key: string) {
+    return this.attachments.listRecords(context, key);
+  }
+  getAttachedRecord(context: ExecutionContext, key: string, id: string) {
+    return this.attachments.getRecord(context, key, id);
+  }
 
   static async open(options: KernelOptions): Promise<Kernel> {
     const persistence = await options.persistence.open();
