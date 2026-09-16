@@ -204,6 +204,13 @@ async function reconcileFields(
       await connection.execute(
         `ALTER TABLE ${quoteIdentifier(table)} ADD COLUMN ${quoteIdentifier(fieldColumn(field))} TEXT`,
       );
+      const fallback = materializedDefault(next, field.id);
+      if (fallback !== undefined) {
+        await connection.run(
+          `UPDATE ${quoteIdentifier(table)} SET ${quoteIdentifier(fieldColumn(field))} = ?`,
+          [encodeValue(fallback)],
+        );
+      }
     }
   }
   for (const field of previous.fields) {
@@ -213,6 +220,15 @@ async function reconcileFields(
       );
     }
   }
+}
+
+function materializedDefault(
+  collection: CollectionDefinition,
+  fieldId: string,
+): JsonValue | undefined {
+  const field = collection.fields.find((candidate) => candidate.id === fieldId);
+  if (field?.default !== undefined) return field.default;
+  return collection.lifecycle?.fieldId === fieldId ? collection.lifecycle.initial : undefined;
 }
 
 function decodeRecord(row: DataRow, collection: CollectionDefinition): CollectionRecord {

@@ -10,6 +10,15 @@ Do not implement Teamloop or Workspaces-app production UI in this plan. Encode t
 
 No compatibility with the current Spec, `Host`, `TypeDef`, `WorkflowDef`, widget terminology, or catalog inference rules. Use one current shape. Temporary side-by-side implementation is allowed only while vertical slices move; delete the old path after parity.
 
+## Progress
+
+| Phase | Status   | Delivered                                                                                        |
+| ----- | -------- | ------------------------------------------------------------------------------------------------ |
+| 0     | Complete | Package boundary, Kernel, Account/Workspace/Actor/Membership, authorization, environment, SQLite |
+| 1     | Complete | Collection/Field Spec, runtime validation, RecordStore contracts, CRUD, schema materialization   |
+
+Later phases remain intentionally unimplemented; their entries below are the source of truth for scope.
+
 ---
 
 ## Stress-test scenarios

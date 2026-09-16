@@ -68,16 +68,25 @@ export function recordStoreContract(name: string, createAdapter: () => Persisten
       const renamed: CollectionDefinition = {
         ...collection,
         key: "work_item",
-        fields: collection.fields.map((field) =>
-          field.id === "field-title" ? { ...field, key: "summary" } : field,
-        ),
+        fields: [
+          ...collection.fields.map((field) =>
+            field.id === "field-title" ? { ...field, key: "summary" } : field,
+          ),
+          {
+            id: "field-ready",
+            key: "ready",
+            label: "Ready",
+            type: "boolean",
+            default: false,
+          },
+        ],
       };
 
       await persistence.records.materialize("workspace-1", [renamed]);
 
       expect(await persistence.records.get("workspace-1", renamed, "record-1")).toMatchObject({
         collectionId: collection.id,
-        values: { summary: "Keep me", priority: 1 },
+        values: { summary: "Keep me", priority: 1, ready: false },
       });
       await persistence.close();
     });

@@ -8,6 +8,8 @@ import type { Clock, IdGenerator, IdKind } from "../kernel/defaults.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import { catalogAdapterContract } from "../persistence/catalog.contract.ts";
 import { recordStoreContract } from "../persistence/records.contract.ts";
+import type { CollectionRecord } from "../persistence/records.ts";
+import type { CollectionDefinition } from "../spec/model.ts";
 import { SqlitePersistenceAdapter } from "./catalog.ts";
 import { openNodeSqlite } from "./node.ts";
 
@@ -64,6 +66,36 @@ describe("SQLite catalog adapter", () => {
       created.memberships,
     );
 
+    await second.close();
+  });
+
+  it("persists materialized Collections and records across sessions", async () => {
+    expect.hasAssertions();
+    const directory = await makeTemporaryDirectory();
+    const path = join(directory, "records.sqlite");
+    const collection: CollectionDefinition = {
+      id: "collection-task",
+      key: "task",
+      label: "Task",
+      fields: [{ id: "field-title", key: "title", label: "Title", type: "text" }],
+    };
+    const record: CollectionRecord = {
+      id: "record-1",
+      collectionId: collection.id,
+      values: { title: "Persist me" },
+      createdAt: "2026-09-17T00:00:00.000Z",
+      updatedAt: "2026-09-17T00:00:00.000Z",
+      createdByActorId: "actor-1",
+      updatedByActorId: "actor-1",
+    };
+    const first = await new SqlitePersistenceAdapter(() => openNodeSqlite(path)).open();
+    await first.records.materialize("workspace-1", [collection]);
+    await first.records.create("workspace-1", collection, record);
+    await first.close();
+
+    const second = await new SqlitePersistenceAdapter(() => openNodeSqlite(path)).open();
+
+    expect(await second.records.list("workspace-1", collection)).toEqual([record]);
     await second.close();
   });
 

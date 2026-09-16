@@ -21,7 +21,11 @@ import {
   type IdGenerator,
 } from "./defaults.ts";
 import { LOCAL_BROWSER_ENVIRONMENT, type EnvironmentProfile } from "./environment.ts";
-import { prepareCreateValues, prepareUpdateValues } from "./record-values.ts";
+import {
+  prepareCreateValues,
+  prepareMigratedValues,
+  prepareUpdateValues,
+} from "./record-values.ts";
 import type {
   Account,
   Actor,
@@ -255,6 +259,7 @@ export class Kernel {
     });
     const current = await this.requireWorkspace(context.workspaceId);
     const spec: Spec = structuredClone(input);
+    await this.assertSchemaCompatible(current, spec);
     await this.persistence.records.materialize(current.id, spec.collections);
     const workspace: Workspace = {
       ...current,
@@ -323,12 +328,12 @@ export class Kernel {
     patch: RecordValues,
   ): Promise<CollectionRecord> {
     const collection = await this.requireCollection(context, collectionKey);
-    const current = await this.requireRecord(context.workspaceId, collection, recordId);
     await this.assertAuthorized({
       context,
       operation: "records.update",
       resource: this.recordResource(context, collection, recordId),
     });
+    const current = await this.requireRecord(context.workspaceId, collection, recordId);
     const values = prepareUpdateValues(collection, current.values, patch);
     await this.assertReferences(context, collection, values);
     const record: CollectionRecord = {
@@ -347,12 +352,12 @@ export class Kernel {
     recordId: string,
   ): Promise<void> {
     const collection = await this.requireCollection(context, collectionKey);
-    await this.requireRecord(context.workspaceId, collection, recordId);
     await this.assertAuthorized({
       context,
       operation: "records.delete",
       resource: this.recordResource(context, collection, recordId),
     });
+    await this.requireRecord(context.workspaceId, collection, recordId);
     await this.persistence.records.delete(context.workspaceId, collection, recordId);
   }
 
@@ -494,6 +499,64 @@ export class Kernel {
         }
       }
     }
+  }
+
+  private async assertSchemaCompatible(current: Workspace, next: Spec): Promise<void> {
+    const currentCollections = new Map(
+      current.spec.collections.map((collection) => [collection.id, collection]),
+    );
+    for (const collection of next.collections) {
+      const previous = currentCollections.get(collection.id);
+      if (!previous) continue;
+      const records = await this.persistence.records.list(current.id, previous);
+      for (const record of records) {
+        const values = prepareMigratedValues(previous, collection, record.values);
+        await this.assertMigratedReferences(current, next, collection, values);
+      }
+    }
+  }
+
+  private async assertMigratedReferences(
+    workspace: Workspace,
+    next: Spec,
+    collection: CollectionDefinition,
+    values: RecordValues,
+  ): Promise<void> {
+    for (const field of collection.fields) {
+      if (field.type !== "reference") continue;
+      const value = values[field.key];
+      const ids = typeof value === "string" ? [value] : Array.isArray(value) ? value : [];
+      if (ids.length === 0) continue;
+      const nextTarget = next.collections.find((candidate) => candidate.id === field.collectionId);
+      const currentTarget = workspace.spec.collections.find(
+        (candidate) => candidate.id === field.collectionId,
+      );
+      if (!nextTarget || !currentTarget) {
+        throw this.invalidMigratedReference(field.key, field.label);
+      }
+      for (const id of ids) {
+        if (
+          typeof id !== "string" ||
+          !(await this.persistence.records.get(workspace.id, currentTarget, id))
+        ) {
+          throw this.invalidMigratedReference(field.key, field.label);
+        }
+      }
+    }
+  }
+
+  private invalidMigratedReference(fieldKey: string, fieldLabel: string): FrameworkError {
+    return new FrameworkError({
+      code: ERROR_CODES.validationInvalidInput,
+      message: "The Spec is incompatible with existing records.",
+      issues: [
+        {
+          path: `values.${fieldKey}`,
+          code: "VALIDATION.REFERENCE_NOT_FOUND",
+          message: `${fieldLabel} refers to a record that does not exist.`,
+        },
+      ],
+    });
   }
 
   private collectionResource(

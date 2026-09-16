@@ -48,6 +48,26 @@ export function prepareUpdateValues(
   return validatePreparedValues(collection, next);
 }
 
+export function prepareMigratedValues(
+  previous: CollectionDefinition,
+  next: CollectionDefinition,
+  current: RecordValues,
+): RecordValues {
+  const previousFields = new Map(previous.fields.map((field) => [field.id, field]));
+  const values: Record<string, JsonValue> = {};
+  for (const field of next.fields) {
+    const oldKey = previousFields.get(field.id)?.key;
+    const existing = oldKey ? current[oldKey] : undefined;
+    if (existing !== undefined) values[field.key] = existing;
+    else if (field.default !== undefined) values[field.key] = structuredClone(field.default);
+  }
+  if (next.lifecycle) {
+    const field = fieldById(next, next.lifecycle.fieldId);
+    if (values[field.key] === undefined) values[field.key] = next.lifecycle.initial;
+  }
+  return validatePreparedValues(next, applyConditionalClears(next, values));
+}
+
 function validatePreparedValues(
   collection: CollectionDefinition,
   values: RecordValues,

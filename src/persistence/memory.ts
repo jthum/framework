@@ -282,8 +282,22 @@ function migrateMemoryRecords(
       const previousField = previousFields.get(field.id);
       const previousKey = previousField?.key ?? field.key;
       const value = record.values[previousKey];
-      if (value !== undefined) values[field.key] = value;
+      if (value !== undefined) {
+        values[field.key] = value;
+      } else {
+        const fallback = materializedDefault(next, field.id);
+        if (fallback !== undefined) values[field.key] = fallback;
+      }
     }
     records.set(id, clone({ ...record, collectionId: next.id, values }));
   }
+}
+
+function materializedDefault(
+  collection: CollectionDefinition,
+  fieldId: string,
+): CollectionRecord["values"][string] | undefined {
+  const field = collection.fields.find((candidate) => candidate.id === fieldId);
+  if (field?.default !== undefined) return clone(field.default);
+  return collection.lifecycle?.fieldId === fieldId ? collection.lifecycle.initial : undefined;
 }

@@ -12,7 +12,9 @@ gateway. Node.js is one optional SQLite driver; browser hosts can provide anothe
 
 ## Status
 
-Greenfield and pre-release. There is no backwards-compatibility contract with the current Builder.run runtime.
+Greenfield and pre-release. Phases 0 and 1 are implemented: the Kernel can apply portable
+Collection Specs and perform validated record CRUD through interchangeable memory and SQLite
+adapters. There is no backwards-compatibility contract with the current Builder.run runtime.
 
 ## Development
 

@@ -116,6 +116,7 @@ function requireFieldShape(input: unknown, path: string, issues: ValidationIssue
     issue(issues, `${path}.type`, "SPEC.FIELD_TYPE_INVALID", "Field type is not supported.");
     return;
   }
+  rejectUnsupportedFieldProperties(input, type, path, issues);
   if (input.behavior !== undefined)
     requireBehaviorShape(input.behavior, `${path}.behavior`, issues);
   switch (type) {
@@ -172,7 +173,6 @@ function requireFieldShape(input: unknown, path: string, issues: ValidationIssue
       break;
     case "boolean":
     case "json":
-      if (input.validation !== undefined) unsupportedValidation(path, issues);
       break;
   }
 }
@@ -230,7 +230,10 @@ function requireValidationShape(
     const expected = rules[key];
     if (!expected) {
       unsupportedValidation(`${fieldPath}.validation.${key}`, issues);
-    } else if (typeof input[key] !== expected) {
+    } else if (
+      typeof input[key] !== expected ||
+      (expected === "number" && !Number.isFinite(input[key]))
+    ) {
       issue(
         issues,
         `${fieldPath}.validation.${key}`,
@@ -238,6 +241,35 @@ function requireValidationShape(
         `Validation ${key} must be a ${expected}.`,
       );
     }
+  }
+}
+
+function rejectUnsupportedFieldProperties(
+  input: Readonly<Record<string, unknown>>,
+  type: string,
+  path: string,
+  issues: ValidationIssue[],
+): void {
+  const allowed = new Set([
+    "id",
+    "key",
+    "label",
+    "description",
+    "meta",
+    "type",
+    "required",
+    "default",
+    "behavior",
+    ...(fieldProperties[type] ?? []),
+  ]);
+  for (const property of Object.keys(input)) {
+    if (allowed.has(property)) continue;
+    issue(
+      issues,
+      `${path}.${property}`,
+      "SPEC.FIELD_PROPERTY_UNSUPPORTED",
+      `${property} is not supported by ${type} Fields.`,
+    );
   }
 }
 
@@ -410,7 +442,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isJsonValue(value: unknown): value is JsonValue {
-  if (value === null || ["boolean", "number", "string"].includes(typeof value)) return true;
+  if (value === null || typeof value === "boolean" || typeof value === "string") return true;
+  if (typeof value === "number") return Number.isFinite(value);
   if (Array.isArray(value)) return value.every(isJsonValue);
   return isRecord(value) && Object.values(value).every(isJsonValue);
 }
@@ -429,6 +462,17 @@ const fieldKinds = new Set<string>([
   "reference",
   "json",
 ]);
+
+const fieldProperties: Readonly<Record<string, readonly string[]>> = {
+  text: ["format", "validation"],
+  number: ["format", "currency", "validation"],
+  boolean: [],
+  date: ["validation"],
+  datetime: ["validation"],
+  choice: ["options", "multiple"],
+  reference: ["collectionId", "multiple"],
+  json: [],
+};
 
 function validateCollection(
   collection: CollectionDefinition,
@@ -540,6 +584,22 @@ function validateTextDefinition(
   issues: ValidationIssue[],
 ): void {
   const { minLength, maxLength, pattern } = field.validation ?? {};
+  if (minLength !== undefined && (!Number.isInteger(minLength) || minLength < 0)) {
+    issue(
+      issues,
+      `${path}.validation.minLength`,
+      "SPEC.RANGE_INVALID",
+      "Minimum length must be a non-negative integer.",
+    );
+  }
+  if (maxLength !== undefined && (!Number.isInteger(maxLength) || maxLength < 0)) {
+    issue(
+      issues,
+      `${path}.validation.maxLength`,
+      "SPEC.RANGE_INVALID",
+      "Maximum length must be a non-negative integer.",
+    );
+  }
   if (minLength !== undefined && maxLength !== undefined && minLength > maxLength) {
     issue(issues, `${path}.validation`, "SPEC.RANGE_INVALID", "Minimum length exceeds maximum.");
   }
@@ -605,7 +665,12 @@ export function validateFieldValue(
   issues: ValidationIssue[],
   required = field.required === true,
 ): void {
-  if (value === undefined || value === null || value === "") {
+  if (
+    value === undefined ||
+    value === null ||
+    value === "" ||
+    (Array.isArray(value) && value.length === 0)
+  ) {
     if (required) issue(issues, path, "VALIDATION.REQUIRED", `${field.label} is required.`);
     return;
   }
@@ -624,7 +689,7 @@ export function validateFieldValue(
       if (typeof value !== "boolean") invalidType();
       return;
     case "date":
-      if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return invalidType();
+      if (typeof value !== "string" || !isDateOnly(value)) return invalidType();
       validateBoundedString(field, value, path, issues);
       return;
     case "datetime":
@@ -851,6 +916,12 @@ function validateLifecycleChoice(
 
 function isStringArray(value: JsonValue): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isDateOnly(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(date.valueOf()) && date.toISOString().slice(0, 10) === value;
 }
 
 function issue(issues: ValidationIssue[], path: string, code: string, message: string): void {

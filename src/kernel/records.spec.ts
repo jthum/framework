@@ -78,6 +78,63 @@ describe("Kernel Collections and records", () => {
     });
   });
 
+  it("rejects incompatible schema changes and backfills explicit defaults", async () => {
+    expect.hasAssertions();
+    const { kernel, context } = await bootstrap();
+    const spec = projectSpec();
+    await kernel.applySpec(context, spec);
+    const project = await kernel.createRecord(context, "project", { name: "Existing" });
+    const projectCollection = spec.collections.find(
+      (collection) => collection.id === "collection-project",
+    )!;
+    const incompatible: Spec = {
+      ...spec,
+      collections: spec.collections.map((collection) =>
+        collection.id === projectCollection.id
+          ? {
+              ...collection,
+              fields: [
+                ...collection.fields,
+                {
+                  id: "field-project-score",
+                  key: "score",
+                  label: "Score",
+                  type: "number" as const,
+                  required: true,
+                },
+              ],
+            }
+          : collection,
+      ),
+    };
+
+    await expect(kernel.applySpec(context, incompatible)).rejects.toMatchObject({
+      code: ERROR_CODES.validationInvalidInput,
+      issues: [expect.objectContaining({ path: "values.score", code: "VALIDATION.REQUIRED" })],
+    });
+    expect((await kernel.getRecord(context, "project", project.id))?.values).not.toHaveProperty(
+      "score",
+    );
+
+    const compatible: Spec = {
+      ...incompatible,
+      collections: incompatible.collections.map((collection) =>
+        collection.id === projectCollection.id
+          ? {
+              ...collection,
+              fields: collection.fields.map((field) =>
+                field.id === "field-project-score" ? { ...field, default: 0 } : field,
+              ),
+            }
+          : collection,
+      ),
+    };
+    await kernel.applySpec(context, compatible);
+    expect(await kernel.getRecord(context, "project", project.id)).toMatchObject({
+      values: { name: "Existing", status: "draft", score: 0 },
+    });
+  });
+
   it("keeps records isolated between Workspaces using the same portable Spec", async () => {
     expect.hasAssertions();
     const { kernel, context } = await bootstrap();
