@@ -6,6 +6,10 @@ Builder.run is its first host. Teamloop and future products can use the same pri
 
 The portable Spec is the product contract. The TypeScript Kernel is one consumer of that contract, not a requirement for consumers implemented with Laravel, WordPress, or another stack.
 
+The Kernel depends on persistence contracts, not a database. The package includes an in-memory
+adapter for tests and ephemeral use, plus a normalized SQLite catalog behind a driver-neutral
+gateway. Node.js is one optional SQLite driver; browser hosts can provide another.
+
 ## Status
 
 Greenfield and pre-release. There is no backwards-compatibility contract with the current Builder.run runtime.

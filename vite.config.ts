@@ -19,6 +19,8 @@ export default defineConfig({
       "src/kernel/index.ts",
       "src/persistence/index.ts",
       "src/spec/index.ts",
+      "src/sqlite/index.ts",
+      "src/sqlite/node-index.ts",
     ],
     dts: true,
     format: ["esm"],

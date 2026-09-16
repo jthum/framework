@@ -30,6 +30,14 @@
     "./spec": {
       "types": "./dist/spec/index.d.mts",
       "import": "./dist/spec/index.mjs"
+    },
+    "./sqlite": {
+      "types": "./dist/sqlite/index.d.mts",
+      "import": "./dist/sqlite/index.mjs"
+    },
+    "./sqlite/node": {
+      "types": "./dist/sqlite/node-index.d.mts",
+      "import": "./dist/sqlite/node-index.mjs"
     }
   },
   "scripts": {
