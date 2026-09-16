@@ -82,8 +82,8 @@ export class SqliteRecordStore implements RecordStore {
       record.collectionId,
       record.createdAt,
       record.updatedAt,
-      record.createdByActorId,
-      record.updatedByActorId,
+      record.createdBy,
+      record.updatedBy,
       ...collection.fields.map((field) => encodeValue(record.values[field.key])),
     ];
     try {
@@ -129,7 +129,7 @@ export class SqliteRecordStore implements RecordStore {
     const table = await this.requireTable(workspaceId, collection.id);
     const values: Array<readonly [string, null | number | string | Uint8Array]> = [
       ["_updated_at", record.updatedAt],
-      ["_updated_by_actor_id", record.updatedByActorId],
+      ["_updated_by", record.updatedBy],
       ...collection.fields.map(
         (field) => [fieldColumn(field), encodeValue(record.values[field.key])] as const,
       ),
@@ -170,8 +170,8 @@ const systemColumns = [
   { name: "_collection_id", sql: "TEXT NOT NULL" },
   { name: "_created_at", sql: "TEXT NOT NULL" },
   { name: "_updated_at", sql: "TEXT NOT NULL" },
-  { name: "_created_by_actor_id", sql: "TEXT NOT NULL" },
-  { name: "_updated_by_actor_id", sql: "TEXT NOT NULL" },
+  { name: "_created_by", sql: "TEXT NOT NULL" },
+  { name: "_updated_by", sql: "TEXT NOT NULL" },
 ] as const;
 
 async function createCollectionTable(
@@ -243,8 +243,8 @@ function decodeRecord(row: DataRow, collection: CollectionDefinition): Collectio
     values,
     createdAt: requireString(row._created_at),
     updatedAt: requireString(row._updated_at),
-    createdByActorId: requireString(row._created_by_actor_id),
-    updatedByActorId: requireString(row._updated_by_actor_id),
+    createdBy: requireString(row._created_by),
+    updatedBy: requireString(row._updated_by),
   };
 }
 

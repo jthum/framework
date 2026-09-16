@@ -9,7 +9,7 @@ export interface CatalogReader {
   getActor(id: string): Promise<Actor | null>;
   listActorsByOrigin(originId: string): Promise<Actor[]>;
   listActorsByRoot(rootId: string): Promise<Actor[]>;
-  listActorsForWorkspace(workspaceId: string): Promise<Actor[]>;
+  listMembers(workspaceId: string): Promise<Actor[]>;
   getMembership(actorId: string, workspaceId: string): Promise<Membership | null>;
   listMembershipsForActor(actorId: string): Promise<Membership[]>;
   listMembershipsForWorkspace(workspaceId: string): Promise<Membership[]>;

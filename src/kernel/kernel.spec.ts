@@ -5,8 +5,111 @@ import type { AuthorizationRequest, Authorizer } from "./authorization.ts";
 import type { Clock, IdGenerator, IdKind } from "./defaults.ts";
 import { defineEnvironmentProfile, LOCAL_BROWSER_ENVIRONMENT } from "./environment.ts";
 import { Kernel } from "./kernel.ts";
+import type { ExecutionContext } from "./model.ts";
 
 describe("Kernel catalog skeleton", () => {
+  it("authorizes every actor-facing catalog read", async () => {
+    expect.hasAssertions();
+    const requests: AuthorizationRequest[] = [];
+    const kernel = await Kernel.open({
+      persistence: new MemoryPersistenceAdapter(),
+      ids: sequenceIds(),
+      clock: fixedClock,
+      authorizer: {
+        async authorize(request) {
+          requests.push(request);
+          return { allowed: false };
+        },
+      },
+    });
+    const { workspace, user } = await kernel.createRootWorkspace({
+      name: "Space",
+      user: { name: "Jane" },
+    });
+    const context: ExecutionContext = { workspaceId: workspace.id, actorId: user.id };
+    const reads = [
+      () => kernel.getWorkspace(context),
+      () => kernel.listRootWorkspaces(context),
+      () => kernel.listChildWorkspaces(context),
+      () => kernel.listWorkspacesByRoot(context),
+      () => kernel.getActor(context, user.id),
+      () => kernel.listActorsByOrigin(context),
+      () => kernel.listActorsByRoot(context),
+      () => kernel.listMembers(context),
+      () => kernel.listMembershipsForActor(context, user.id),
+      () => kernel.listMembershipsForWorkspace(context),
+    ];
+    for (const read of reads)
+      await expect(read()).rejects.toMatchObject({ code: ERROR_CODES.permissionDenied });
+    expect(requests.map((request) => request.operation)).toEqual([
+      "workspaces.read",
+      "workspaces.listRoots",
+      "workspaces.listChildren",
+      "workspaces.listByRoot",
+      "actors.read",
+      "actors.listByOrigin",
+      "actors.listByRoot",
+      "actors.listMembers",
+      "memberships.listForActor",
+      "memberships.listForWorkspace",
+    ]);
+    const count = requests.length;
+    await expect(kernel.listMembers({ ...context, actorId: "missing" })).rejects.toMatchObject({
+      code: ERROR_CODES.resourceNotFound,
+    });
+    expect(requests).toHaveLength(count);
+    await kernel.close();
+  });
+
+  it("does not materialize outside the atomic Spec application", async () => {
+    expect.hasAssertions();
+    const adapter = new MemoryPersistenceAdapter();
+    const session = await adapter.open();
+    let standaloneMaterializations = 0;
+    const failure = new Error("Spec application failed");
+    const kernel = await Kernel.open({
+      persistence: {
+        kind: "failing",
+        async open() {
+          return {
+            ...session,
+            records: {
+              materialize: async () => {
+                standaloneMaterializations += 1;
+              },
+              create: session.records.create.bind(session.records),
+              get: session.records.get.bind(session.records),
+              list: session.records.list.bind(session.records),
+              update: session.records.update.bind(session.records),
+              delete: session.records.delete.bind(session.records),
+            },
+            applyWorkspaceSpec: async () => {
+              throw failure;
+            },
+          };
+        },
+      },
+      ids: sequenceIds(),
+      clock: fixedClock,
+    });
+    const { workspace, user } = await kernel.createRootWorkspace({
+      name: "Space",
+      user: { name: "Jane" },
+    });
+    const collection = { id: "tasks", key: "task", label: "Task", fields: [] };
+    await expect(
+      kernel.applySpec(
+        { workspaceId: workspace.id, actorId: user.id },
+        { ...workspace.spec, collections: [collection] },
+      ),
+    ).rejects.toBe(failure);
+    expect(standaloneMaterializations).toBe(0);
+    expect(await session.catalog.getWorkspace(workspace.id)).toEqual(workspace);
+    await expect(session.records.list(workspace.id, collection)).rejects.toMatchObject({
+      code: ERROR_CODES.resourceNotFound,
+    });
+    await kernel.close();
+  });
   it("requires explicit authorization for root-wide Actor discovery", async () => {
     expect.hasAssertions();
     const requests: AuthorizationRequest[] = [];
@@ -21,17 +124,17 @@ describe("Kernel catalog skeleton", () => {
       ids: sequenceIds(),
       clock: fixedClock,
     });
-    const { rootWorkspace, user } = await kernel.createRootWorkspace({
+    const { workspace, user } = await kernel.createRootWorkspace({
       name: "Space",
       user: { name: "Jane" },
     });
     await expect(
-      kernel.listActorsByRoot({ workspaceId: rootWorkspace.id, actorId: user.id }),
+      kernel.listActorsByRoot({ workspaceId: workspace.id, actorId: user.id }),
     ).rejects.toMatchObject({ code: ERROR_CODES.permissionDenied });
     expect(requests[0]).toEqual({
       operation: "actors.listByRoot",
-      context: { workspaceId: rootWorkspace.id, actorId: user.id },
-      resource: { kind: "workspace", id: rootWorkspace.id, workspaceId: rootWorkspace.id },
+      context: { workspaceId: workspace.id, actorId: user.id },
+      resource: { kind: "workspace", id: workspace.id, workspaceId: workspace.id },
     });
   });
 
@@ -44,17 +147,17 @@ describe("Kernel catalog skeleton", () => {
     });
     const first = await kernel.createRootWorkspace({ name: "Space", user: { name: "Jane" } });
     const second = await kernel.createRootWorkspace({ name: "Other", user: { name: "Sam" } });
-    const context = { workspaceId: first.rootWorkspace.id, actorId: first.user.id };
+    const context = { workspaceId: first.workspace.id, actorId: first.user.id };
     await expect(
       kernel.addMembership(context, {
         actorId: second.user.id,
-        workspaceId: first.rootWorkspace.id,
+        workspaceId: first.workspace.id,
       }),
     ).rejects.toMatchObject({ code: ERROR_CODES.permissionDenied });
     await expect(
       kernel.addMembership(context, {
         actorId: second.user.id,
-        workspaceId: second.rootWorkspace.id,
+        workspaceId: second.workspace.id,
       }),
     ).rejects.toMatchObject({ code: ERROR_CODES.permissionDenied });
     const { workspace } = await kernel.createWorkspace(context, { name: "App" });
@@ -76,17 +179,17 @@ describe("Kernel catalog skeleton", () => {
       user: { name: "Jane", email: "jane@example.com" },
     });
 
-    expect(created.rootWorkspace).toMatchObject({
+    expect(created.workspace).toMatchObject({
       isRoot: true,
       parentId: null,
-      rootId: created.rootWorkspace.id,
+      rootId: created.workspace.id,
     });
     expect(created.user).toMatchObject({
-      originId: created.rootWorkspace.id,
-      rootId: created.rootWorkspace.id,
+      originId: created.workspace.id,
+      rootId: created.workspace.id,
     });
-    expect(created.rootWorkspace.name).toBe("Acme");
-    expect(created.rootWorkspace.spec).toMatchObject({
+    expect(created.workspace.name).toBe("Acme");
+    expect(created.workspace.spec).toMatchObject({
       version: 2,
       key: "acme",
       collections: [],
@@ -97,9 +200,12 @@ describe("Kernel catalog skeleton", () => {
     });
     expect(created.user).toMatchObject({ kind: "user", name: "Jane" });
     expect(created.system).toMatchObject({ kind: "system", name: "System" });
-    expect(await kernel.listMembershipsForWorkspace(created.rootWorkspace.id)).toEqual(
-      created.memberships,
-    );
+    expect(
+      await kernel.listMembershipsForWorkspace({
+        workspaceId: created.workspace.id,
+        actorId: created.user.id,
+      }),
+    ).toEqual(created.memberships);
   });
 
   it("persists one Actor identity across several Workspace Memberships", async () => {
@@ -109,24 +215,24 @@ describe("Kernel catalog skeleton", () => {
       ids: sequenceIds(),
       clock: fixedClock,
     });
-    const { rootWorkspace, user } = await kernel.createRootWorkspace({
+    const { workspace, user } = await kernel.createRootWorkspace({
       name: "Acme",
       user: { name: "Jane" },
     });
     const context = {
-      workspaceId: rootWorkspace.id,
+      workspaceId: workspace.id,
       actorId: user.id,
     };
 
     const first = await kernel.createWorkspace(context, { name: "CRM" });
     const second = await kernel.createWorkspace(context, { name: "Projects" });
 
-    expect((await kernel.listWorkspacesByRoot(rootWorkspace.id)).map((item) => item.name)).toEqual([
+    expect((await kernel.listWorkspacesByRoot(context)).map((item) => item.name)).toEqual([
       "Acme",
       "CRM",
       "Projects",
     ]);
-    expect(await kernel.listMembershipsForActor(user.id)).toHaveLength(3);
+    expect(await kernel.listMembershipsForActor(context, user.id)).toHaveLength(3);
     expect(first.membership.actorId).toBe(user.id);
     expect(second.membership.actorId).toBe(user.id);
   });
@@ -138,15 +244,15 @@ describe("Kernel catalog skeleton", () => {
       ids: sequenceIds(),
       clock: fixedClock,
     });
-    const { rootWorkspace, user } = await kernel.createRootWorkspace({
+    const { workspace, user } = await kernel.createRootWorkspace({
       name: "Acme",
       user: { name: "Jane" },
     });
     const context = {
-      workspaceId: rootWorkspace.id,
+      workspaceId: workspace.id,
       actorId: user.id,
     };
-    const { workspace } = await kernel.createWorkspace(context, { name: "Recruiting" });
+    const { workspace: recruiting } = await kernel.createWorkspace(context, { name: "Recruiting" });
     const candidate = await kernel.createActor(context, {
       kind: "user",
       name: "Candidate",
@@ -154,17 +260,17 @@ describe("Kernel catalog skeleton", () => {
 
     const membership = await kernel.addMembership(context, {
       actorId: candidate.id,
-      workspaceId: workspace.id,
+      workspaceId: recruiting.id,
       roles: ["candidate"],
     });
 
     expect(membership).toMatchObject({
       actorId: candidate.id,
-      workspaceId: workspace.id,
+      workspaceId: recruiting.id,
       roles: ["candidate"],
     });
-    expect(await kernel.listMembershipsForActor(candidate.id)).toEqual([membership]);
-    expect(await kernel.listMembershipsForActor(user.id)).toHaveLength(2);
+    expect(await kernel.listMembershipsForActor(context, candidate.id)).toEqual([membership]);
+    expect(await kernel.listMembershipsForActor(context, user.id)).toHaveLength(2);
   });
 
   it("routes mutations through the authorization seam", async () => {
@@ -184,7 +290,7 @@ describe("Kernel catalog skeleton", () => {
       ids: sequenceIds(),
       clock: fixedClock,
     });
-    const { rootWorkspace, user } = await kernel.createRootWorkspace({
+    const { workspace, user } = await kernel.createRootWorkspace({
       name: "Acme",
       user: { name: "Jane" },
     });
@@ -192,7 +298,7 @@ describe("Kernel catalog skeleton", () => {
     await expect(
       kernel.createWorkspace(
         {
-          workspaceId: rootWorkspace.id,
+          workspaceId: workspace.id,
           actorId: user.id,
         },
         { name: "Denied" },
@@ -202,7 +308,7 @@ describe("Kernel catalog skeleton", () => {
     expect(requests[0]).toMatchObject({
       operation: "workspaces.create",
       context: { actorId: user.id },
-      resource: { kind: "workspace", id: rootWorkspace.id },
+      resource: { kind: "workspace", id: workspace.id },
     });
   });
 
@@ -219,7 +325,7 @@ describe("Kernel catalog skeleton", () => {
     await expect(
       kernel.createWorkspace(
         {
-          workspaceId: first.rootWorkspace.id,
+          workspaceId: first.workspace.id,
           actorId: second.user.id,
         },
         { name: "Invalid" },
@@ -239,12 +345,12 @@ describe("Kernel catalog skeleton", () => {
       clock: fixedClock,
       environment,
     });
-    const { rootWorkspace, user } = await kernel.createRootWorkspace({
+    const { workspace, user } = await kernel.createRootWorkspace({
       name: "Acme",
       user: { name: "Jane" },
     });
     const context = {
-      workspaceId: rootWorkspace.id,
+      workspaceId: workspace.id,
       actorId: user.id,
     };
 
@@ -259,12 +365,12 @@ describe("Kernel catalog skeleton", () => {
       ids: sequenceIds(),
       clock: fixedClock,
     });
-    const { rootWorkspace, user: jane } = await kernel.createRootWorkspace({
+    const { workspace, user: jane } = await kernel.createRootWorkspace({
       name: "Acme",
       user: { name: "Jane" },
     });
     const sharedContext = {
-      workspaceId: rootWorkspace.id,
+      workspaceId: workspace.id,
       actorId: jane.id,
     };
     const { workspace: hr } = await kernel.createWorkspace(sharedContext, { name: "HR" });
@@ -285,23 +391,23 @@ describe("Kernel catalog skeleton", () => {
 
     expect(hr).toMatchObject({
       isRoot: false,
-      parentId: rootWorkspace.id,
-      rootId: rootWorkspace.id,
+      parentId: workspace.id,
+      rootId: workspace.id,
     });
     expect(recruiting).toMatchObject({
       isRoot: false,
       parentId: hr.id,
-      rootId: rootWorkspace.id,
-      createdByActorId: jane.id,
+      rootId: workspace.id,
+      createdBy: jane.id,
     });
-    expect(candidate).toMatchObject({ originId: recruiting.id, rootId: rootWorkspace.id });
-    expect(await kernel.listActorsByOrigin(rootWorkspace.id)).not.toContainEqual(candidate);
-    expect(await kernel.listActorsByOrigin(recruiting.id)).toEqual([candidate]);
-    expect(await kernel.listActorsForWorkspace(hr.id)).toEqual([jane]);
-    expect(await kernel.listActorsForWorkspace(recruiting.id)).toEqual([jane, candidate]);
-    expect(await kernel.listChildWorkspaces(hr.id)).toEqual([recruiting]);
+    expect(candidate).toMatchObject({ originId: recruiting.id, rootId: workspace.id });
+    expect(await kernel.listActorsByOrigin(sharedContext)).not.toContainEqual(candidate);
+    expect(await kernel.listActorsByOrigin(recruitingContext)).toEqual([candidate]);
+    expect(await kernel.listMembers(hrContext)).toEqual([jane]);
+    expect(await kernel.listMembers(recruitingContext)).toEqual([jane, candidate]);
+    expect(await kernel.listChildWorkspaces(hrContext)).toEqual([recruiting]);
 
-    expect(await kernel.listMembershipsForActor(candidate.id)).toEqual([
+    expect(await kernel.listMembershipsForActor(recruitingContext, candidate.id)).toEqual([
       expect.objectContaining({ workspaceId: recruiting.id, roles: ["candidate"] }),
     ]);
     await expect(

@@ -8,8 +8,8 @@ export interface CollectionRecord {
   readonly values: RecordValues;
   readonly createdAt: string;
   readonly updatedAt: string;
-  readonly createdByActorId: string;
-  readonly updatedByActorId: string;
+  readonly createdBy: string;
+  readonly updatedBy: string;
 }
 
 export interface RecordStore {

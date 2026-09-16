@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { ERROR_CODES } from "../errors/error.ts";
 import type { Clock, IdGenerator, IdKind } from "../kernel/defaults.ts";
 import { Kernel } from "../kernel/kernel.ts";
@@ -25,6 +25,24 @@ afterEach(async () => {
 });
 
 describe("SQLite catalog adapter", () => {
+  it("closes a failed record-store initialization and preserves its error", async () => {
+    expect.hasAssertions();
+    const database = openNodeSqlite();
+    const execute = database.execute.bind(database);
+    const close = database.close.bind(database);
+    const failure = new Error("Record-store initialization failed");
+    vi.spyOn(database, "execute").mockImplementation(async (sql) => {
+      if (sql.includes("framework_record_schemas")) throw failure;
+      await execute(sql);
+    });
+    const closeSpy = vi.spyOn(database, "close").mockImplementation(async () => {
+      await close();
+      throw new Error("Cleanup failed too");
+    });
+    await expect(new SqlitePersistenceAdapter(() => database).open()).rejects.toBe(failure);
+    expect(closeSpy).toHaveBeenCalledOnce();
+    await expect(database.get("SELECT 1")).rejects.toThrow();
+  });
   it("runs the kernel on a normalized SQLite catalog", async () => {
     expect.hasAssertions();
     const kernel = await openKernel(":memory:");
@@ -33,16 +51,17 @@ describe("SQLite catalog adapter", () => {
       user: { name: "Jane", email: "jane@example.com" },
     });
     const context = {
-      workspaceId: created.rootWorkspace.id,
+      workspaceId: created.workspace.id,
       actorId: created.user.id,
     };
     const { workspace } = await kernel.createWorkspace(context, { name: "Projects" });
 
-    expect(created.rootWorkspace.rootId).toBe(created.rootWorkspace.id);
-    expect(
-      (await kernel.listWorkspacesByRoot(created.rootWorkspace.id)).map((item) => item.name),
-    ).toEqual(["Acme", "Projects"]);
-    expect(await kernel.listMembershipsForActor(created.user.id)).toHaveLength(2);
+    expect(created.workspace.rootId).toBe(created.workspace.id);
+    expect((await kernel.listWorkspacesByRoot(context)).map((item) => item.name)).toEqual([
+      "Acme",
+      "Projects",
+    ]);
+    expect(await kernel.listMembershipsForActor(context, created.user.id)).toHaveLength(2);
     expect(workspace.spec).toMatchObject({ version: 2, key: "projects" });
 
     await kernel.close();
@@ -57,11 +76,10 @@ describe("SQLite catalog adapter", () => {
     await first.close();
 
     const second = await openKernel(path);
+    const context = { workspaceId: created.workspace.id, actorId: created.user.id };
 
-    expect(await second.getWorkspace(created.rootWorkspace.id)).toEqual(created.rootWorkspace);
-    expect(await second.listMembershipsForWorkspace(created.rootWorkspace.id)).toEqual(
-      created.memberships,
-    );
+    expect(await second.getWorkspace(context)).toEqual(created.workspace);
+    expect(await second.listMembershipsForWorkspace(context)).toEqual(created.memberships);
 
     await second.close();
   });
@@ -82,8 +100,8 @@ describe("SQLite catalog adapter", () => {
       values: { title: "Persist me" },
       createdAt: "2026-09-17T00:00:00.000Z",
       updatedAt: "2026-09-17T00:00:00.000Z",
-      createdByActorId: "actor-1",
-      updatedByActorId: "actor-1",
+      createdBy: "actor-1",
+      updatedBy: "actor-1",
     };
     const first = await new SqlitePersistenceAdapter(() => openNodeSqlite(path)).open();
     await first.records.materialize("workspace-1", [collection]);
@@ -98,13 +116,15 @@ describe("SQLite catalog adapter", () => {
 
   it("rolls back an incomplete root Workspace bootstrap atomically", async () => {
     expect.hasAssertions();
-    const persistence = new SqlitePersistenceAdapter(() => openNodeSqlite());
+    const database = openNodeSqlite();
+    const persistence = new SqlitePersistenceAdapter(() => database);
     const kernel = await Kernel.open({ persistence, ids: constantIds, clock: fixedClock });
 
     await expect(
       kernel.createRootWorkspace({ name: "Acme", user: { name: "Jane" } }),
     ).rejects.toMatchObject({ code: ERROR_CODES.resourceConflict });
-    expect(await kernel.listRootWorkspaces()).toEqual([]);
+    const session = await persistence.open();
+    expect(await session.catalog.listRootWorkspaces()).toEqual([]);
 
     await kernel.close();
   });
@@ -117,10 +137,10 @@ describe("SQLite catalog adapter", () => {
 
     await expect(persistence.open()).rejects.toMatchObject({
       code: ERROR_CODES.persistenceUnsupported,
-      details: { actualVersion: 99, supportedVersion: 3 },
+      details: { actualVersion: 99, supportedVersion: 4 },
     });
 
-    await database.close();
+    await expect(database.get("SELECT 1")).rejects.toThrow();
   });
 });
 

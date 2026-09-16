@@ -135,7 +135,7 @@ function taskRecord(
     values: { title, priority: 1 },
     createdAt: "2026-09-17T00:00:00.000Z",
     updatedAt: "2026-09-17T00:00:00.000Z",
-    createdByActorId: "actor-1",
-    updatedByActorId: "actor-1",
+    createdBy: "actor-1",
+    updatedBy: "actor-1",
   };
 }

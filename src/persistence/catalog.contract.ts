@@ -95,6 +95,46 @@ export function catalogAdapterContract(
       await persistence.close();
     });
 
+    it("rolls back schema changes and records when the catalog update fails", async () => {
+      expect.hasAssertions();
+      const persistence = await createAdapter().open();
+      const { workspace: root, actor, membership } = catalogFixture();
+      const collection = {
+        id: "task",
+        key: "task",
+        label: "Task",
+        fields: [{ id: "title", key: "title", label: "Title", type: "text" as const }],
+      };
+      const workspace: Workspace = { ...root, spec: { ...root.spec, collections: [collection] } };
+      await persistence.catalog.transaction(async (transaction) => {
+        await transaction.insertWorkspace(workspace);
+        await transaction.insertActor(actor);
+        await transaction.insertMembership(membership);
+      });
+      await persistence.applyWorkspaceSpec(workspace);
+      const record = {
+        id: "record",
+        collectionId: collection.id,
+        values: { title: "Keep me" },
+        createdAt: root.createdAt,
+        updatedAt: root.updatedAt,
+        createdBy: actor.id,
+        updatedBy: actor.id,
+      };
+      await persistence.records.create(workspace.id, collection, record);
+      const renamed = { ...collection, fields: [{ ...collection.fields[0]!, key: "name" }] };
+      await expect(
+        persistence.applyWorkspaceSpec({
+          ...workspace,
+          parentId: "invalid-parent",
+          spec: { ...workspace.spec, collections: [renamed] },
+        }),
+      ).rejects.toMatchObject({ code: ERROR_CODES.resourceConflict });
+      expect(await persistence.catalog.getWorkspace(workspace.id)).toEqual(workspace);
+      expect(await persistence.records.get(workspace.id, collection, record.id)).toEqual(record);
+      await persistence.close();
+    });
+
     it("distinguishes issued Actors, members, and root-universe discovery", async () => {
       expect.hasAssertions();
       const persistence = await createAdapter().open();
@@ -134,8 +174,8 @@ export function catalogAdapterContract(
       expect(await catalog.listWorkspacesByRoot(root.id)).toHaveLength(3);
       expect(await catalog.listActorsByOrigin(root.id)).toEqual([jane]);
       expect(await catalog.listActorsByOrigin(recruiting.id)).toEqual([candidate]);
-      expect(await catalog.listActorsForWorkspace(hr.id)).toEqual([jane]);
-      expect(await catalog.listActorsForWorkspace(recruiting.id)).toEqual([candidate]);
+      expect(await catalog.listMembers(hr.id)).toEqual([jane]);
+      expect(await catalog.listMembers(recruiting.id)).toEqual([candidate]);
       expect(await catalog.listActorsByRoot(root.id)).toHaveLength(2);
       await persistence.close();
     });

@@ -9,7 +9,7 @@ export interface Workspace {
   readonly parentId: string | null;
   readonly rootId: string;
   readonly name: string;
-  readonly createdByActorId?: string;
+  readonly createdBy?: string;
   readonly spec: Spec;
   readonly createdAt: string;
   readonly updatedAt: string;

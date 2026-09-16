@@ -20,7 +20,7 @@ describe("Kernel Collections and records", () => {
     expect(project).toMatchObject({
       collectionId: "collection-project",
       values: { name: "Website", status: "draft", client: client.id },
-      createdByActorId: context.actorId,
+      createdBy: context.actorId,
     });
     expect(await kernel.getRecord(context, "project", project.id)).toEqual(project);
     expect(await kernel.listRecords(context, "project")).toEqual([project]);
@@ -198,14 +198,14 @@ async function bootstrap(authorizer?: Authorizer): Promise<{
     clock: fixedClock,
     ...(authorizer ? { authorizer } : {}),
   });
-  const { rootWorkspace, user } = await kernel.createRootWorkspace({
+  const { workspace, user } = await kernel.createRootWorkspace({
     name: "Acme",
     user: { name: "Jane" },
   });
   return {
     kernel,
     context: {
-      workspaceId: rootWorkspace.id,
+      workspaceId: workspace.id,
       actorId: user.id,
     },
   };

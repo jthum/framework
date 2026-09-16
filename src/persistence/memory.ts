@@ -79,7 +79,7 @@ export class MemoryCatalogRepository implements CatalogRepository, CatalogTransa
     return cloneValues(this.state.actors).filter((item) => item.rootId === rootId);
   }
 
-  async listActorsForWorkspace(workspaceId: string): Promise<Actor[]> {
+  async listMembers(workspaceId: string): Promise<Actor[]> {
     const actorIds = new Set(
       cloneValues(this.state.memberships)
         .filter((item) => item.workspaceId === workspaceId)

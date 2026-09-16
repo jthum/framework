@@ -107,6 +107,8 @@ The portable Spec contains definitions, semantic keys, and binding intent. It do
 
 Workspace `isRoot`, `parentId`, and `rootId` are grouping only. Actor `originId` is issuance and login realm; `rootId` is grouping only. Never authorize by ancestry, issuance, or root. Use issuance/Membership for normal rosters; root-wide Actor discovery is an explicit privileged operation. There is no Kernel Account.
 
+Attribution references are `createdBy` and `updatedBy`; both reference Actors. Kernel catalog reads require execution context and authorization. Persistence catalog reads are trusted infrastructure APIs, not an actor-facing access-control surface. Host bootstrap may use them to resolve login and workspace selection; do not expose them directly to clients. The permissive local authorizer is not a multi-user ACL implementation.
+
 - Spec values must be plain JSON-compatible data.
 - Do not store functions, class instances, Svelte proxies, database handles, or framework objects in the Spec.
 - Normalize and validate untrusted Specs at the boundary.

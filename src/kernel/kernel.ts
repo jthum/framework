@@ -44,8 +44,8 @@ export interface CreateRootWorkspaceInput {
   };
 }
 
-export interface RootWorkspaceBootstrap {
-  readonly rootWorkspace: Workspace;
+export interface WorkspaceBootstrap {
+  readonly workspace: Workspace;
   readonly user: Actor;
   readonly system: Actor;
   readonly memberships: readonly [Membership, Membership];
@@ -83,14 +83,14 @@ export class Kernel {
     );
   }
 
-  async createRootWorkspace(input: CreateRootWorkspaceInput): Promise<RootWorkspaceBootstrap> {
+  async createRootWorkspace(input: CreateRootWorkspaceInput): Promise<WorkspaceBootstrap> {
     const name = requiredName(input.name, "Workspace");
     const userName = requiredName(input.user.name, "User");
     const stamp = this.clock.now();
     const workspaceId = this.ids.create("workspace");
     const userId = this.ids.create("actor");
     const systemId = this.ids.create("actor");
-    const rootWorkspace: Workspace = {
+    const workspace: Workspace = {
       id: workspaceId,
       isRoot: true,
       parentId: null,
@@ -129,14 +129,14 @@ export class Kernel {
     ] as const;
 
     await this.catalog.transaction(async (transaction) => {
-      await transaction.insertWorkspace(rootWorkspace);
+      await transaction.insertWorkspace(workspace);
       await transaction.insertActor(user);
       await transaction.insertActor(system);
       await transaction.insertMembership(memberships[0]);
       await transaction.insertMembership(memberships[1]);
     });
 
-    return { rootWorkspace, user, system, memberships };
+    return { workspace, user, system, memberships };
   }
 
   async createWorkspace(
@@ -163,7 +163,7 @@ export class Kernel {
       parentId: parent.id,
       rootId: parent.rootId,
       name,
-      createdByActorId: context.actorId,
+      createdBy: context.actorId,
       spec: createEmptySpec({
         id: this.ids.create("spec"),
         key: semanticKey(name),
@@ -259,7 +259,6 @@ export class Kernel {
     });
     const spec: Spec = structuredClone(input);
     await this.assertSchemaCompatible(current, spec);
-    await this.persistence.records.materialize(current.id, spec.collections);
     const workspace: Workspace = {
       ...current,
       spec,
@@ -289,8 +288,8 @@ export class Kernel {
       values,
       createdAt: stamp,
       updatedAt: stamp,
-      createdByActorId: context.actorId,
-      updatedByActorId: context.actorId,
+      createdBy: context.actorId,
+      updatedBy: context.actorId,
     };
     await this.persistence.records.create(context.workspaceId, collection, record);
     return record;
@@ -339,7 +338,7 @@ export class Kernel {
       ...current,
       values,
       updatedAt: this.clock.now(),
-      updatedByActorId: context.actorId,
+      updatedBy: context.actorId,
     };
     await this.persistence.records.update(context.workspaceId, collection, record);
     return record;
@@ -360,27 +359,43 @@ export class Kernel {
     await this.persistence.records.delete(context.workspaceId, collection, recordId);
   }
 
-  getWorkspace(id: string): Promise<Workspace | null> {
+  async getWorkspace(
+    context: ExecutionContext,
+    id = context.workspaceId,
+  ): Promise<Workspace | null> {
+    await this.authorizeCatalogRead(context, "workspaces.read", id);
     return this.catalog.getWorkspace(id);
   }
 
-  listRootWorkspaces(): Promise<Workspace[]> {
+  async listRootWorkspaces(context: ExecutionContext): Promise<Workspace[]> {
+    await this.authorizeCatalogRead(context, "workspaces.listRoots");
     return this.catalog.listRootWorkspaces();
   }
 
-  listChildWorkspaces(parentId: string): Promise<Workspace[]> {
+  async listChildWorkspaces(
+    context: ExecutionContext,
+    parentId = context.workspaceId,
+  ): Promise<Workspace[]> {
+    await this.authorizeCatalogRead(context, "workspaces.listChildren", parentId);
     return this.catalog.listChildWorkspaces(parentId);
   }
 
-  listWorkspacesByRoot(rootId: string): Promise<Workspace[]> {
-    return this.catalog.listWorkspacesByRoot(rootId);
+  async listWorkspacesByRoot(context: ExecutionContext): Promise<Workspace[]> {
+    await this.authorizeCatalogRead(context, "workspaces.listByRoot");
+    const workspace = await this.requireWorkspace(context.workspaceId);
+    return this.catalog.listWorkspacesByRoot(workspace.rootId);
   }
 
-  getActor(id: string): Promise<Actor | null> {
+  async getActor(context: ExecutionContext, id: string): Promise<Actor | null> {
+    await this.authorizeActorRead(context, "actors.read", id);
     return this.catalog.getActor(id);
   }
 
-  listActorsByOrigin(originId: string): Promise<Actor[]> {
+  async listActorsByOrigin(
+    context: ExecutionContext,
+    originId = context.workspaceId,
+  ): Promise<Actor[]> {
+    await this.authorizeCatalogRead(context, "actors.listByOrigin", originId);
     return this.catalog.listActorsByOrigin(originId);
   }
 
@@ -395,15 +410,24 @@ export class Kernel {
     return this.catalog.listActorsByRoot(workspace.rootId);
   }
 
-  listActorsForWorkspace(workspaceId: string): Promise<Actor[]> {
-    return this.catalog.listActorsForWorkspace(workspaceId);
+  async listMembers(
+    context: ExecutionContext,
+    workspaceId = context.workspaceId,
+  ): Promise<Actor[]> {
+    await this.authorizeCatalogRead(context, "actors.listMembers", workspaceId);
+    return this.catalog.listMembers(workspaceId);
   }
 
-  listMembershipsForActor(actorId: string): Promise<Membership[]> {
+  async listMembershipsForActor(context: ExecutionContext, actorId: string): Promise<Membership[]> {
+    await this.authorizeActorRead(context, "memberships.listForActor", actorId);
     return this.catalog.listMembershipsForActor(actorId);
   }
 
-  listMembershipsForWorkspace(workspaceId: string): Promise<Membership[]> {
+  async listMembershipsForWorkspace(
+    context: ExecutionContext,
+    workspaceId = context.workspaceId,
+  ): Promise<Membership[]> {
+    await this.authorizeCatalogRead(context, "memberships.listForWorkspace", workspaceId);
     return this.catalog.listMembershipsForWorkspace(workspaceId);
   }
 
@@ -414,6 +438,32 @@ export class Kernel {
 
   close(): Promise<void> {
     return this.persistence.close();
+  }
+
+  private async authorizeCatalogRead(
+    context: ExecutionContext,
+    operation: string,
+    workspaceId = context.workspaceId,
+  ): Promise<void> {
+    await this.assertContext(context);
+    await this.assertAuthorized({
+      context,
+      operation,
+      resource: { kind: "workspace", id: workspaceId, workspaceId },
+    });
+  }
+
+  private async authorizeActorRead(
+    context: ExecutionContext,
+    operation: string,
+    actorId: string,
+  ): Promise<void> {
+    await this.assertContext(context);
+    await this.assertAuthorized({
+      context,
+      operation,
+      resource: { kind: "actor", id: actorId, workspaceId: context.workspaceId },
+    });
   }
 
   private async assertContext(context: ExecutionContext): Promise<void> {

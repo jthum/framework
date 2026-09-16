@@ -33,9 +33,18 @@ export class SqlitePersistenceAdapter implements PersistenceAdapter {
 
   async open(): Promise<PersistenceSession> {
     const database = await this.openDatabase();
-    await initializeCatalog(database);
     const records = new SqliteRecordStore(database);
-    await records.initialize();
+    try {
+      await initializeCatalog(database);
+      await records.initialize();
+    } catch (error) {
+      try {
+        await database.close();
+      } catch {
+        /* Preserve the initialization error. */
+      }
+      throw error;
+    }
     return {
       catalog: new SqliteCatalogRepository(database),
       records,
@@ -49,7 +58,7 @@ export class SqlitePersistenceAdapter implements PersistenceAdapter {
   }
 }
 
-export const SQLITE_CATALOG_SCHEMA_VERSION = 3;
+export const SQLITE_CATALOG_SCHEMA_VERSION = 4;
 
 export class SqliteCatalogRepository implements CatalogRepository {
   constructor(private readonly database: SqliteDatabase) {}
@@ -82,8 +91,8 @@ export class SqliteCatalogRepository implements CatalogRepository {
     return reader(this.database).listActorsByRoot(rootId);
   }
 
-  listActorsForWorkspace(workspaceId: string): Promise<Actor[]> {
-    return reader(this.database).listActorsForWorkspace(workspaceId);
+  listMembers(workspaceId: string): Promise<Actor[]> {
+    return reader(this.database).listMembers(workspaceId);
   }
 
   getMembership(actorId: string, workspaceId: string): Promise<Membership | null> {
@@ -136,8 +145,8 @@ class SqliteCatalogTransaction implements CatalogTransaction {
     return reader(this.connection).listActorsByRoot(rootId);
   }
 
-  listActorsForWorkspace(workspaceId: string): Promise<Actor[]> {
-    return reader(this.connection).listActorsForWorkspace(workspaceId);
+  listMembers(workspaceId: string): Promise<Actor[]> {
+    return reader(this.connection).listMembers(workspaceId);
   }
 
   getMembership(actorId: string, workspaceId: string): Promise<Membership | null> {
@@ -160,7 +169,7 @@ class SqliteCatalogTransaction implements CatalogTransaction {
       workspace.parentId,
       workspace.rootId,
       workspace.name,
-      workspace.createdByActorId ?? null,
+      workspace.createdBy ?? null,
       JSON.stringify(workspace.spec),
       workspace.createdAt,
       workspace.updatedAt,
@@ -205,10 +214,10 @@ async function updateWorkspace(connection: SqliteConnection, workspace: Workspac
   if (!existing) throw resourceNotFound("Workspace", workspace.id);
   assertWorkspaceTopologyUnchanged(workspaceFromRow(existing), workspace);
   await connection.run(
-    "UPDATE workspaces SET name = ?, created_by_actor_id = ?, spec_json = ?, updated_at = ? WHERE id = ?",
+    "UPDATE workspaces SET name = ?, created_by = ?, spec_json = ?, updated_at = ? WHERE id = ?",
     [
       workspace.name,
-      workspace.createdByActorId ?? null,
+      workspace.createdBy ?? null,
       JSON.stringify(workspace.spec),
       workspace.updatedAt,
       workspace.id,
@@ -275,7 +284,7 @@ class SqliteCatalogReader {
     ).map(actorFromRow);
   }
 
-  async listActorsForWorkspace(workspaceId: string): Promise<Actor[]> {
+  async listMembers(workspaceId: string): Promise<Actor[]> {
     return (
       await this.connection.all<ActorRow>(
         `SELECT actors.* FROM actors
@@ -340,7 +349,7 @@ async function initializeCatalog(database: SqliteDatabase): Promise<void> {
       parent_id TEXT REFERENCES workspaces(id) ON DELETE CASCADE,
       root_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
-      created_by_actor_id TEXT,
+      created_by TEXT,
       spec_json TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
@@ -391,7 +400,7 @@ async function readSchemaVersion(database: SqliteDatabase): Promise<number> {
 
 const insertStatements = {
   workspaces:
-    "INSERT INTO workspaces (id, is_root, parent_id, root_id, name, created_by_actor_id, spec_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO workspaces (id, is_root, parent_id, root_id, name, created_by, spec_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
   actors:
     "INSERT INTO actors (id, origin_id, root_id, kind, name, email, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
   memberships:
@@ -429,7 +438,7 @@ interface WorkspaceRow {
   parent_id: string | null;
   root_id: string;
   name: string;
-  created_by_actor_id: string | null;
+  created_by: string | null;
   spec_json: string;
   created_at: string;
   updated_at: string;
@@ -462,7 +471,7 @@ function workspaceFromRow(row: WorkspaceRow): Workspace {
     parentId: row.parent_id,
     rootId: row.root_id,
     name: row.name,
-    ...(row.created_by_actor_id === null ? {} : { createdByActorId: row.created_by_actor_id }),
+    ...(row.created_by === null ? {} : { createdBy: row.created_by }),
     spec: JSON.parse(row.spec_json) as Spec,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
