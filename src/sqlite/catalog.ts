@@ -1,10 +1,17 @@
-import { ERROR_CODES, FrameworkError, resourceConflict } from "../errors/error.ts";
+import {
+  ERROR_CODES,
+  FrameworkError,
+  resourceConflict,
+  resourceNotFound,
+} from "../errors/error.ts";
 import type { Account, Actor, ActorKind, Membership, Workspace } from "../kernel/model.ts";
 import type {
   CatalogRepository,
   CatalogTransaction,
   PersistenceAdapter,
+  PersistenceSession,
 } from "../persistence/catalog.ts";
+import { SqliteRecordStore } from "./records.ts";
 import type { Spec } from "../spec/model.ts";
 import type {
   OpenSqliteDatabase,
@@ -18,14 +25,25 @@ export class SqlitePersistenceAdapter implements PersistenceAdapter {
 
   constructor(private readonly openDatabase: OpenSqliteDatabase) {}
 
-  async openCatalog(): Promise<CatalogRepository> {
+  async open(): Promise<PersistenceSession> {
     const database = await this.openDatabase();
     await initializeCatalog(database);
-    return new SqliteCatalogRepository(database);
+    const records = new SqliteRecordStore(database);
+    await records.initialize();
+    return {
+      catalog: new SqliteCatalogRepository(database),
+      records,
+      applyWorkspaceSpec: (workspace) =>
+        database.transaction(async (connection) => {
+          await records.materializeWith(connection, workspace.id, workspace.spec.collections);
+          await updateWorkspace(connection, workspace);
+        }),
+      close: () => database.close(),
+    };
   }
 }
 
-export const SQLITE_CATALOG_SCHEMA_VERSION = 1;
+export const SQLITE_CATALOG_SCHEMA_VERSION = 2;
 
 export class SqliteCatalogRepository implements CatalogRepository {
   constructor(private readonly database: SqliteDatabase) {}
@@ -70,10 +88,6 @@ export class SqliteCatalogRepository implements CatalogRepository {
     return this.database.transaction((connection) =>
       work(new SqliteCatalogTransaction(connection)),
     );
-  }
-
-  close(): Promise<void> {
-    return this.database.close();
   }
 }
 
@@ -160,6 +174,27 @@ class SqliteCatalogTransaction implements CatalogTransaction {
       membership.updatedAt,
     ]);
   }
+
+  async updateWorkspace(workspace: Workspace): Promise<void> {
+    await updateWorkspace(this.connection, workspace);
+  }
+}
+
+async function updateWorkspace(connection: SqliteConnection, workspace: Workspace): Promise<void> {
+  const existing = await connection.get<WorkspaceRow>("SELECT * FROM workspaces WHERE id = ?", [
+    workspace.id,
+  ]);
+  if (!existing) throw resourceNotFound("Workspace", workspace.id);
+  await connection.run(
+    "UPDATE workspaces SET name = ?, created_by_actor_id = ?, spec_json = ?, updated_at = ? WHERE id = ?",
+    [
+      workspace.name,
+      workspace.createdByActorId ?? null,
+      JSON.stringify(workspace.spec),
+      workspace.updatedAt,
+      workspace.id,
+    ],
+  );
 }
 
 class SqliteCatalogReader {

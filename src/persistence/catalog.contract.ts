@@ -10,7 +10,8 @@ export function catalogAdapterContract(
   describe(`${name} catalog contract`, () => {
     it("stores and returns detached values", async () => {
       expect.hasAssertions();
-      const catalog = await createAdapter().openCatalog();
+      const persistence = await createAdapter().open();
+      const catalog = persistence.catalog;
       const fixture = catalogFixture();
 
       await catalog.transaction(async (transaction) => {
@@ -30,12 +31,13 @@ export function catalogAdapterContract(
       (firstRead.spec as Mutable<Workspace["spec"]>).label = "Changed after reading";
       expect((await catalog.getWorkspace(fixture.workspace.id))?.spec.label).toBe("Acme");
 
-      await catalog.close();
+      await persistence.close();
     });
 
     it("rolls back every write when a transaction fails", async () => {
       expect.hasAssertions();
-      const catalog = await createAdapter().openCatalog();
+      const persistence = await createAdapter().open();
+      const catalog = persistence.catalog;
       const fixture = catalogFixture();
 
       await expect(
@@ -48,12 +50,13 @@ export function catalogAdapterContract(
       expect(await catalog.listAccounts()).toEqual([]);
       expect(await catalog.listWorkspaces(fixture.account.id)).toEqual([]);
 
-      await catalog.close();
+      await persistence.close();
     });
 
     it("reports duplicate Workspace Memberships consistently", async () => {
       expect.hasAssertions();
-      const catalog = await createAdapter().openCatalog();
+      const persistence = await createAdapter().open();
+      const catalog = persistence.catalog;
       const fixture = catalogFixture();
 
       await catalog.transaction(async (transaction) => {
@@ -70,7 +73,32 @@ export function catalogAdapterContract(
       ).rejects.toMatchObject({ code: ERROR_CODES.resourceConflict });
       expect(await catalog.listMembershipsForActor(fixture.actor.id)).toHaveLength(1);
 
-      await catalog.close();
+      await persistence.close();
+    });
+
+    it("applies Workspace Spec and record schema as one operation", async () => {
+      expect.hasAssertions();
+      const persistence = await createAdapter().open();
+      const fixture = catalogFixture();
+      const collection = {
+        id: "collection-task",
+        key: "task",
+        label: "Task",
+        fields: [{ id: "field-title", key: "title", label: "Title", type: "text" as const }],
+      };
+      const missingWorkspace: Workspace = {
+        ...fixture.workspace,
+        spec: { ...fixture.workspace.spec, collections: [collection] },
+      };
+
+      await expect(persistence.applyWorkspaceSpec(missingWorkspace)).rejects.toMatchObject({
+        code: ERROR_CODES.resourceNotFound,
+      });
+      await expect(persistence.records.list(missingWorkspace.id, collection)).rejects.toMatchObject(
+        { code: ERROR_CODES.resourceNotFound },
+      );
+
+      await persistence.close();
     });
   });
 }

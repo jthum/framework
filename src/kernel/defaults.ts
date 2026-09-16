@@ -1,6 +1,13 @@
 import { nanoid } from "nanoid";
 
-export type IdKind = "account" | "actor" | "membership" | "spec" | "workspace";
+export type IdKind =
+  | "account"
+  | "actor"
+  | "definition"
+  | "membership"
+  | "record"
+  | "spec"
+  | "workspace";
 
 export interface IdGenerator {
   create(kind: IdKind): string;
@@ -12,7 +19,7 @@ export interface Clock {
 
 export class NanoIdGenerator implements IdGenerator {
   create(kind: IdKind): string {
-    return nanoid(kind === "spec" ? 16 : 21);
+    return nanoid(kind === "definition" || kind === "spec" ? 16 : 21);
   }
 }
 

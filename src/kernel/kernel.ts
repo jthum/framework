@@ -4,8 +4,14 @@ import {
   resourceConflict,
   resourceNotFound,
 } from "../errors/error.ts";
-import type { CatalogRepository, PersistenceAdapter } from "../persistence/catalog.ts";
-import { createEmptySpec } from "../spec/model.ts";
+import type {
+  CatalogRepository,
+  PersistenceAdapter,
+  PersistenceSession,
+} from "../persistence/catalog.ts";
+import type { CollectionRecord, RecordValues } from "../persistence/records.ts";
+import { createEmptySpec, type CollectionDefinition, type Spec } from "../spec/model.ts";
+import { assertValidSpec } from "../spec/validate.ts";
 import { AllowAllAuthorizer, type AuthorizationRequest, type Authorizer } from "./authorization.ts";
 import {
   NanoIdGenerator,
@@ -15,6 +21,7 @@ import {
   type IdGenerator,
 } from "./defaults.ts";
 import { LOCAL_BROWSER_ENVIRONMENT, type EnvironmentProfile } from "./environment.ts";
+import { prepareCreateValues, prepareUpdateValues } from "./record-values.ts";
 import type {
   Account,
   Actor,
@@ -60,6 +67,7 @@ export interface CreateActorInput {
 
 export class Kernel {
   private constructor(
+    private readonly persistence: PersistenceSession,
     private readonly catalog: CatalogRepository,
     private readonly authorizer: Authorizer,
     private readonly ids: IdGenerator,
@@ -68,8 +76,10 @@ export class Kernel {
   ) {}
 
   static async open(options: KernelOptions): Promise<Kernel> {
+    const persistence = await options.persistence.open();
     return new Kernel(
-      await options.persistence.openCatalog(),
+      persistence,
+      persistence.catalog,
       options.authorizer ?? new AllowAllAuthorizer(),
       options.ids ?? new NanoIdGenerator(),
       options.clock ?? new SystemClock(),
@@ -230,6 +240,122 @@ export class Kernel {
     return next;
   }
 
+  async applySpec(context: ExecutionContext, input: unknown): Promise<Workspace> {
+    await this.assertContext(context);
+    assertValidSpec(input);
+    await this.assertAuthorized({
+      context,
+      operation: "spec.update",
+      resource: {
+        kind: "workspace",
+        id: context.workspaceId,
+        accountId: context.accountId,
+        workspaceId: context.workspaceId,
+      },
+    });
+    const current = await this.requireWorkspace(context.workspaceId);
+    const spec: Spec = structuredClone(input);
+    await this.persistence.records.materialize(current.id, spec.collections);
+    const workspace: Workspace = {
+      ...current,
+      spec,
+      updatedAt: this.clock.now(),
+    };
+    await this.persistence.applyWorkspaceSpec(workspace);
+    return workspace;
+  }
+
+  async createRecord(
+    context: ExecutionContext,
+    collectionKey: string,
+    input: RecordValues,
+  ): Promise<CollectionRecord> {
+    const collection = await this.requireCollection(context, collectionKey);
+    await this.assertAuthorized({
+      context,
+      operation: "records.create",
+      resource: this.collectionResource(context, collection),
+    });
+    const values = prepareCreateValues(collection, input);
+    await this.assertReferences(context, collection, values);
+    const stamp = this.clock.now();
+    const record: CollectionRecord = {
+      id: this.ids.create("record"),
+      collectionId: collection.id,
+      values,
+      createdAt: stamp,
+      updatedAt: stamp,
+      createdByActorId: context.actorId,
+      updatedByActorId: context.actorId,
+    };
+    await this.persistence.records.create(context.workspaceId, collection, record);
+    return record;
+  }
+
+  async getRecord(
+    context: ExecutionContext,
+    collectionKey: string,
+    recordId: string,
+  ): Promise<CollectionRecord | null> {
+    const collection = await this.requireCollection(context, collectionKey);
+    await this.assertAuthorized({
+      context,
+      operation: "records.read",
+      resource: this.recordResource(context, collection, recordId),
+    });
+    return this.persistence.records.get(context.workspaceId, collection, recordId);
+  }
+
+  async listRecords(context: ExecutionContext, collectionKey: string): Promise<CollectionRecord[]> {
+    const collection = await this.requireCollection(context, collectionKey);
+    await this.assertAuthorized({
+      context,
+      operation: "records.list",
+      resource: this.collectionResource(context, collection),
+    });
+    return this.persistence.records.list(context.workspaceId, collection);
+  }
+
+  async updateRecord(
+    context: ExecutionContext,
+    collectionKey: string,
+    recordId: string,
+    patch: RecordValues,
+  ): Promise<CollectionRecord> {
+    const collection = await this.requireCollection(context, collectionKey);
+    const current = await this.requireRecord(context.workspaceId, collection, recordId);
+    await this.assertAuthorized({
+      context,
+      operation: "records.update",
+      resource: this.recordResource(context, collection, recordId),
+    });
+    const values = prepareUpdateValues(collection, current.values, patch);
+    await this.assertReferences(context, collection, values);
+    const record: CollectionRecord = {
+      ...current,
+      values,
+      updatedAt: this.clock.now(),
+      updatedByActorId: context.actorId,
+    };
+    await this.persistence.records.update(context.workspaceId, collection, record);
+    return record;
+  }
+
+  async deleteRecord(
+    context: ExecutionContext,
+    collectionKey: string,
+    recordId: string,
+  ): Promise<void> {
+    const collection = await this.requireCollection(context, collectionKey);
+    await this.requireRecord(context.workspaceId, collection, recordId);
+    await this.assertAuthorized({
+      context,
+      operation: "records.delete",
+      resource: this.recordResource(context, collection, recordId),
+    });
+    await this.persistence.records.delete(context.workspaceId, collection, recordId);
+  }
+
   getAccount(id: string): Promise<Account | null> {
     return this.catalog.getAccount(id);
   }
@@ -268,7 +394,7 @@ export class Kernel {
   }
 
   close(): Promise<void> {
-    return this.catalog.close();
+    return this.persistence.close();
   }
 
   private async assertContext(context: ExecutionContext): Promise<void> {
@@ -311,6 +437,90 @@ export class Kernel {
     const workspace = await this.catalog.getWorkspace(id);
     if (!workspace) throw resourceNotFound("Workspace", id);
     return workspace;
+  }
+
+  private async requireCollection(
+    context: ExecutionContext,
+    key: string,
+  ): Promise<CollectionDefinition> {
+    await this.assertContext(context);
+    const workspace = await this.requireWorkspace(context.workspaceId);
+    const collection = workspace.spec.collections.find((candidate) => candidate.key === key);
+    if (!collection) throw resourceNotFound("Collection", key);
+    return collection;
+  }
+
+  private async requireRecord(
+    workspaceId: string,
+    collection: CollectionDefinition,
+    recordId: string,
+  ): Promise<CollectionRecord> {
+    const record = await this.persistence.records.get(workspaceId, collection, recordId);
+    if (!record) throw resourceNotFound("Record", recordId);
+    return record;
+  }
+
+  private async assertReferences(
+    context: ExecutionContext,
+    collection: CollectionDefinition,
+    values: RecordValues,
+  ): Promise<void> {
+    const workspace = await this.requireWorkspace(context.workspaceId);
+    for (const field of collection.fields) {
+      if (field.type !== "reference") continue;
+      const value = values[field.key];
+      const ids = typeof value === "string" ? [value] : Array.isArray(value) ? value : [];
+      if (ids.length === 0) continue;
+      const target = workspace.spec.collections.find(
+        (candidate) => candidate.id === field.collectionId,
+      );
+      if (!target) throw resourceNotFound("Collection", field.collectionId);
+      for (const id of ids) {
+        if (
+          typeof id !== "string" ||
+          !(await this.persistence.records.get(workspace.id, target, id))
+        ) {
+          throw new FrameworkError({
+            code: ERROR_CODES.validationInvalidInput,
+            message: "Some record values need attention.",
+            issues: [
+              {
+                path: `values.${field.key}`,
+                code: "VALIDATION.REFERENCE_NOT_FOUND",
+                message: `${field.label} refers to a record that does not exist.`,
+              },
+            ],
+          });
+        }
+      }
+    }
+  }
+
+  private collectionResource(
+    context: ExecutionContext,
+    collection: CollectionDefinition,
+  ): AuthorizationRequest["resource"] {
+    return {
+      kind: "collection",
+      id: collection.id,
+      accountId: context.accountId,
+      workspaceId: context.workspaceId,
+      collectionId: collection.id,
+    };
+  }
+
+  private recordResource(
+    context: ExecutionContext,
+    collection: CollectionDefinition,
+    recordId: string,
+  ): AuthorizationRequest["resource"] {
+    return {
+      kind: "record",
+      id: recordId,
+      accountId: context.accountId,
+      workspaceId: context.workspaceId,
+      collectionId: collection.id,
+    };
   }
 }
 

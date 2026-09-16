@@ -1,4 +1,5 @@
 import type { Account, Actor, Membership, Workspace } from "../kernel/model.ts";
+import type { RecordStore } from "./records.ts";
 
 export interface CatalogReader {
   getAccount(id: string): Promise<Account | null>;
@@ -17,14 +18,21 @@ export interface CatalogTransaction extends CatalogReader {
   insertWorkspace(workspace: Workspace): Promise<void>;
   insertActor(actor: Actor): Promise<void>;
   insertMembership(membership: Membership): Promise<void>;
+  updateWorkspace(workspace: Workspace): Promise<void>;
 }
 
 export interface CatalogRepository extends CatalogReader {
   transaction<T>(work: (transaction: CatalogTransaction) => Promise<T>): Promise<T>;
-  close(): Promise<void>;
 }
 
 export interface PersistenceAdapter {
   readonly kind: string;
-  openCatalog(): Promise<CatalogRepository>;
+  open(): Promise<PersistenceSession>;
+}
+
+export interface PersistenceSession {
+  readonly catalog: CatalogRepository;
+  readonly records: RecordStore;
+  applyWorkspaceSpec(workspace: Workspace): Promise<void>;
+  close(): Promise<void>;
 }

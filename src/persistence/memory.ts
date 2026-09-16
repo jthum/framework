@@ -1,6 +1,13 @@
-import { resourceConflict } from "../errors/error.ts";
+import { resourceConflict, resourceNotFound } from "../errors/error.ts";
 import type { Account, Actor, Membership, Workspace } from "../kernel/model.ts";
-import type { CatalogRepository, CatalogTransaction, PersistenceAdapter } from "./catalog.ts";
+import type { CollectionDefinition } from "../spec/model.ts";
+import type {
+  CatalogRepository,
+  CatalogTransaction,
+  PersistenceAdapter,
+  PersistenceSession,
+} from "./catalog.ts";
+import type { CollectionRecord, RecordStore } from "./records.ts";
 
 interface MemoryState {
   accounts: Map<string, Account>;
@@ -12,9 +19,26 @@ interface MemoryState {
 export class MemoryPersistenceAdapter implements PersistenceAdapter {
   readonly kind = "memory";
   private readonly repository = new MemoryCatalogRepository();
+  private readonly records = new MemoryRecordStore();
 
-  async openCatalog(): Promise<CatalogRepository> {
-    return this.repository;
+  async open(): Promise<PersistenceSession> {
+    return {
+      catalog: this.repository,
+      records: this.records,
+      applyWorkspaceSpec: async (workspace) => {
+        const snapshot = this.records.snapshot();
+        try {
+          await this.records.materialize(workspace.id, workspace.spec.collections);
+          await this.repository.transaction((transaction) =>
+            transaction.updateWorkspace(workspace),
+          );
+        } catch (error) {
+          this.records.restore(snapshot);
+          throw error;
+        }
+      },
+      close: async () => {},
+    };
   }
 }
 
@@ -81,6 +105,11 @@ export class MemoryCatalogRepository implements CatalogRepository, CatalogTransa
     insertUnique(this.state.memberships, membership, "Membership");
   }
 
+  async updateWorkspace(workspace: Workspace): Promise<void> {
+    if (!this.state.workspaces.has(workspace.id)) throw resourceNotFound("Workspace", workspace.id);
+    this.state.workspaces.set(workspace.id, clone(workspace));
+  }
+
   transaction<T>(work: (transaction: CatalogTransaction) => Promise<T>): Promise<T> {
     const run = this.queue.then(async () => {
       const previous = cloneState(this.state);
@@ -97,8 +126,100 @@ export class MemoryCatalogRepository implements CatalogRepository, CatalogTransa
     );
     return run;
   }
+}
 
-  async close(): Promise<void> {}
+export class MemoryRecordStore implements RecordStore {
+  private readonly collections = new Map<string, CollectionDefinition>();
+  private readonly records = new Map<string, Map<string, CollectionRecord>>();
+
+  snapshot(): MemoryRecordState {
+    return {
+      collections: cloneMap(this.collections),
+      records: new Map([...this.records].map(([key, records]) => [key, cloneMap(records)])),
+    };
+  }
+
+  restore(state: MemoryRecordState): void {
+    this.collections.clear();
+    this.records.clear();
+    for (const [key, collection] of state.collections) this.collections.set(key, collection);
+    for (const [key, records] of state.records) this.records.set(key, records);
+  }
+
+  async materialize(
+    workspaceId: string,
+    collections: readonly CollectionDefinition[],
+  ): Promise<void> {
+    const desired = new Set(collections.map((collection) => collection.id));
+    for (const [key, previous] of this.collections) {
+      if (!key.startsWith(`${workspaceId}\0`) || desired.has(previous.id)) continue;
+      this.collections.delete(key);
+      this.records.delete(key);
+    }
+    for (const collection of collections) {
+      const key = collectionKey(workspaceId, collection.id);
+      const previous = this.collections.get(key);
+      if (previous) migrateMemoryRecords(this.records.get(key), previous, collection);
+      this.collections.set(key, clone(collection));
+      if (!this.records.has(key)) this.records.set(key, new Map());
+    }
+  }
+
+  async create(
+    workspaceId: string,
+    collection: CollectionDefinition,
+    record: CollectionRecord,
+  ): Promise<void> {
+    const records = this.requireCollection(workspaceId, collection);
+    if (records.has(record.id)) throw resourceConflict("Record already exists.");
+    records.set(record.id, clone(record));
+  }
+
+  async get(
+    workspaceId: string,
+    collection: CollectionDefinition,
+    recordId: string,
+  ): Promise<CollectionRecord | null> {
+    return cloneOptional(this.requireCollection(workspaceId, collection).get(recordId));
+  }
+
+  async list(workspaceId: string, collection: CollectionDefinition): Promise<CollectionRecord[]> {
+    return cloneValues(this.requireCollection(workspaceId, collection));
+  }
+
+  async update(
+    workspaceId: string,
+    collection: CollectionDefinition,
+    record: CollectionRecord,
+  ): Promise<void> {
+    const records = this.requireCollection(workspaceId, collection);
+    if (!records.has(record.id)) throw resourceNotFound("Record", record.id);
+    records.set(record.id, clone(record));
+  }
+
+  async delete(
+    workspaceId: string,
+    collection: CollectionDefinition,
+    recordId: string,
+  ): Promise<void> {
+    const records = this.requireCollection(workspaceId, collection);
+    if (!records.delete(recordId)) throw resourceNotFound("Record", recordId);
+  }
+
+  private requireCollection(
+    workspaceId: string,
+    collection: CollectionDefinition,
+  ): Map<string, CollectionRecord> {
+    const key = collectionKey(workspaceId, collection.id);
+    const records = this.records.get(key);
+    if (!this.collections.has(key) || !records) throw resourceNotFound("Collection", collection.id);
+    return records;
+  }
+}
+
+interface MemoryRecordState {
+  readonly collections: Map<string, CollectionDefinition>;
+  readonly records: Map<string, Map<string, CollectionRecord>>;
 }
 
 function emptyState(): MemoryState {
@@ -142,4 +263,27 @@ function cloneOptional<T>(value: T | undefined): T | null {
 
 function clone<T>(value: T): T {
   return structuredClone(value);
+}
+
+function collectionKey(workspaceId: string, collectionId: string): string {
+  return `${workspaceId}\0${collectionId}`;
+}
+
+function migrateMemoryRecords(
+  records: Map<string, CollectionRecord> | undefined,
+  previous: CollectionDefinition,
+  next: CollectionDefinition,
+): void {
+  if (!records) return;
+  const previousFields = new Map(previous.fields.map((field) => [field.id, field]));
+  for (const [id, record] of records) {
+    const values: Record<string, CollectionRecord["values"][string]> = {};
+    for (const field of next.fields) {
+      const previousField = previousFields.get(field.id);
+      const previousKey = previousField?.key ?? field.key;
+      const value = record.values[previousKey];
+      if (value !== undefined) values[field.key] = value;
+    }
+    records.set(id, clone({ ...record, collectionId: next.id, values }));
+  }
 }
