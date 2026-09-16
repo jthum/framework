@@ -11,6 +11,7 @@ import type { CollectionRecord, RecordStore } from "./records.ts";
 import {
   assertActorIntegrity,
   assertAttachmentIntegrity,
+  assertAttachmentRevocation,
   assertMembershipIntegrity,
   assertWorkspaceIntegrity,
   assertWorkspaceTopologyUnchanged,
@@ -123,8 +124,12 @@ export class MemoryCatalogRepository implements CatalogRepository, CatalogTransa
     );
   }
 
-  async listAttachments(targetId: string): Promise<Attachment[]> {
+  async listIncomingAttachments(targetId: string): Promise<Attachment[]> {
     return cloneValues(this.state.attachments).filter((item) => item.targetId === targetId);
+  }
+
+  async listOutgoingAttachments(originId: string): Promise<Attachment[]> {
+    return cloneValues(this.state.attachments).filter((item) => item.originId === originId);
   }
 
   async insertAttachment(attachment: Attachment): Promise<void> {
@@ -135,7 +140,7 @@ export class MemoryCatalogRepository implements CatalogRepository, CatalogTransa
   async revokeAttachment(id: string, actorId: string, stamp: string): Promise<void> {
     const attachment = this.state.attachments.get(id);
     if (!attachment) throw resourceNotFound("Attachment", id);
-    if (!this.state.actors.has(actorId)) throw resourceNotFound("Actor", actorId);
+    await assertAttachmentRevocation(this, attachment, actorId);
     if (attachment.revokedAt !== undefined) return;
     this.state.attachments.set(id, clone({ ...attachment, revokedAt: stamp, revokedBy: actorId }));
   }

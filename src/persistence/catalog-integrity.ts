@@ -94,3 +94,17 @@ export async function assertAttachmentIntegrity(
   if (await catalog.getAttachmentByKey(target.id, attachment.key))
     throw resourceConflict("This Source key already has an active Attachment.");
 }
+
+export async function assertAttachmentRevocation(
+  catalog: CatalogReader,
+  attachment: Attachment,
+  actorId: string,
+): Promise<void> {
+  const actor = await catalog.getActor(actorId);
+  if (!actor) throw resourceNotFound("Actor", actorId);
+  const origin = await catalog.getWorkspace(attachment.originId);
+  if (!origin) throw resourceNotFound("Workspace", attachment.originId);
+  if (actor.rootId !== origin.rootId) {
+    throw resourceConflict("Attachment revocation provenance must remain in its root universe.");
+  }
+}

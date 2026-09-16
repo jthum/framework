@@ -192,10 +192,14 @@ export function catalogAdapterContract(
       };
       const origin = { ...root, spec: { ...root.spec, collections: [collection] } };
       const target = { ...root, id: "target", isRoot: false, parentId: root.id };
+      const other = { ...root, id: "other", rootId: "other" };
+      const outsider = { ...actor, id: "outsider", originId: other.id, rootId: other.id };
       await persistence.catalog.transaction(async (transaction) => {
         await transaction.insertWorkspace(origin);
         await transaction.insertWorkspace(target);
+        await transaction.insertWorkspace(other);
         await transaction.insertActor(actor);
+        await transaction.insertActor(outsider);
       });
       const attachment: Attachment = {
         id: "attachment",
@@ -235,6 +239,11 @@ export function catalogAdapterContract(
       expect(
         await persistence.catalog.getAttachmentByKey(target.id, attachment.key),
       ).not.toBeNull();
+      await expect(
+        persistence.catalog.transaction((transaction) =>
+          transaction.revokeAttachment(attachment.id, outsider.id, root.updatedAt),
+        ),
+      ).rejects.toMatchObject({ code: ERROR_CODES.resourceConflict });
       await persistence.catalog.transaction((transaction) =>
         transaction.revokeAttachment(attachment.id, actor.id, root.updatedAt),
       );
@@ -242,7 +251,10 @@ export function catalogAdapterContract(
         transaction.revokeAttachment(attachment.id, actor.id, "later"),
       );
       expect(await persistence.catalog.getAttachmentByKey(target.id, attachment.key)).toBeNull();
-      expect((await persistence.catalog.listAttachments(target.id))[0]?.revokedAt).toBe(
+      expect(await persistence.catalog.listIncomingAttachments(target.id)).toEqual(
+        await persistence.catalog.listOutgoingAttachments(origin.id),
+      );
+      expect((await persistence.catalog.listIncomingAttachments(target.id))[0]?.revokedAt).toBe(
         root.updatedAt,
       );
       await persistence.close();

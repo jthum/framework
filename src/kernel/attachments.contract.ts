@@ -131,17 +131,22 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
         key: "shared_jobs",
       };
       const attachment = await kernel.createAttachment(origin, input);
+      expect(await kernel.listOutgoingAttachments(origin)).toEqual([attachment]);
+      expect(await kernel.listIncomingAttachments(target)).toEqual([attachment]);
       await expect(kernel.createAttachment(origin, input)).rejects.toMatchObject({
         code: ERROR_CODES.resourceConflict,
       });
       await kernel.revokeAttachment(origin, attachment.id);
       await kernel.revokeAttachment(target, attachment.id);
-      expect(await kernel.listAttachments(target)).toEqual([
+      expect(await kernel.listIncomingAttachments(target)).toEqual([
         expect.objectContaining({
           id: attachment.id,
           revokedBy: origin.actorId,
           revokedAt: "2026-09-17T00:00:00.000Z",
         }),
+      ]);
+      expect(await kernel.listOutgoingAttachments(origin)).toEqual([
+        expect.objectContaining({ id: attachment.id, revokedBy: origin.actorId }),
       ]);
       await expect(kernel.getAttachedSchema(target, "shared_jobs")).rejects.toMatchObject({
         code: ERROR_CODES.resourceNotFound,
@@ -175,7 +180,8 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
         }),
       ).rejects.toMatchObject({ code: ERROR_CODES.permissionDenied });
       deniedOperation = "";
-      expect(await kernel.listAttachments(target)).toEqual([]);
+      expect(await kernel.listIncomingAttachments(target)).toEqual([]);
+      expect(await kernel.listOutgoingAttachments(origin)).toEqual([]);
       const writeOnly = await kernel.createAttachment(origin, {
         collectionKey: collection.key,
         targetId: target.workspaceId,

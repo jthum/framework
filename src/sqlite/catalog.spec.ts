@@ -52,7 +52,7 @@ describe("SQLite catalog adapter", () => {
     const record = await first.createRecord(origin, "contact", {});
     await first.close();
     const second = await openKernel(path);
-    expect(await second.listAttachments(target)).toEqual([attachment]);
+    expect(await second.listIncomingAttachments(target)).toEqual([attachment]);
     expect(await second.listAttachedRecords(target, "contacts")).toEqual([record]);
     await second.revokeAttachment(origin, attachment.id);
     await second.close();
@@ -60,7 +60,7 @@ describe("SQLite catalog adapter", () => {
     await expect(third.listAttachedRecords(target, "contacts")).rejects.toMatchObject({
       code: ERROR_CODES.resourceNotFound,
     });
-    expect((await third.listAttachments(target))[0]?.revokedBy).toBe(user.id);
+    expect((await third.listIncomingAttachments(target))[0]?.revokedBy).toBe(user.id);
     await third.close();
   });
   it("closes a failed record-store initialization and preserves its error", async () => {

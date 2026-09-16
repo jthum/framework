@@ -15,6 +15,7 @@ import { SqliteRecordStore } from "./records.ts";
 import {
   assertActorIntegrity,
   assertAttachmentIntegrity,
+  assertAttachmentRevocation,
   assertMembershipIntegrity,
   assertWorkspaceIntegrity,
   assertWorkspaceTopologyUnchanged,
@@ -70,8 +71,11 @@ export class SqliteCatalogRepository implements CatalogRepository {
   getAttachmentByKey(targetId: string, key: string): Promise<Attachment | null> {
     return reader(this.database).getAttachmentByKey(targetId, key);
   }
-  listAttachments(targetId: string): Promise<Attachment[]> {
-    return reader(this.database).listAttachments(targetId);
+  listIncomingAttachments(targetId: string): Promise<Attachment[]> {
+    return reader(this.database).listIncomingAttachments(targetId);
+  }
+  listOutgoingAttachments(originId: string): Promise<Attachment[]> {
+    return reader(this.database).listOutgoingAttachments(originId);
   }
 
   getWorkspace(id: string): Promise<Workspace | null> {
@@ -134,8 +138,11 @@ class SqliteCatalogTransaction implements CatalogTransaction {
   getAttachmentByKey(targetId: string, key: string): Promise<Attachment | null> {
     return reader(this.connection).getAttachmentByKey(targetId, key);
   }
-  listAttachments(targetId: string): Promise<Attachment[]> {
-    return reader(this.connection).listAttachments(targetId);
+  listIncomingAttachments(targetId: string): Promise<Attachment[]> {
+    return reader(this.connection).listIncomingAttachments(targetId);
+  }
+  listOutgoingAttachments(originId: string): Promise<Attachment[]> {
+    return reader(this.connection).listOutgoingAttachments(originId);
   }
 
   async insertAttachment(attachment: Attachment): Promise<void> {
@@ -155,8 +162,9 @@ class SqliteCatalogTransaction implements CatalogTransaction {
   }
 
   async revokeAttachment(id: string, actorId: string, stamp: string): Promise<void> {
-    if (!(await this.getAttachment(id))) throw resourceNotFound("Attachment", id);
-    if (!(await this.getActor(actorId))) throw resourceNotFound("Actor", actorId);
+    const attachment = await this.getAttachment(id);
+    if (!attachment) throw resourceNotFound("Attachment", id);
+    await assertAttachmentRevocation(this, attachment, actorId);
     await this.connection.run(
       "UPDATE attachments SET revoked_at = ?, revoked_by = ? WHERE id = ? AND revoked_at IS NULL",
       [stamp, actorId, id],
@@ -287,11 +295,20 @@ class SqliteCatalogReader {
     );
     return row ? attachmentFromRow(row) : null;
   }
-  async listAttachments(targetId: string): Promise<Attachment[]> {
+  async listIncomingAttachments(targetId: string): Promise<Attachment[]> {
     return (
       await this.connection.all<AttachmentRow>(
         "SELECT * FROM attachments WHERE target_id = ? ORDER BY created_at, id",
         [targetId],
+      )
+    ).map(attachmentFromRow);
+  }
+
+  async listOutgoingAttachments(originId: string): Promise<Attachment[]> {
+    return (
+      await this.connection.all<AttachmentRow>(
+        "SELECT * FROM attachments WHERE origin_id = ? ORDER BY created_at, id",
+        [originId],
       )
     ).map(attachmentFromRow);
   }

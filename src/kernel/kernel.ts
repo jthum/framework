@@ -86,8 +86,11 @@ export class Kernel {
     return this.attachments.create(context, input);
   }
 
-  listAttachments(context: ExecutionContext) {
-    return this.attachments.list(context);
+  listIncomingAttachments(context: ExecutionContext) {
+    return this.attachments.listIncoming(context);
+  }
+  listOutgoingAttachments(context: ExecutionContext) {
+    return this.attachments.listOutgoing(context);
   }
   revokeAttachment(context: ExecutionContext, id: string) {
     return this.attachments.revoke(context, id);

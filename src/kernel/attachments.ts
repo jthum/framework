@@ -66,14 +66,24 @@ export class AttachmentService {
     return attachment;
   }
 
-  async list(context: ExecutionContext): Promise<Attachment[]> {
+  async listIncoming(context: ExecutionContext): Promise<Attachment[]> {
     await this.assertContext(context);
     await this.authorize({
       context,
-      operation: "attachments.list",
+      operation: "attachments.listIncoming",
       resource: { kind: "workspace", id: context.workspaceId, workspaceId: context.workspaceId },
     });
-    return this.catalog.listAttachments(context.workspaceId);
+    return this.catalog.listIncomingAttachments(context.workspaceId);
+  }
+
+  async listOutgoing(context: ExecutionContext): Promise<Attachment[]> {
+    await this.assertContext(context);
+    await this.authorize({
+      context,
+      operation: "attachments.listOutgoing",
+      resource: { kind: "workspace", id: context.workspaceId, workspaceId: context.workspaceId },
+    });
+    return this.catalog.listOutgoingAttachments(context.workspaceId);
   }
 
   async revoke(context: ExecutionContext, id: string): Promise<void> {
