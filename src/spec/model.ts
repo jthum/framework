@@ -12,8 +12,139 @@ export interface DefinitionIdentity {
   readonly meta?: SpecMeta;
 }
 
-/** Detailed collection and field semantics land in the Collections phase. */
-export interface CollectionDefinition extends DefinitionIdentity {}
+export type FieldKind =
+  | "text"
+  | "number"
+  | "boolean"
+  | "date"
+  | "datetime"
+  | "choice"
+  | "reference"
+  | "json";
+
+export interface FieldDefinitionBase extends DefinitionIdentity {
+  readonly type: FieldKind;
+  readonly required?: boolean;
+  readonly default?: JsonValue;
+  readonly behavior?: FieldBehavior;
+}
+
+export interface TextFieldDefinition extends FieldDefinitionBase {
+  readonly type: "text";
+  readonly format?: "plain" | "email" | "url" | "phone";
+  readonly validation?: {
+    readonly minLength?: number;
+    readonly maxLength?: number;
+    readonly pattern?: string;
+    readonly message?: string;
+  };
+}
+
+export interface NumberFieldDefinition extends FieldDefinitionBase {
+  readonly type: "number";
+  readonly format?: "number" | "currency" | "percentage";
+  readonly currency?: string;
+  readonly validation?: {
+    readonly min?: number;
+    readonly max?: number;
+    readonly integer?: boolean;
+    readonly message?: string;
+  };
+}
+
+export interface BooleanFieldDefinition extends FieldDefinitionBase {
+  readonly type: "boolean";
+}
+
+export interface DateFieldDefinition extends FieldDefinitionBase {
+  readonly type: "date";
+  readonly validation?: {
+    readonly min?: string;
+    readonly max?: string;
+    readonly message?: string;
+  };
+}
+
+export interface DateTimeFieldDefinition extends FieldDefinitionBase {
+  readonly type: "datetime";
+  readonly validation?: {
+    readonly min?: string;
+    readonly max?: string;
+    readonly message?: string;
+  };
+}
+
+export interface ChoiceOptionDefinition extends DefinitionIdentity {}
+
+export interface ChoiceFieldDefinition extends FieldDefinitionBase {
+  readonly type: "choice";
+  readonly options: readonly ChoiceOptionDefinition[];
+  readonly multiple?: boolean;
+}
+
+export interface ReferenceFieldDefinition extends FieldDefinitionBase {
+  readonly type: "reference";
+  readonly collectionId: string;
+  readonly multiple?: boolean;
+}
+
+export interface JsonFieldDefinition extends FieldDefinitionBase {
+  readonly type: "json";
+}
+
+export type FieldDefinition =
+  | TextFieldDefinition
+  | NumberFieldDefinition
+  | BooleanFieldDefinition
+  | DateFieldDefinition
+  | DateTimeFieldDefinition
+  | ChoiceFieldDefinition
+  | ReferenceFieldDefinition
+  | JsonFieldDefinition;
+
+export type FieldCondition =
+  | { readonly all: readonly FieldCondition[] }
+  | { readonly any: readonly FieldCondition[] }
+  | { readonly not: FieldCondition }
+  | {
+      readonly fieldId: string;
+      readonly operator:
+        | "eq"
+        | "neq"
+        | "contains"
+        | "empty"
+        | "notEmpty"
+        | "gt"
+        | "gte"
+        | "lt"
+        | "lte";
+      readonly value?: JsonValue;
+    };
+
+export interface FieldBehavior {
+  readonly visibleWhen?: FieldCondition;
+  readonly enabledWhen?: FieldCondition;
+  readonly requiredWhen?: FieldCondition;
+  readonly hiddenValue?: "preserve" | "clear";
+}
+
+export interface CollectionTransitionDefinition extends DefinitionIdentity {
+  readonly from: readonly string[];
+  readonly to: string;
+}
+
+export interface CollectionLifecycleDefinition {
+  readonly fieldId: string;
+  readonly initial: string;
+  readonly terminal?: readonly string[];
+  readonly transitions: readonly CollectionTransitionDefinition[];
+}
+
+export interface CollectionDefinition extends DefinitionIdentity {
+  readonly fields: readonly FieldDefinition[];
+  readonly titleFieldId?: string;
+  readonly lifecycle?: CollectionLifecycleDefinition;
+}
 
 /** A semantic Source binding is portable; its concrete resolution is instance data. */
 export interface SourceBindingDefinition extends DefinitionIdentity {}

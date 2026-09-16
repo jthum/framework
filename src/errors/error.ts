@@ -6,6 +6,8 @@ export const ERROR_CODES = {
   persistenceUnsupported: "PERSISTENCE.UNSUPPORTED",
   resourceConflict: "RESOURCE.CONFLICT",
   resourceNotFound: "RESOURCE.NOT_FOUND",
+  specInvalid: "SPEC.INVALID",
+  validationInvalidInput: "VALIDATION.INVALID_INPUT",
 } as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES] | (string & {});
