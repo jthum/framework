@@ -6,9 +6,60 @@ export function openNodeSqlite(path = ":memory:"): SqliteDatabase {
   return new NodeSqliteDatabase(new DatabaseSync(path));
 }
 
-class NodeSqliteDatabase implements SqliteDatabase, SqliteConnection {
+class NodeSqliteDatabase implements SqliteDatabase {
   private queue: Promise<unknown> = Promise.resolve();
+  private readonly connection: NodeSqliteConnection;
 
+  constructor(database: DatabaseSync) {
+    this.connection = new NodeSqliteConnection(database);
+  }
+
+  execute(sql: string): Promise<void> {
+    return this.schedule(() => this.connection.execute(sql));
+  }
+
+  run(sql: string, parameters: SqliteParameters = []): Promise<void> {
+    return this.schedule(() => this.connection.run(sql, parameters));
+  }
+
+  get<T extends object>(sql: string, parameters: SqliteParameters = []): Promise<T | null> {
+    return this.schedule(() => this.connection.get<T>(sql, parameters));
+  }
+
+  all<T extends object>(sql: string, parameters: SqliteParameters = []): Promise<T[]> {
+    return this.schedule(() => this.connection.all<T>(sql, parameters));
+  }
+
+  transaction<T>(work: (connection: SqliteConnection) => Promise<T>): Promise<T> {
+    return this.schedule(async () => {
+      await this.connection.execute("BEGIN IMMEDIATE");
+      try {
+        const result = await work(this.connection);
+        await this.connection.execute("COMMIT");
+        return result;
+      } catch (error) {
+        await this.connection.execute("ROLLBACK");
+        throw error;
+      }
+    });
+  }
+
+  async close(): Promise<void> {
+    await this.queue;
+    this.connection.close();
+  }
+
+  private schedule<T>(work: () => Promise<T>): Promise<T> {
+    const run = this.queue.then(work);
+    this.queue = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+}
+
+class NodeSqliteConnection implements SqliteConnection {
   constructor(private readonly database: DatabaseSync) {}
 
   async execute(sql: string): Promise<void> {
@@ -29,27 +80,7 @@ class NodeSqliteDatabase implements SqliteDatabase, SqliteConnection {
     return this.database.prepare(sql).all(...toNodeParameters(parameters)) as T[];
   }
 
-  transaction<T>(work: (connection: SqliteConnection) => Promise<T>): Promise<T> {
-    const run = this.queue.then(async () => {
-      this.database.exec("BEGIN IMMEDIATE");
-      try {
-        const result = await work(this);
-        this.database.exec("COMMIT");
-        return result;
-      } catch (error) {
-        this.database.exec("ROLLBACK");
-        throw error;
-      }
-    });
-    this.queue = run.then(
-      () => undefined,
-      () => undefined,
-    );
-    return run;
-  }
-
-  async close(): Promise<void> {
-    await this.queue;
+  close(): void {
     this.database.close();
   }
 }

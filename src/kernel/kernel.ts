@@ -14,6 +14,7 @@ import {
   type Clock,
   type IdGenerator,
 } from "./defaults.ts";
+import { LOCAL_BROWSER_ENVIRONMENT, type EnvironmentProfile } from "./environment.ts";
 import type {
   Account,
   Actor,
@@ -28,6 +29,7 @@ export interface KernelOptions {
   readonly authorizer?: Authorizer;
   readonly ids?: IdGenerator;
   readonly clock?: Clock;
+  readonly environment?: EnvironmentProfile;
 }
 
 export interface CreateAccountInput {
@@ -62,6 +64,7 @@ export class Kernel {
     private readonly authorizer: Authorizer,
     private readonly ids: IdGenerator,
     private readonly clock: Clock,
+    readonly environment: EnvironmentProfile,
   ) {}
 
   static async open(options: KernelOptions): Promise<Kernel> {
@@ -70,6 +73,7 @@ export class Kernel {
       options.authorizer ?? new AllowAllAuthorizer(),
       options.ids ?? new NanoIdGenerator(),
       options.clock ?? new SystemClock(),
+      options.environment ?? LOCAL_BROWSER_ENVIRONMENT,
     );
   }
 
@@ -256,6 +260,11 @@ export class Kernel {
 
   listMembershipsForWorkspace(workspaceId: string): Promise<Membership[]> {
     return this.catalog.listMembershipsForWorkspace(workspaceId);
+  }
+
+  async resolveContext(context: ExecutionContext): Promise<ExecutionContext> {
+    await this.assertContext(context);
+    return Object.freeze({ ...context });
   }
 
   close(): Promise<void> {

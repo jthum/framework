@@ -6,7 +6,7 @@
 
 This is the architecture of the shared information-system framework. Builder.run is its first **host**. Teamloop and a future Workspaces app are other hosts; Teamloop also supplies a domain **module**. The portable Spec is the hero. The TypeScript Kernel is the reference consumer, not the definition of the product.
 
-The current Builder frontend is an asset. Preserve its editors, Pages, navigation, design system, tables, modals, and Block implementations while replacing its core incrementally.
+The current Builder frontend is an asset. Preserve its editors, Pages, navigation, design system, tables, modals, and Block implementations while replacing its core incrementally from the separate Builder host repository.
 
 ---
 
@@ -260,7 +260,7 @@ A Spec never names an Account or a concrete Attachment. Exporting a Spec clones 
 
 ## 8. Framework packaging and extraction
 
-Establish framework boundaries inside this repository before creating a separate repository or independently versioned packages.
+The framework lives in its own repository and exposes one package with subpath boundaries. Builder.run remains a separate host and integrates the package only after the public API survives a framework vertical slice.
 
 Initial shape may be one package with subpath exports:
 
@@ -276,20 +276,20 @@ Initial shape may be one package with subpath exports:
 Suggested internal organization:
 
 ```text
-packages/framework/
+src/
   spec/
   kernel/
   persistence/
-  persistence-sqlite/
+  sqlite/
   svelte/
   blocks/
 
-apps/builder/ (or the current app while extraction proceeds)
+Builder.run remains in its own host repository.
 ```
 
 The Kernel must not import Svelte, Builder navigation, browser session globals, or SQLite-specific implementations. Framework Svelte editors depend on public Kernel/client contracts, not concrete adapters.
 
-When a second consumer is real and the public API has survived a Builder vertical slice, the package may move with history to `github.com/jthum/framework` and be consumed as `@jthum/framework`. A new repository is not a Phase 0 gate.
+The repository is intended for `github.com/jthum/framework` and the package name is `@jthum/framework`. During greenfield development Builder may consume it from a local path or pinned Git revision; publication and independent package splitting can wait for a real second consumer.
 
 Temporary side-by-side code during extraction is risk isolation, not backwards compatibility. Do not add dual persisted formats, legacy readers, aliases, or migration baggage. Delete the old `Host` path after vertical parity.
 

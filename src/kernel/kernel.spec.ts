@@ -3,6 +3,7 @@ import { ERROR_CODES } from "../errors/error.ts";
 import { MemoryPersistenceAdapter } from "../persistence/memory.ts";
 import type { AuthorizationRequest, Authorizer } from "./authorization.ts";
 import type { Clock, IdGenerator, IdKind } from "./defaults.ts";
+import { defineEnvironmentProfile, LOCAL_BROWSER_ENVIRONMENT } from "./environment.ts";
 import { Kernel } from "./kernel.ts";
 
 describe("Kernel catalog skeleton", () => {
@@ -164,6 +165,76 @@ describe("Kernel catalog skeleton", () => {
         },
         { name: "Invalid" },
       ),
+    ).rejects.toMatchObject({ code: ERROR_CODES.permissionDenied });
+  });
+
+  it("resolves only persisted Account, Workspace, and Actor contexts", async () => {
+    expect.hasAssertions();
+    const environment = defineEnvironmentProfile({
+      ...LOCAL_BROWSER_ENVIRONMENT,
+      multiplayer: true,
+    });
+    const kernel = await Kernel.open({
+      persistence: new MemoryPersistenceAdapter(),
+      ids: sequenceIds(),
+      clock: fixedClock,
+      environment,
+    });
+    const { account, sharedWorkspace, user } = await kernel.createAccount({
+      name: "Acme",
+      user: { name: "Jane" },
+    });
+    const context = {
+      accountId: account.id,
+      workspaceId: sharedWorkspace.id,
+      actorId: user.id,
+    };
+
+    expect(await kernel.resolveContext(context)).toEqual(context);
+    expect(kernel.environment).toEqual(environment);
+  });
+
+  it("models a delegated Workspace without making local Actors members of the origin", async () => {
+    expect.hasAssertions();
+    const kernel = await Kernel.open({
+      persistence: new MemoryPersistenceAdapter(),
+      ids: sequenceIds(),
+      clock: fixedClock,
+    });
+    const {
+      account,
+      sharedWorkspace,
+      user: jane,
+    } = await kernel.createAccount({
+      name: "Acme",
+      user: { name: "Jane" },
+    });
+    const sharedContext = {
+      accountId: account.id,
+      workspaceId: sharedWorkspace.id,
+      actorId: jane.id,
+    };
+    const { workspace: hr } = await kernel.createWorkspace(sharedContext, { name: "HR" });
+    const hrContext = { ...sharedContext, workspaceId: hr.id };
+    const { workspace: recruiting } = await kernel.createWorkspace(hrContext, {
+      name: "Summer Recruiting",
+    });
+    const candidate = await kernel.createActor(hrContext, { kind: "user", name: "Candidate" });
+    await kernel.addMembership(hrContext, {
+      actorId: candidate.id,
+      workspaceId: recruiting.id,
+      roles: ["candidate"],
+    });
+
+    expect(await kernel.listMembershipsForActor(candidate.id)).toEqual([
+      expect.objectContaining({ workspaceId: recruiting.id, roles: ["candidate"] }),
+    ]);
+    await expect(
+      kernel.resolveContext({
+        accountId: account.id,
+        workspaceId: hr.id,
+        actorId: candidate.id,
+      }),
     ).rejects.toMatchObject({ code: ERROR_CODES.permissionDenied });
   });
 });

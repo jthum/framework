@@ -4,7 +4,7 @@
 **Status:** Canonical greenfield phase plan.  
 **Architecture:** [architecture.md](./architecture.md)
 
-Build the shared framework Kernel and rebase the Builder.run host onto it in this repository. Do not rewrite or discard the current frontend. Extract its proven editors, Page system, navigation, design language, and Block implementations behind new framework contracts.
+Build the shared framework Kernel in this repository, then rebase the separate Builder.run host onto it. Do not rewrite or discard the current frontend. Extract its proven editors, Page system, navigation, design language, and Block implementations behind new framework contracts.
 
 Do not implement Teamloop or Workspaces-app production UI in this plan. Encode their demanding cases as Kernel conformance scenarios so the framework does not become Builder-specific.
 
@@ -87,7 +87,7 @@ Builder UI tracks S1. S2 and S3 remain conformance fixtures until their products
 - graph Rule editor or ModuleDefinition SPI;
 - Strands or another Agent SDK as a Kernel foundation;
 - auth-provider implementation;
-- a separate framework repository as a Phase 0 requirement;
+- independently versioned internal packages before a second consumer needs them;
 - backwards compatibility with the current app.
 
 ---
@@ -100,7 +100,7 @@ Builder UI tracks S1. S2 and S3 remain conformance fixtures until their products
 
 **In:** one framework package/folder in this repo with subpath-ready boundaries for Spec, Kernel, persistence contracts, SQLite, Svelte, and Blocks; `Kernel`; `Account`; always-created shared Workspace; operational Workspace; Actor (`user | agent | system`) **owned by Account**; persisted Membership; empty Spec v2 (`collections`, `views`, `forms`, `pages`, `rules`); `PersistenceAdapter`; browser-local `EnvironmentProfile`; execution context `{ accountId, workspaceId, actorId }`; authorization choke point `authorize(actor, action, resource)` with a coarse `ResourceRef` (`account` | `workspace` | `collection` | `record`) and a permissive local implementation. Remove Store from the new Spec. Use Block terminology in new APIs. Persist Memberships even for the single-user bootstrap (do not infer access from `created_by`).
 
-**Out:** complete ACL semantics, Attachments, Rules running, AgentRuntime, UI rewrite, separate Git repository.
+**Out:** complete ACL semantics, Attachments, Rules running, AgentRuntime, and UI rewrite.
 
 **Tests:** create Account and automatic shared Workspace; create operational Workspace and Actors on the Account; persist Memberships; switch Account and Workspace; `authorize` is invoked with Actor, action, and ResourceRef; S1/S2/S3 fixture identities (S3 HR is an operational Workspace).
 
@@ -206,7 +206,7 @@ Builder UI tracks S1. S2 and S3 remain conformance fixtures until their products
 - complete Builder invitation UX;
 - production Teamloop and Workspaces hosts;
 - Template registry semantics;
-- extraction to `github.com/jthum/framework` and independent package publication when a second consumer is real.
+- independent package splitting and registry publication before a second consumer is real.
 
 ---
 
