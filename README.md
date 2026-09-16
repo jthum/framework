@@ -12,9 +12,10 @@ gateway. Node.js is one optional SQLite driver; browser hosts can provide anothe
 
 ## Status
 
-Greenfield and pre-release. Phases 0–2 are implemented: the Kernel can apply portable
+Greenfield and pre-release. Phases 0–3 are implemented: the Kernel can apply portable
 Collection Specs and perform validated record CRUD through interchangeable memory and SQLite
-adapters, and bind live filtered Attachments between Workspaces with revocation. There is no
+adapters, bind live filtered Attachments between Workspaces with revocation, query local or
+attached Sources through Views, and resolve lazily loaded Block renderers. There is no
 backwards-compatibility contract with the current Builder.run runtime.
 
 Workspace is the sole Kernel place. Root and parent columns group Workspaces without
@@ -32,3 +33,5 @@ vp pack
 ```
 
 Start with the [framework documentation](docs/README.md).
+
+See [Sources, Views, and Blocks](docs/sources-views-blocks.md) for the data-to-presentation boundary.

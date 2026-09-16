@@ -102,22 +102,24 @@ export type FieldDefinition =
   | ReferenceFieldDefinition
   | JsonFieldDefinition;
 
+export type FieldOperator =
+  | "eq"
+  | "neq"
+  | "contains"
+  | "empty"
+  | "notEmpty"
+  | "gt"
+  | "gte"
+  | "lt"
+  | "lte";
+
 export type FieldCondition =
   | { readonly all: readonly FieldCondition[] }
   | { readonly any: readonly FieldCondition[] }
   | { readonly not: FieldCondition }
   | {
       readonly fieldId: string;
-      readonly operator:
-        | "eq"
-        | "neq"
-        | "contains"
-        | "empty"
-        | "notEmpty"
-        | "gt"
-        | "gte"
-        | "lt"
-        | "lte";
+      readonly operator: FieldOperator;
       readonly value?: JsonValue;
     };
 
@@ -149,7 +151,48 @@ export interface CollectionDefinition extends DefinitionIdentity {
 /** A semantic Source binding is portable; its concrete resolution is instance data. */
 export interface SourceBindingDefinition extends DefinitionIdentity {}
 
-export interface ViewDefinition extends DefinitionIdentity {}
+export type SourceFilter =
+  | { readonly all: readonly SourceFilter[] }
+  | { readonly any: readonly SourceFilter[] }
+  | { readonly not: SourceFilter }
+  | {
+      /** Stable Field IDs from the root through declared reference Fields. */
+      readonly path: readonly string[];
+      readonly operator: FieldOperator;
+      readonly value?: JsonValue;
+    };
+
+export interface SourceSort {
+  readonly path: readonly string[];
+  readonly direction: "asc" | "desc";
+}
+
+export interface SourceSelection {
+  readonly path: readonly string[];
+  /** Required output key; keeps the result stable when Field keys change. */
+  readonly as: string;
+  readonly label?: string;
+}
+
+export interface SourceQueryDefinition {
+  readonly filter?: SourceFilter;
+  readonly sort?: readonly SourceSort[];
+  readonly select?: readonly SourceSelection[];
+  readonly offset?: number;
+  readonly limit?: number;
+}
+
+export interface ViewPresentationDefinition {
+  readonly block: string;
+  readonly config?: SpecMeta;
+}
+
+export interface ViewDefinition extends DefinitionIdentity {
+  /** Collection key or semantic Source-binding key in this Workspace. */
+  readonly source: string;
+  readonly query?: SourceQueryDefinition;
+  readonly presentation?: ViewPresentationDefinition;
+}
 export interface FormDefinition extends DefinitionIdentity {}
 export interface PageDefinition extends DefinitionIdentity {}
 export interface RuleDefinition extends DefinitionIdentity {}

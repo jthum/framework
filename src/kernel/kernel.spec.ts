@@ -79,6 +79,7 @@ describe("Kernel catalog skeleton", () => {
               },
               create: session.records.create.bind(session.records),
               get: session.records.get.bind(session.records),
+              getMany: session.records.getMany.bind(session.records),
               list: session.records.list.bind(session.records),
               update: session.records.update.bind(session.records),
               delete: session.records.delete.bind(session.records),

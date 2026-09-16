@@ -17,6 +17,16 @@ export function recordStoreContract(name: string, createAdapter: () => Persisten
       (record.values as { title: string }).title = "Changed outside the adapter";
       const firstRead = await persistence.records.get("workspace-1", collection, record.id);
       expect(firstRead?.values.title).toBe("Write tests");
+      expect(
+        await persistence.records.getMany("workspace-1", collection, [
+          record.id,
+          "missing",
+          record.id,
+        ]),
+      ).toEqual([
+        expect.objectContaining({ id: record.id, values: { title: "Write tests", priority: 1 } }),
+        expect.objectContaining({ id: record.id, values: { title: "Write tests", priority: 1 } }),
+      ]);
 
       if (!firstRead) throw new Error("Contract fixture Record was not persisted.");
       (firstRead.values as { title: string }).title = "Changed after reading";

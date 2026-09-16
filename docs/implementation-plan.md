@@ -150,6 +150,8 @@ Attachment write and derived re-share APIs are not exposed yet. Their rights are
 
 **Tests:** Table/Kanban Blocks over attached Collections; declared local relationship traversal; no unrelated join; a Source without suggestions remains usable; Block renderer imports neither SQLite nor Builder session/navigation.
 
+**Delivered:** Sources advertise schema and granular capabilities. The built-in provider exposes local Collections and live Attachment bindings through one query contract with filters, stable sorting, pagination, projection, and runtime validation. Local relationship paths use stable Field IDs, require declared reference Fields, authorize each target Collection, and resolve each edge with batched `getMany` reads; attached Sources intentionally do not leak origin relationships. Views persist one semantic root Source with optional query and default Block presentation. The Kernel lists, resolves, and queries Views without persistence coupling. The Block package provides eager definitions, lazy retryable renderer loading, and module caching; Table and Kanban are catalog definitions, while renderers remain host concerns. See [Sources, Views, and Blocks](./sources-views-blocks.md).
+
 ### Phase 4 — Forms, Pages, and Builder vertical slice
 
 **Goal:** Builder S1 is usable on the framework while preserving its current frontend quality.

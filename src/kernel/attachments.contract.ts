@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import { ERROR_CODES } from "../errors/error.ts";
 import type { PersistenceAdapter } from "../persistence/catalog.ts";
+import type { CollectionRecord } from "../persistence/records.ts";
 import type { CollectionDefinition } from "../spec/model.ts";
 import type { AuthorizationRequest, Authorizer } from "./authorization.ts";
 import { Kernel } from "./kernel.ts";
@@ -32,7 +33,7 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
       });
       await kernel.createRecord(origin, collection.key, { title: "Engineer", status: "open" });
       revokeDuringRead = () => kernel.revokeAttachment(origin, attachment.id);
-      await expect(kernel.listAttachedRecords(target, "shared_jobs")).rejects.toMatchObject({
+      await expect(sourceRows(kernel, target, "shared_jobs")).rejects.toMatchObject({
         code: ERROR_CODES.resourceNotFound,
       });
       await kernel.close();
@@ -60,15 +61,17 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
         allowReshare: false,
         createdBy: origin.actorId,
       });
-      expect(await kernel.listAttachedRecords(target, "shared_jobs")).toEqual([record]);
-      expect(await kernel.getAttachedRecord(secondTarget, "shared_jobs", record.id)).toEqual(
-        record,
+      expect(await sourceRows(kernel, target, "shared_jobs")).toEqual([sourceRow(record)]);
+      expect(await kernel.getSourceRecord(secondTarget, "shared_jobs", record.id)).toEqual(
+        sourceRow(record),
       );
-      expect(await kernel.getAttachedSchema(target, "shared_jobs")).toEqual(collection);
+      expect(await sourceSchema(kernel, target, "shared_jobs")).toEqual(collection);
       const changed = await kernel.updateRecord(origin, collection.key, record.id, {
         title: "Senior Engineer",
       });
-      expect(await kernel.getAttachedRecord(target, "shared_jobs", record.id)).toEqual(changed);
+      expect(await kernel.getSourceRecord(target, "shared_jobs", record.id)).toEqual(
+        sourceRow(changed),
+      );
       expect(await kernel.listRecords(origin, collection.key)).toHaveLength(1);
       const targetWorkspace = await kernel.getWorkspace(target);
       expect(targetWorkspace?.spec.collections).toEqual([]);
@@ -78,7 +81,7 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
       expect(JSON.stringify(targetWorkspace?.spec)).not.toContain(attachment.id);
       expect(JSON.stringify(targetWorkspace?.spec)).not.toContain(origin.workspaceId);
       await kernel.deleteRecord(origin, collection.key, record.id);
-      expect(await kernel.listAttachedRecords(target, "shared_jobs")).toEqual([]);
+      expect(await sourceRows(kernel, target, "shared_jobs")).toEqual([]);
       await kernel.close();
     });
 
@@ -104,9 +107,9 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
         title: "Designer",
         status: "closed",
       });
-      expect(await kernel.listAttachedRecords(candidate, "shared_jobs")).toEqual([open]);
-      expect(await kernel.getAttachedRecord(candidate, "shared_jobs", closed.id)).toBeNull();
-      expect(await kernel.getAttachedRecord(candidate, "shared_jobs", "missing")).toBeNull();
+      expect(await sourceRows(kernel, candidate, "shared_jobs")).toEqual([sourceRow(open)]);
+      expect(await kernel.getSourceRecord(candidate, "shared_jobs", closed.id)).toBeNull();
+      expect(await kernel.getSourceRecord(candidate, "shared_jobs", "missing")).toBeNull();
       await expect(
         kernel.listRecords({ ...candidate, workspaceId: origin.workspaceId }, collection.key),
       ).rejects.toMatchObject({ code: ERROR_CODES.permissionDenied });
@@ -118,7 +121,7 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
         }),
       ).rejects.toMatchObject({ code: ERROR_CODES.resourceNotFound });
       await kernel.updateRecord(origin, collection.key, open.id, { status: "closed" });
-      expect(await kernel.listAttachedRecords(candidate, "shared_jobs")).toEqual([]);
+      expect(await sourceRows(kernel, candidate, "shared_jobs")).toEqual([]);
       await kernel.close();
     });
 
@@ -148,15 +151,15 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
       expect(await kernel.listOutgoingAttachments(origin)).toEqual([
         expect.objectContaining({ id: attachment.id, revokedBy: origin.actorId }),
       ]);
-      await expect(kernel.getAttachedSchema(target, "shared_jobs")).rejects.toMatchObject({
+      await expect(sourceSchema(kernel, target, "shared_jobs")).rejects.toMatchObject({
         code: ERROR_CODES.resourceNotFound,
       });
-      await expect(kernel.listAttachedRecords(target, "shared_jobs")).rejects.toMatchObject({
+      await expect(sourceRows(kernel, target, "shared_jobs")).rejects.toMatchObject({
         code: ERROR_CODES.resourceNotFound,
       });
       const replacement = await kernel.createAttachment(origin, input);
       expect(replacement.id).not.toBe(attachment.id);
-      expect(await kernel.getAttachedSchema(target, "shared_jobs")).toEqual(collection);
+      expect(await sourceSchema(kernel, target, "shared_jobs")).toEqual(collection);
       await kernel.close();
     });
 
@@ -188,7 +191,7 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
         key: "shared_jobs",
         rights: ["update"],
       });
-      await expect(kernel.listAttachedRecords(target, "shared_jobs")).rejects.toMatchObject({
+      await expect(sourceRows(kernel, target, "shared_jobs")).rejects.toMatchObject({
         code: ERROR_CODES.permissionDenied,
       });
       await kernel.revokeAttachment(origin, writeOnly.id);
@@ -198,7 +201,7 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
         key: "shared_jobs",
       });
       deniedOperation = "records.list";
-      await expect(kernel.listAttachedRecords(target, "shared_jobs")).rejects.toMatchObject({
+      await expect(sourceRows(kernel, target, "shared_jobs")).rejects.toMatchObject({
         code: ERROR_CODES.permissionDenied,
       });
       expect(requests.at(-1)).toMatchObject({
@@ -215,7 +218,7 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
         code: ERROR_CODES.permissionDenied,
       });
       deniedOperation = "attachments.read";
-      await expect(kernel.getAttachedSchema(target, "shared_jobs")).rejects.toMatchObject({
+      await expect(sourceSchema(kernel, target, "shared_jobs")).rejects.toMatchObject({
         code: ERROR_CODES.permissionDenied,
       });
       await kernel.close();
@@ -243,8 +246,8 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
         ),
       };
       await kernel.applySpec(origin, { ...workspace.spec, collections: [renamed] });
-      expect(await kernel.getAttachedSchema(target, "shared_jobs")).toEqual(renamed);
-      expect((await kernel.getAttachedRecord(target, "shared_jobs", record.id))?.values).toEqual({
+      expect(await sourceSchema(kernel, target, "shared_jobs")).toEqual(renamed);
+      expect((await kernel.getSourceRecord(target, "shared_jobs", record.id))?.values).toEqual({
         title: "Engineer",
         state: "open",
       });
@@ -254,11 +257,11 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
           { ...renamed, fields: renamed.fields.filter((field) => field.id !== "status") },
         ],
       });
-      await expect(kernel.listAttachedRecords(target, "shared_jobs")).rejects.toMatchObject({
+      await expect(sourceRows(kernel, target, "shared_jobs")).rejects.toMatchObject({
         code: ERROR_CODES.validationInvalidInput,
       });
       await kernel.applySpec(origin, { ...workspace.spec, collections: [] });
-      await expect(kernel.getAttachedSchema(target, "shared_jobs")).rejects.toMatchObject({
+      await expect(sourceSchema(kernel, target, "shared_jobs")).rejects.toMatchObject({
         code: ERROR_CODES.resourceNotFound,
       });
       await kernel.close();
@@ -294,12 +297,32 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
       });
       const workspace = (await kernel.getWorkspace(target))!;
       await kernel.applySpec(target, { ...workspace.spec, sources: [] });
-      await expect(kernel.listAttachedRecords(target, "shared_jobs")).rejects.toMatchObject({
+      await expect(sourceRows(kernel, target, "shared_jobs")).rejects.toMatchObject({
         code: ERROR_CODES.resourceNotFound,
       });
       await kernel.close();
     });
   });
+}
+
+async function sourceRows(
+  kernel: Kernel,
+  context: Parameters<Kernel["querySource"]>[0],
+  key: string,
+) {
+  return (await kernel.querySource(context, key)).rows;
+}
+
+async function sourceSchema(
+  kernel: Kernel,
+  context: Parameters<Kernel["getSource"]>[0],
+  key: string,
+) {
+  return (await kernel.getSource(context, key))?.schema;
+}
+
+function sourceRow(record: CollectionRecord) {
+  return { id: record.id, values: record.values };
 }
 
 async function setup(

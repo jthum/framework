@@ -110,6 +110,26 @@ export class SqliteRecordStore implements RecordStore {
     return row ? decodeRecord(row, collection) : null;
   }
 
+  async getMany(
+    workspaceId: string,
+    collection: CollectionDefinition,
+    recordIds: readonly string[],
+  ): Promise<CollectionRecord[]> {
+    if (recordIds.length === 0) return [];
+    const table = await this.requireTable(workspaceId, collection.id);
+    const rows = await this.database.all<DataRow>(
+      `SELECT * FROM ${quoteIdentifier(table)} WHERE ${quoteIdentifier("_id")} IN (${recordIds.map(() => "?").join(", ")})`,
+      recordIds,
+    );
+    const byId = new Map(
+      rows.map((row) => [requireString(row._id), decodeRecord(row, collection)]),
+    );
+    return recordIds.flatMap((id) => {
+      const record = byId.get(id);
+      return record === undefined ? [] : [record];
+    });
+  }
+
   async list(workspaceId: string, collection: CollectionDefinition): Promise<CollectionRecord[]> {
     const table = await this.requireTable(workspaceId, collection.id);
     const rows = await this.database.all<DataRow>(

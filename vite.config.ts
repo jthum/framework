@@ -15,6 +15,7 @@ export default defineConfig({
   pack: {
     entry: [
       "src/index.ts",
+      "src/blocks/index.ts",
       "src/errors/index.ts",
       "src/kernel/index.ts",
       "src/persistence/index.ts",

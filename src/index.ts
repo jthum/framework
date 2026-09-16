@@ -1,3 +1,4 @@
+export * from "./blocks/index.ts";
 export * from "./errors/index.ts";
 export * from "./kernel/index.ts";
 export * from "./persistence/index.ts";

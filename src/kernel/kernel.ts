@@ -10,10 +10,17 @@ import type {
   PersistenceSession,
 } from "../persistence/catalog.ts";
 import type { CollectionRecord, RecordValues } from "../persistence/records.ts";
-import { createEmptySpec, type CollectionDefinition, type Spec } from "../spec/model.ts";
+import {
+  createEmptySpec,
+  type CollectionDefinition,
+  type SourceQueryDefinition,
+  type Spec,
+} from "../spec/model.ts";
 import { assertValidSpec } from "../spec/validate.ts";
 import { AllowAllAuthorizer, type AuthorizationRequest, type Authorizer } from "./authorization.ts";
 import { AttachmentService, type CreateAttachmentInput } from "./attachments.ts";
+import { SourceService } from "./sources.ts";
+import { ViewService } from "./views.ts";
 import {
   NanoIdGenerator,
   semanticKey,
@@ -64,6 +71,8 @@ export interface CreateActorInput {
 
 export class Kernel {
   private readonly attachments: AttachmentService;
+  private readonly sources: SourceService;
+  private readonly views: ViewService;
   private constructor(
     private readonly persistence: PersistenceSession,
     private readonly catalog: CatalogRepository,
@@ -77,6 +86,19 @@ export class Kernel {
       persistence.records,
       ids,
       clock,
+      (context) => this.assertContext(context),
+      (request) => this.assertAuthorized(request),
+    );
+    this.sources = new SourceService(
+      catalog,
+      persistence.records,
+      this.attachments,
+      (context) => this.assertContext(context),
+      (request) => this.assertAuthorized(request),
+    );
+    this.views = new ViewService(
+      catalog,
+      this.sources,
       (context) => this.assertContext(context),
       (request) => this.assertAuthorized(request),
     );
@@ -95,14 +117,26 @@ export class Kernel {
   revokeAttachment(context: ExecutionContext, id: string) {
     return this.attachments.revoke(context, id);
   }
-  getAttachedSchema(context: ExecutionContext, key: string) {
-    return this.attachments.schema(context, key);
+  listSources(context: ExecutionContext) {
+    return this.sources.list(context);
   }
-  listAttachedRecords(context: ExecutionContext, key: string) {
-    return this.attachments.listRecords(context, key);
+  getSource(context: ExecutionContext, key: string) {
+    return this.sources.describe(context, key);
   }
-  getAttachedRecord(context: ExecutionContext, key: string, id: string) {
-    return this.attachments.getRecord(context, key, id);
+  querySource(context: ExecutionContext, key: string, query?: SourceQueryDefinition) {
+    return this.sources.query(context, key, query);
+  }
+  getSourceRecord(context: ExecutionContext, key: string, id: string) {
+    return this.sources.get(context, key, id);
+  }
+  listViews(context: ExecutionContext) {
+    return this.views.list(context);
+  }
+  getView(context: ExecutionContext, key: string) {
+    return this.views.get(context, key);
+  }
+  queryView(context: ExecutionContext, key: string) {
+    return this.views.query(context, key);
   }
 
   static async open(options: KernelOptions): Promise<Kernel> {

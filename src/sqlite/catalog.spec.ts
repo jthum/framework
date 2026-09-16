@@ -53,11 +53,13 @@ describe("SQLite catalog adapter", () => {
     await first.close();
     const second = await openKernel(path);
     expect(await second.listIncomingAttachments(target)).toEqual([attachment]);
-    expect(await second.listAttachedRecords(target, "contacts")).toEqual([record]);
+    expect(await sourceRows(second, target, "contacts")).toEqual([
+      { id: record.id, values: record.values },
+    ]);
     await second.revokeAttachment(origin, attachment.id);
     await second.close();
     const third = await openKernel(path);
-    await expect(third.listAttachedRecords(target, "contacts")).rejects.toMatchObject({
+    await expect(sourceRows(third, target, "contacts")).rejects.toMatchObject({
       code: ERROR_CODES.resourceNotFound,
     });
     expect((await third.listIncomingAttachments(target))[0]?.revokedBy).toBe(user.id);
@@ -188,6 +190,14 @@ async function openKernel(path: string): Promise<Kernel> {
     ids: sequenceIds(),
     clock: fixedClock,
   });
+}
+
+async function sourceRows(
+  kernel: Kernel,
+  context: Parameters<Kernel["querySource"]>[0],
+  key: string,
+) {
+  return (await kernel.querySource(context, key)).rows;
 }
 
 async function makeTemporaryDirectory(): Promise<string> {

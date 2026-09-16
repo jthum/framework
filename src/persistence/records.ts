@@ -24,6 +24,11 @@ export interface RecordStore {
     collection: CollectionDefinition,
     recordId: string,
   ): Promise<CollectionRecord | null>;
+  getMany(
+    workspaceId: string,
+    collection: CollectionDefinition,
+    recordIds: readonly string[],
+  ): Promise<CollectionRecord[]>;
   list(workspaceId: string, collection: CollectionDefinition): Promise<CollectionRecord[]>;
   update(
     workspaceId: string,

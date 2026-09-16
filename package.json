@@ -15,6 +15,10 @@
       "types": "./dist/index.d.mts",
       "import": "./dist/index.mjs"
     },
+    "./blocks": {
+      "types": "./dist/blocks/index.d.mts",
+      "import": "./dist/blocks/index.mjs"
+    },
     "./errors": {
       "types": "./dist/errors/index.d.mts",
       "import": "./dist/errors/index.mjs"

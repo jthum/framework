@@ -80,6 +80,41 @@ describe("portable Collection Spec", () => {
       "VALIDATION.MIN",
     ]);
   });
+
+  it("validates Views against one root Source and declared relationship paths", () => {
+    expect.hasAssertions();
+    const spec = projectSpec();
+    const withView: Spec = {
+      ...spec,
+      views: [
+        {
+          id: "view-active-projects",
+          key: "active_projects",
+          label: "Active projects",
+          source: "project",
+          query: {
+            filter: { path: ["field-status"], operator: "eq", value: "active" },
+            select: [{ path: ["field-name"], as: "name" }],
+          },
+          presentation: { block: "table" },
+        },
+      ],
+    };
+    expect(validateSpec(withView)).toEqual([]);
+    expect(
+      validateSpec({
+        ...withView,
+        views: [
+          {
+            ...withView.views[0]!,
+            query: {
+              select: [{ path: ["field-name", "field-status"], as: "joined_without_reference" }],
+            },
+          },
+        ],
+      }),
+    ).toContainEqual(expect.objectContaining({ code: "SPEC.RELATION_INVALID" }));
+  });
 });
 
 function projectSpec(): Spec {

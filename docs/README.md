@@ -5,6 +5,7 @@ These documents define the engineering conventions for the shared framework and 
 - [Architecture](architecture.md)
 - [Implementation plan](implementation-plan.md)
 - [Live Attachments](attachments.md)
+- [Sources, Views, and Blocks](sources-views-blocks.md)
 - [Coding standards](coding-standards.md)
 - [Testing strategy](testing.md)
 - [Errors](errors.md)

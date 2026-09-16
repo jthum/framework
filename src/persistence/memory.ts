@@ -238,6 +238,18 @@ export class MemoryRecordStore implements RecordStore {
     return cloneOptional(this.requireCollection(workspaceId, collection).get(recordId));
   }
 
+  async getMany(
+    workspaceId: string,
+    collection: CollectionDefinition,
+    recordIds: readonly string[],
+  ): Promise<CollectionRecord[]> {
+    const records = this.requireCollection(workspaceId, collection);
+    return recordIds.flatMap((id) => {
+      const record = records.get(id);
+      return record === undefined ? [] : [clone(record)];
+    });
+  }
+
   async list(workspaceId: string, collection: CollectionDefinition): Promise<CollectionRecord[]> {
     return cloneValues(this.requireCollection(workspaceId, collection));
   }

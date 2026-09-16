@@ -6,7 +6,10 @@ import {
   type FieldCondition,
   type FieldDefinition,
   type JsonValue,
+  type SourceFilter,
+  type SourceQueryDefinition,
   type Spec,
+  type ViewDefinition,
 } from "./model.ts";
 
 const semanticKeyPattern = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/;
@@ -24,6 +27,8 @@ export function validateSpec(input: unknown): ValidationIssue[] {
   spec.collections.forEach((collection, index) =>
     validateCollection(collection, `collections.${index}`, collectionIds, issues),
   );
+  validateSourceNamespace(spec, issues);
+  spec.views.forEach((view, index) => validateView(view, index, spec, issues));
   for (const [property, definitions] of otherDefinitions(spec)) {
     unique(definitions, property, issues);
     definitions.forEach((definition, index) =>
@@ -65,6 +70,39 @@ export function assertValidFieldCondition(
     });
 }
 
+/** Validates an executable query against the concrete Source schema available at runtime. */
+export function assertValidSourceQuery(
+  input: unknown,
+  root: CollectionDefinition,
+  collections: readonly CollectionDefinition[] = [root],
+): asserts input is SourceQueryDefinition {
+  const issues: ValidationIssue[] = [];
+  requireSourceQueryShape(input, "query", issues);
+  if (issues.length === 0) {
+    const query = input as SourceQueryDefinition;
+    const aliases = new Set<string>();
+    query.select?.forEach((selection, index) => {
+      const path = `query.select.${index}.as`;
+      if (!semanticKeyPattern.test(selection.as)) {
+        issue(issues, path, "SPEC.KEY_INVALID", "Selection alias must be a semantic key.");
+      } else if (aliases.has(selection.as)) {
+        issue(issues, path, "SPEC.KEY_DUPLICATE", "Selection alias is duplicated.");
+      }
+      aliases.add(selection.as);
+    });
+    const byId = new Map(collections.map((collection) => [collection.id, collection]));
+    for (const [fieldPath, fieldPathLabel] of queryPaths(query)) {
+      validateSourcePath(root, fieldPath, byId, fieldPathLabel, issues);
+    }
+  }
+  if (issues.length === 0) return;
+  throw new FrameworkError({
+    code: ERROR_CODES.validationInvalidInput,
+    message: "The Source query is invalid.",
+    issues,
+  });
+}
+
 function hasSpecStructure(input: unknown, issues: ValidationIssue[]): input is Spec {
   if (!isRecord(input)) {
     issue(issues, "", "SPEC.INVALID", "Spec must be an object.");
@@ -98,10 +136,150 @@ function hasSpecStructure(input: unknown, issues: ValidationIssue[]): input is S
           return;
         }
         requireIdentityShape(definition, `${property}.${index}`, issues);
+        if (property === "views") requireViewShape(definition, `${property}.${index}`, issues);
       });
     }
   }
   return valid && issues.length === 0;
+}
+
+function requireViewShape(
+  input: Readonly<Record<string, unknown>>,
+  path: string,
+  issues: ValidationIssue[],
+): void {
+  requireString(input, "source", path, issues);
+  if (input.query !== undefined) requireSourceQueryShape(input.query, `${path}.query`, issues);
+  if (input.presentation !== undefined) {
+    if (!isRecord(input.presentation)) {
+      issue(
+        issues,
+        `${path}.presentation`,
+        "SPEC.TYPE_INVALID",
+        "View presentation must be an object.",
+      );
+    } else {
+      requireString(input.presentation, "block", `${path}.presentation`, issues);
+      if (
+        input.presentation.config !== undefined &&
+        (!isRecord(input.presentation.config) || !isJsonValue(input.presentation.config))
+      ) {
+        issue(
+          issues,
+          `${path}.presentation.config`,
+          "SPEC.TYPE_INVALID",
+          "Block config must be a JSON object.",
+        );
+      }
+    }
+  }
+}
+
+function requireSourceQueryShape(input: unknown, path: string, issues: ValidationIssue[]): void {
+  if (!isRecord(input)) {
+    issue(issues, path, "SPEC.TYPE_INVALID", "Source query must be an object.");
+    return;
+  }
+  if (input.filter !== undefined) requireSourceFilterShape(input.filter, `${path}.filter`, issues);
+  if (input.sort !== undefined) {
+    if (!Array.isArray(input.sort))
+      issue(issues, `${path}.sort`, "SPEC.TYPE_INVALID", "Source sort must be an array.");
+    else
+      input.sort.forEach((sort, index) => {
+        const itemPath = `${path}.sort.${index}`;
+        if (!isRecord(sort))
+          return issue(issues, itemPath, "SPEC.TYPE_INVALID", "Sort must be an object.");
+        requireSourcePath(sort.path, `${itemPath}.path`, issues);
+        optionalEnum(sort, "direction", ["asc", "desc"], itemPath, issues);
+        if (sort.direction === undefined)
+          issue(
+            issues,
+            `${itemPath}.direction`,
+            "SPEC.TYPE_INVALID",
+            "Sort direction is required.",
+          );
+      });
+  }
+  if (input.select !== undefined) {
+    if (!Array.isArray(input.select))
+      issue(issues, `${path}.select`, "SPEC.TYPE_INVALID", "Source selection must be an array.");
+    else
+      input.select.forEach((selection, index) => {
+        const itemPath = `${path}.select.${index}`;
+        if (!isRecord(selection))
+          return issue(issues, itemPath, "SPEC.TYPE_INVALID", "Selection must be an object.");
+        requireSourcePath(selection.path, `${itemPath}.path`, issues);
+        requireString(selection, "as", itemPath, issues);
+        optionalString(selection, "label", itemPath, issues);
+      });
+  }
+  requireNonNegativeInteger(input.offset, `${path}.offset`, issues, true);
+  requireNonNegativeInteger(input.limit, `${path}.limit`, issues, false);
+}
+
+function requireSourceFilterShape(input: unknown, path: string, issues: ValidationIssue[]): void {
+  if (!isRecord(input))
+    return issue(issues, path, "SPEC.TYPE_INVALID", "Source filter must be an object.");
+  if ("all" in input || "any" in input) {
+    const property = "all" in input ? "all" : "any";
+    const items = input[property];
+    if (!Array.isArray(items))
+      return issue(
+        issues,
+        `${path}.${property}`,
+        "SPEC.TYPE_INVALID",
+        "Filter group must be an array.",
+      );
+    items.forEach((item, index) =>
+      requireSourceFilterShape(item, `${path}.${property}.${index}`, issues),
+    );
+    return;
+  }
+  if ("not" in input) return requireSourceFilterShape(input.not, `${path}.not`, issues);
+  requireSourcePath(input.path, `${path}.path`, issues);
+  optionalEnum(
+    input,
+    "operator",
+    ["eq", "neq", "contains", "empty", "notEmpty", "gt", "gte", "lt", "lte"],
+    path,
+    issues,
+  );
+  if (input.operator === undefined)
+    issue(issues, `${path}.operator`, "SPEC.TYPE_INVALID", "Filter operator is required.");
+  if (input.value !== undefined && !isJsonValue(input.value))
+    issue(issues, `${path}.value`, "SPEC.TYPE_INVALID", "Filter value must be JSON-compatible.");
+}
+
+function requireSourcePath(input: unknown, path: string, issues: ValidationIssue[]): void {
+  if (
+    !Array.isArray(input) ||
+    input.length === 0 ||
+    !input.every((item) => typeof item === "string" && item.length > 0)
+  ) {
+    issue(
+      issues,
+      path,
+      "SPEC.TYPE_INVALID",
+      "Field path must be a non-empty array of stable Field IDs.",
+    );
+  }
+}
+
+function requireNonNegativeInteger(
+  input: unknown,
+  path: string,
+  issues: ValidationIssue[],
+  allowZero: boolean,
+): void {
+  if (input === undefined) return;
+  if (typeof input !== "number" || !Number.isInteger(input) || input < (allowZero ? 0 : 1)) {
+    issue(
+      issues,
+      path,
+      "SPEC.TYPE_INVALID",
+      allowZero ? "Offset must be a non-negative integer." : "Limit must be a positive integer.",
+    );
+  }
 }
 
 function requireCollectionShape(input: unknown, path: string, issues: ValidationIssue[]): void {
@@ -516,6 +694,148 @@ function validateCollection(
     );
   }
   if (collection.lifecycle) validateLifecycle(collection, path, fieldsById, issues);
+}
+
+function validateSourceNamespace(spec: Spec, issues: ValidationIssue[]): void {
+  const local = new Set(spec.collections.map((collection) => collection.key));
+  spec.sources.forEach((source, index) => {
+    if (local.has(source.key)) {
+      issue(
+        issues,
+        `sources.${index}.key`,
+        "SPEC.SOURCE_KEY_DUPLICATE",
+        "Source keys must be unique across local Collections and bound Sources.",
+      );
+    }
+  });
+}
+
+function validateView(
+  view: ViewDefinition,
+  index: number,
+  spec: Spec,
+  issues: ValidationIssue[],
+): void {
+  const path = `views.${index}`;
+  if (!semanticKeyPattern.test(view.source)) {
+    issue(issues, `${path}.source`, "SPEC.KEY_INVALID", "View source must be a semantic key.");
+    return;
+  }
+  const collection = spec.collections.find((item) => item.key === view.source);
+  const binding = spec.sources.some((item) => item.key === view.source);
+  if (!collection && !binding) {
+    issue(
+      issues,
+      `${path}.source`,
+      "SPEC.REFERENCE_UNRESOLVED",
+      "The View Source is not declared in this Spec.",
+    );
+    return;
+  }
+  if (view.presentation && !semanticKeyPattern.test(view.presentation.block)) {
+    issue(
+      issues,
+      `${path}.presentation.block`,
+      "SPEC.KEY_INVALID",
+      "Block must be a semantic key.",
+    );
+  }
+  const query = view.query;
+  if (!query) return;
+  const aliases = new Set<string>();
+  query.select?.forEach((selection, selectionIndex) => {
+    const selectionPath = `${path}.query.select.${selectionIndex}`;
+    if (!semanticKeyPattern.test(selection.as)) {
+      issue(
+        issues,
+        `${selectionPath}.as`,
+        "SPEC.KEY_INVALID",
+        "Selection alias must be a semantic key.",
+      );
+    } else if (aliases.has(selection.as)) {
+      issue(issues, `${selectionPath}.as`, "SPEC.KEY_DUPLICATE", "Selection alias is duplicated.");
+    }
+    aliases.add(selection.as);
+  });
+  // Bound Source schemas are instance data and are validated again when the View executes.
+  if (!collection) return;
+  const collections = new Map(spec.collections.map((item) => [item.id, item]));
+  for (const [fieldPath, fieldPathLabel] of queryPaths(query, `${path}.query`)) {
+    validateSourcePath(collection, fieldPath, collections, fieldPathLabel, issues);
+  }
+}
+
+function queryPaths(
+  query: SourceQueryDefinition,
+  base = "query",
+): Array<readonly [readonly string[], string]> {
+  const paths: Array<readonly [readonly string[], string]> = [];
+  collectFilterPaths(query.filter, `${base}.filter`, paths);
+  query.sort?.forEach((sort, index) => paths.push([sort.path, `${base}.sort.${index}.path`]));
+  query.select?.forEach((selection, index) =>
+    paths.push([selection.path, `${base}.select.${index}.path`]),
+  );
+  return paths;
+}
+
+function collectFilterPaths(
+  filter: SourceFilter | undefined,
+  path: string,
+  output: Array<readonly [readonly string[], string]>,
+): void {
+  if (!filter) return;
+  if ("all" in filter) {
+    filter.all.forEach((item, index) => collectFilterPaths(item, `${path}.all.${index}`, output));
+  } else if ("any" in filter) {
+    filter.any.forEach((item, index) => collectFilterPaths(item, `${path}.any.${index}`, output));
+  } else if ("not" in filter) {
+    collectFilterPaths(filter.not, `${path}.not`, output);
+  } else {
+    output.push([filter.path, `${path}.path`]);
+  }
+}
+
+function validateSourcePath(
+  root: CollectionDefinition,
+  path: readonly string[],
+  collections: ReadonlyMap<string, CollectionDefinition>,
+  issuePath: string,
+  issues: ValidationIssue[],
+): void {
+  let collection = root;
+  for (const [index, fieldId] of path.entries()) {
+    const field = collection.fields.find((item) => item.id === fieldId);
+    if (!field) {
+      issue(
+        issues,
+        issuePath,
+        "SPEC.REFERENCE_UNRESOLVED",
+        "Field path contains an unknown Field.",
+      );
+      break;
+    }
+    if (index === path.length - 1) break;
+    if (field.type !== "reference") {
+      issue(
+        issues,
+        issuePath,
+        "SPEC.RELATION_INVALID",
+        "Only declared reference Fields may be traversed.",
+      );
+      break;
+    }
+    const target = collections.get(field.collectionId);
+    if (!target) {
+      issue(
+        issues,
+        issuePath,
+        "SPEC.REFERENCE_UNRESOLVED",
+        "Relationship target Collection is unavailable.",
+      );
+      break;
+    }
+    collection = target;
+  }
 }
 
 function validateLifecycle(
