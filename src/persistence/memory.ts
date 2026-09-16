@@ -23,43 +23,43 @@ export class MemoryCatalogRepository implements CatalogRepository, CatalogTransa
   private queue: Promise<unknown> = Promise.resolve();
 
   async getAccount(id: string): Promise<Account | null> {
-    return this.state.accounts.get(id) ?? null;
+    return cloneOptional(this.state.accounts.get(id));
   }
 
   async listAccounts(): Promise<Account[]> {
-    return [...this.state.accounts.values()];
+    return cloneValues(this.state.accounts);
   }
 
   async getWorkspace(id: string): Promise<Workspace | null> {
-    return this.state.workspaces.get(id) ?? null;
+    return cloneOptional(this.state.workspaces.get(id));
   }
 
   async listWorkspaces(accountId: string): Promise<Workspace[]> {
-    return [...this.state.workspaces.values()].filter((item) => item.accountId === accountId);
+    return cloneValues(this.state.workspaces).filter((item) => item.accountId === accountId);
   }
 
   async getActor(id: string): Promise<Actor | null> {
-    return this.state.actors.get(id) ?? null;
+    return cloneOptional(this.state.actors.get(id));
   }
 
   async listActors(accountId: string): Promise<Actor[]> {
-    return [...this.state.actors.values()].filter((item) => item.accountId === accountId);
+    return cloneValues(this.state.actors).filter((item) => item.accountId === accountId);
   }
 
   async getMembership(actorId: string, workspaceId: string): Promise<Membership | null> {
     return (
-      [...this.state.memberships.values()].find(
+      cloneValues(this.state.memberships).find(
         (item) => item.actorId === actorId && item.workspaceId === workspaceId,
       ) ?? null
     );
   }
 
   async listMembershipsForActor(actorId: string): Promise<Membership[]> {
-    return [...this.state.memberships.values()].filter((item) => item.actorId === actorId);
+    return cloneValues(this.state.memberships).filter((item) => item.actorId === actorId);
   }
 
   async listMembershipsForWorkspace(workspaceId: string): Promise<Membership[]> {
-    return [...this.state.memberships.values()].filter((item) => item.workspaceId === workspaceId);
+    return cloneValues(this.state.memberships).filter((item) => item.workspaceId === workspaceId);
   }
 
   async insertAccount(account: Account): Promise<void> {
@@ -110,20 +110,36 @@ function emptyState(): MemoryState {
   };
 }
 
-function cloneState(state: MemoryState): MemoryState {
-  return {
-    accounts: new Map(state.accounts),
-    workspaces: new Map(state.workspaces),
-    actors: new Map(state.actors),
-    memberships: new Map(state.memberships),
-  };
-}
-
 function insertUnique<T extends { readonly id: string }>(
   values: Map<string, T>,
   value: T,
   kind: string,
 ): void {
   if (values.has(value.id)) throw resourceConflict(`${kind} already exists.`);
-  values.set(value.id, value);
+  values.set(value.id, clone(value));
+}
+
+function cloneState(state: MemoryState): MemoryState {
+  return {
+    accounts: cloneMap(state.accounts),
+    workspaces: cloneMap(state.workspaces),
+    actors: cloneMap(state.actors),
+    memberships: cloneMap(state.memberships),
+  };
+}
+
+function cloneMap<T>(values: Map<string, T>): Map<string, T> {
+  return new Map([...values].map(([key, value]) => [key, clone(value)]));
+}
+
+function cloneValues<T>(values: Map<string, T>): T[] {
+  return [...values.values()].map(clone);
+}
+
+function cloneOptional<T>(value: T | undefined): T | null {
+  return value === undefined ? null : clone(value);
+}
+
+function clone<T>(value: T): T {
+  return structuredClone(value);
 }

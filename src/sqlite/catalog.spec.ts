@@ -6,10 +6,13 @@ import { afterEach, describe, expect, it } from "vite-plus/test";
 import { ERROR_CODES } from "../errors/error.ts";
 import type { Clock, IdGenerator, IdKind } from "../kernel/defaults.ts";
 import { Kernel } from "../kernel/kernel.ts";
+import { catalogAdapterContract } from "../persistence/catalog.contract.ts";
 import { SqlitePersistenceAdapter } from "./catalog.ts";
 import { openNodeSqlite } from "./node.ts";
 
 const temporaryDirectories: string[] = [];
+
+catalogAdapterContract("SQLite", () => new SqlitePersistenceAdapter(() => openNodeSqlite()));
 
 afterEach(async () => {
   await Promise.all(
@@ -73,6 +76,20 @@ describe("SQLite catalog adapter", () => {
     expect(await kernel.listAccounts()).toEqual([]);
 
     await kernel.close();
+  });
+
+  it("rejects an unknown catalog schema without migrating it", async () => {
+    expect.hasAssertions();
+    const database = openNodeSqlite();
+    await database.execute("PRAGMA user_version = 99");
+    const persistence = new SqlitePersistenceAdapter(() => database);
+
+    await expect(persistence.openCatalog()).rejects.toMatchObject({
+      code: ERROR_CODES.persistenceUnsupported,
+      details: { actualVersion: 99, supportedVersion: 1 },
+    });
+
+    await database.close();
   });
 });
 

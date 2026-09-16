@@ -1,4 +1,4 @@
-import { resourceConflict } from "../errors/error.ts";
+import { ERROR_CODES, FrameworkError, resourceConflict } from "../errors/error.ts";
 import type { Account, Actor, ActorKind, Membership, Workspace } from "../kernel/model.ts";
 import type {
   CatalogRepository,
@@ -24,6 +24,8 @@ export class SqlitePersistenceAdapter implements PersistenceAdapter {
     return new SqliteCatalogRepository(database);
   }
 }
+
+export const SQLITE_CATALOG_SCHEMA_VERSION = 1;
 
 export class SqliteCatalogRepository implements CatalogRepository {
   constructor(private readonly database: SqliteDatabase) {}
@@ -236,6 +238,18 @@ function reader(connection: SqliteConnection): SqliteCatalogReader {
 }
 
 async function initializeCatalog(database: SqliteDatabase): Promise<void> {
+  const version = await readSchemaVersion(database);
+  if (version !== 0 && version !== SQLITE_CATALOG_SCHEMA_VERSION) {
+    throw new FrameworkError({
+      code: ERROR_CODES.persistenceUnsupported,
+      message: "The SQLite catalog schema version is not supported.",
+      details: {
+        actualVersion: version,
+        supportedVersion: SQLITE_CATALOG_SCHEMA_VERSION,
+      },
+    });
+  }
+
   await database.execute(`
     PRAGMA foreign_keys = ON;
 
@@ -283,7 +297,14 @@ async function initializeCatalog(database: SqliteDatabase): Promise<void> {
 
     CREATE INDEX IF NOT EXISTS memberships_actor_id ON memberships(actor_id);
     CREATE INDEX IF NOT EXISTS memberships_workspace_id ON memberships(workspace_id);
+
+    PRAGMA user_version = ${SQLITE_CATALOG_SCHEMA_VERSION};
   `);
+}
+
+async function readSchemaVersion(database: SqliteDatabase): Promise<number> {
+  const row = await database.get<{ user_version: number }>("PRAGMA user_version");
+  return row?.user_version ?? 0;
 }
 
 const insertStatements = {

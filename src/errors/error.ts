@@ -3,6 +3,7 @@ import type { JsonValue } from "../spec/model.ts";
 export const ERROR_CODES = {
   internalUnexpected: "INTERNAL.UNEXPECTED",
   permissionDenied: "PERMISSION.DENIED",
+  persistenceUnsupported: "PERSISTENCE.UNSUPPORTED",
   resourceConflict: "RESOURCE.CONFLICT",
   resourceNotFound: "RESOURCE.NOT_FOUND",
 } as const;
