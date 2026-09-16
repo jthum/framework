@@ -25,28 +25,30 @@ Laravel does not import the TypeScript Kernel. It reads the Spec and implements 
 
 ---
 
-## 2. Account, Workspace, and module scope
+## 2. Workspace, Actor issuance, and module scope
 
-**Account** is the switchable tenant (Builder Space, Teamloop Organisation). It groups Actors and Workspaces. It is not a permission container and is not in a Workspace Spec. Every Actor belongs to one Account. “Local user” does **not** mean a second identity issuer: it means an Account Actor whose **only** Workspace Memberships are the delegated Workspace(s) they were created for. Isolation is membership, not a parallel user directory.
+**Workspace** is the only Kernel place: Builder Space, an App, Teamloop Organisation, HR, and Summer Recruiting are all Workspaces. A host may expose only one and never use the word. There is no Kernel Account or organisation-wide people table.
 
-Every Account has an automatically created **shared Workspace**, commonly hidden by the host. Account-level Collections (Builder “exposed types”) live there so Collections retain one ownership model. Do not allow both Account and Workspace as Collection owners.
+Workspace grouping uses `is_root`, `parent_id`, and `root_id` (TypeScript: `isRoot`, `parentId`, `rootId`). A root has `is_root = true`, `parent_id = null`, and `root_id = id`. Bootstrap creates one root, issues the first User and System there, and persists their Memberships. Host vocabulary may be Space, Organisation, or Account; those labels do not create new Kernel types.
 
-**Workspace** is a people-and-permissions world: persisted Memberships, ACLs, Collections, Spec, Rules, and Attachments. S1 “Space expose” uses the **shared** Workspace as origin. S3 “HR / Summer Recruiting” uses an **operational** Workspace as origin (Job Openings live on HR, not on the hidden shared Workspace). Do not collapse those two origins.
+`createWorkspace` spawns beneath the active Workspace, not the creator's birthplace: `is_root = false`, `parent_id = context.workspaceId`, inherited `root_id`, and `createdByActorId` for provenance. Spawned Workspaces cannot become roots. Grouping is immutable in v1. These columns support children, siblings, and root-universe queries; they are never walked in authorization and imply no inherited access.
 
-A local Actor may belong only to one delegated Workspace and must not thereby see its origin Workspace.
+Actors have `origin_id` and `root_id` (`originId`, `rootId`). Origin is the issuing Workspace: login/invite realm and “people spawned here.” Root is copied from that Workspace for cheap privileged universe listings. Login integration remains host-owned. Jane issued in a Space has `origin_id = root_id`; a candidate issued in Recruiting has `origin_id = recruiting`, `root_id = space`. Keep one physical actors table. Normal rosters list by issuance or Membership, never by root. Root-wide listings require explicit privileged authorization.
+
+Issuance is not access. Membership determines where an Actor may act; ACL is members + others + Attachment in the active Workspace. Jane acting in HR is checked as an HR member. A candidate issued in Recruiting is not thereby a member of HR or the root. Memberships stay within one root universe; cross-root identity federation is future host work.
 
 **Module scope** is recursive domain structure inside the same people-world: Channel -> Topic -> Thread, portfolio -> task. It is not another identity boundary.
 
 Test: **new people-world -> Workspace. Same people, nested places -> module scope.**
 
 ```text
-Account (switchable tenant and Actor directory)
-  ├── shared Workspace (always exists; often hidden)
-  └── Workspace*
+Root Workspace (host: Space / Organisation)
+  └── Workspace* (grouping, not inherited ACL)
+        ├── Workspace* (optional delegated people-world)
         └── Module scope* (host/module-owned domain tree)
 ```
 
-Do not model Channels as Workspaces. Do not model Summer Recruiting as a Topic. Do not use `parentWorkspaceId` to encode Builder or Teamloop navigation.
+Do not model Channels as Workspaces. Do not model Summer Recruiting as a Topic. Workspace grouping is not a custom multi-level ACL or a replacement for module-owned navigation.
 
 ---
 
@@ -54,14 +56,14 @@ Do not model Channels as Workspaces. Do not model Summer Recruiting as a Topic. 
 
 ### Spec and identity
 
-| Primitive   | Meaning                                                                                                 |
-| ----------- | ------------------------------------------------------------------------------------------------------- |
-| **Spec**    | Portable mould applied to a Workspace. Not tenant, records, instance bindings, credentials, or secrets. |
-| **Account** | Switchable tenant and Actor directory. Groups Workspaces. Not in a Spec.                                |
-| **Field**   | Typed slot. The same shape serves Collection fields, Forms, Rule inputs, and ActorRequests.             |
-| **Record**  | One member of a Collection.                                                                             |
+| Primitive     | Meaning                                                                                                 |
+| ------------- | ------------------------------------------------------------------------------------------------------- |
+| **Spec**      | Portable mould applied to a Workspace. Not tenant, records, instance bindings, credentials, or secrets. |
+| **Workspace** | Instance people-and-permissions world; optional root/parent grouping. Not in a Spec.                    |
+| **Field**     | Typed slot. The same shape serves Collection fields, Forms, Rule inputs, and ActorRequests.             |
+| **Record**    | One member of a Collection.                                                                             |
 
-Definition nodes have opaque portable stable IDs. Authors use semantic keys. ID format is an implementation detail. Records, executions, messages, Accounts, Actors, and Workspaces use provider/runtime IDs.
+Definition nodes have opaque portable stable IDs. Authors use semantic keys. ID format is an implementation detail. Records, executions, messages, Actors, and Workspaces use provider/runtime IDs.
 
 ### Data and surfaces
 
@@ -202,7 +204,7 @@ Do not grow a `KernelConfig` junk drawer. Adapter URLs belong to adapters. Secre
 
 - recursive Workspaces, `parentWorkspaceId`, permission inheritance, and re-parenting;
 - topology plugins encoding Space/App or Organisation/Workspace;
-- Account as a second Collection-owner type;
+- a second Collection-owner type beside Workspace;
 - Store in the Spec;
 - Type, Workflow, Automation, or Loop as canonical primitive names;
 - Form as arbitrary command builder;
@@ -217,11 +219,11 @@ Do not grow a `KernelConfig` junk drawer. Adapter URLs belong to adapters. Secre
 
 ## 5. Host and module shapes
 
-| Product            | Kernel                                                | Host                                                                                                               | Module                                                                        |
-| ------------------ | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- |
-| **Builder.run**    | Accounts, Workspaces, Collections, Attachments, Rules | Space = Account + hidden shared Workspace; App = Workspace; expose = Attachment; implicit list/create/edit; Studio | none required                                                                 |
-| **Teamloop**       | same                                                  | Organisation = Account; Workspace = Workspace; conversation chrome                                                 | Channel / Topic / Conversation; Collections bound to scopes; `message.posted` |
-| **Workspaces app** | same plus spawn policy and local Actors               | delegated Workspace creation; invite versus local Actor UX                                                         | none required                                                                 |
+| Product            | Kernel                                      | Host                                                                                                  | Module                                                                        |
+| ------------------ | ------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| **Builder.run**    | Workspaces, Collections, Attachments, Rules | Space = root Workspace; App = child Workspace; expose = Attachment; implicit list/create/edit; Studio | none required                                                                 |
+| **Teamloop**       | same                                        | Organisation = root Workspace; operational Workspace = child; conversation chrome                     | Channel / Topic / Conversation; Collections bound to scopes; `message.posted` |
+| **Workspaces app** | same plus spawn policy and local Actors     | delegated Workspace creation; invite versus local Actor UX                                            | none required                                                                 |
 
 Builder is the delegated-Workspace model with advanced spawn and local-Actor controls hidden or restricted. It is not a different engine.
 
@@ -229,20 +231,20 @@ Builder is the delegated-Workspace model with advanced spawn and local-Actor con
 
 ## 6. Persistence and current-catalog transition
 
-Logical containment does not dictate physical layout. An adapter may use one database per Workspace, one per Account, or shared tables keyed by IDs.
+Logical containment does not dictate physical layout. An adapter may use one database per Workspace, one per root, or shared tables keyed by IDs. An adapter-specific tenant key is not a Kernel Account.
 
-Kernel-owned instance data includes Accounts, Workspaces, Actors, Memberships, Attachments, RuleExecutions, ActorRequests, and later Materializations. Module-owned tables live beside Collections rather than masquerading as Collections.
+Kernel-owned instance data includes Workspaces, Actors, Memberships, Attachments, RuleExecutions, ActorRequests, and later Materializations. Module-owned tables live beside Collections rather than masquerading as Collections.
 
 The current Builder catalog approximates the target implicitly:
 
-| Current                        | Current role                     | Target                                    |
-| ------------------------------ | -------------------------------- | ----------------------------------------- |
-| root `space` containing actors | Account plus shared data         | Account + always-created shared Workspace |
-| `space` with `created_by`      | App                              | Workspace                                 |
-| `actor.space_id`               | Actor origin and inferred access | Actor plus persisted Memberships          |
-| App `created_by`               | discovery and access             | provenance plus Membership/ACL            |
-| type `expose`                  | implicit sharing                 | Attachment                                |
-| `kv`                           | active Space and appearance      | adapter-owned preferences/settings        |
+| Current                        | Current role                     | Target                                       |
+| ------------------------------ | -------------------------------- | -------------------------------------------- |
+| root `space` containing actors | root identity and shared data    | root Workspace; Actors issued there          |
+| `space` with `created_by`      | App                              | Workspace                                    |
+| `actor.space_id`               | Actor origin and inferred access | Actor origin/root plus persisted Memberships |
+| App `created_by`               | discovery and access             | provenance plus Membership/ACL               |
+| type `expose`                  | implicit sharing                 | Attachment                                   |
+| `kv`                           | active Space and appearance      | adapter-owned preferences/settings           |
 
 Do not preserve these inference rules as compatibility behaviour. Migrate the current product to the new model and delete the old path at cutover.
 
@@ -252,9 +254,9 @@ Do not preserve these inference rules as compatibility behaviour. Migrate the cu
 
 **Spec:** Collection and Field definitions, semantic Source and Actor-binding keys, Views, Forms, Pages, Rules, Agent definitions, Block keys, and portable metadata.
 
-**Instance:** Records, Accounts, Workspaces, Actors, Memberships, Attachments, concrete Source and Actor-binding resolution, RuleExecutions, ActorRequests, secrets, Messages, Topics, presence, and future Materializations.
+**Instance:** Records, Workspaces, Actors, Memberships, Attachments, concrete Source and Actor-binding resolution, RuleExecutions, ActorRequests, secrets, Messages, Topics, presence, and future Materializations.
 
-A Spec never names an Account or a concrete Attachment. Exporting a Spec clones the mould, not operational data or authority. Importing a Spec must bind semantic Sources in the destination instance.
+A Spec never names a concrete Workspace or Attachment. Exporting a Spec clones the mould, not operational data or authority. Importing a Spec must bind semantic Sources in the destination instance.
 
 ---
 
@@ -302,7 +304,7 @@ Temporary side-by-side code during extraction is risk isolation, not backwards c
 - embedded AgentRuntime library;
 - how far Form submission goes beyond Collection CRUD plus `form.submitted`;
 - future rolling Materialization semantics;
-- cross-Account guest identity;
+- cross-root guest identity;
 - exact external Source contracts;
 - whether Block layout grows beyond explicit non-Block layout nodes;
 - Phase 9: Collection-per-module-entity versus one Collection filtered by scope id (tests require topic-local isolation, not a final schema).
@@ -313,9 +315,10 @@ Temporary side-by-side code during extraction is risk isolation, not backwards c
 
 ```text
 Spec                portable definition applied to a Workspace
-Account             switchable tenant and Actor directory
 Workspace           people-and-permissions world
-shared Workspace    always-created owner of Account-level Collections
+root Workspace      Workspace with no parent; host calls it Space / Organisation
+originId            Workspace in which an Actor was issued
+rootId              grouping universe, never inherited authority
 Module scope        nested domain place inside one Workspace
 Collection          authoritative schema and records; one Source kind
 Source              structured data a View can query

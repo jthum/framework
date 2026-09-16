@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import { ERROR_CODES } from "../errors/error.ts";
-import type { Account, Actor, Membership, Workspace } from "../kernel/model.ts";
+import type { Actor, Membership, Workspace } from "../kernel/model.ts";
 import type { PersistenceAdapter } from "./catalog.ts";
 
 export function catalogAdapterContract(
@@ -15,16 +15,13 @@ export function catalogAdapterContract(
       const fixture = catalogFixture();
 
       await catalog.transaction(async (transaction) => {
-        await transaction.insertAccount(fixture.account);
         await transaction.insertWorkspace(fixture.workspace);
         await transaction.insertActor(fixture.actor);
         await transaction.insertMembership(fixture.membership);
       });
 
-      (fixture.account as Mutable<Account>).name = "Changed outside the adapter";
       (fixture.workspace.spec as Mutable<Workspace["spec"]>).label = "Changed outside the adapter";
       const firstRead = await catalog.getWorkspace(fixture.workspace.id);
-      expect((await catalog.getAccount(fixture.account.id))?.name).toBe("Acme");
       expect(firstRead?.spec.label).toBe("Acme");
 
       if (!firstRead) throw new Error("Contract fixture Workspace was not persisted.");
@@ -42,13 +39,11 @@ export function catalogAdapterContract(
 
       await expect(
         catalog.transaction(async (transaction) => {
-          await transaction.insertAccount(fixture.account);
           await transaction.insertWorkspace(fixture.workspace);
           throw new Error("Deliberate rollback");
         }),
       ).rejects.toThrow("Deliberate rollback");
-      expect(await catalog.listAccounts()).toEqual([]);
-      expect(await catalog.listWorkspaces(fixture.account.id)).toEqual([]);
+      expect(await catalog.listRootWorkspaces()).toEqual([]);
 
       await persistence.close();
     });
@@ -60,7 +55,6 @@ export function catalogAdapterContract(
       const fixture = catalogFixture();
 
       await catalog.transaction(async (transaction) => {
-        await transaction.insertAccount(fixture.account);
         await transaction.insertWorkspace(fixture.workspace);
         await transaction.insertActor(fixture.actor);
         await transaction.insertMembership(fixture.membership);
@@ -100,13 +94,102 @@ export function catalogAdapterContract(
 
       await persistence.close();
     });
+
+    it("distinguishes issued Actors, members, and root-universe discovery", async () => {
+      expect.hasAssertions();
+      const persistence = await createAdapter().open();
+      const catalog = persistence.catalog;
+      const { workspace: root, actor: jane, membership } = catalogFixture();
+      const hr: Workspace = { ...root, id: "hr", name: "HR", isRoot: false, parentId: root.id };
+      const recruiting: Workspace = {
+        ...hr,
+        id: "recruiting",
+        name: "Recruiting",
+        parentId: hr.id,
+      };
+      const candidate: Actor = {
+        ...jane,
+        id: "candidate",
+        name: "Candidate",
+        originId: recruiting.id,
+      };
+      await catalog.transaction(async (transaction) => {
+        await transaction.insertWorkspace(root);
+        await transaction.insertWorkspace(hr);
+        await transaction.insertWorkspace(recruiting);
+        await transaction.insertActor(jane);
+        await transaction.insertActor(candidate);
+        await transaction.insertMembership(membership);
+        await transaction.insertMembership({ ...membership, id: "jane-hr", workspaceId: hr.id });
+        await transaction.insertMembership({
+          ...membership,
+          id: "candidate-recruiting",
+          actorId: candidate.id,
+          workspaceId: recruiting.id,
+        });
+      });
+      expect(await catalog.listRootWorkspaces()).toEqual([root]);
+      expect(await catalog.listChildWorkspaces(root.id)).toEqual([hr]);
+      expect(await catalog.listChildWorkspaces(hr.id)).toEqual([recruiting]);
+      expect(await catalog.listWorkspacesByRoot(root.id)).toHaveLength(3);
+      expect(await catalog.listActorsByOrigin(root.id)).toEqual([jane]);
+      expect(await catalog.listActorsByOrigin(recruiting.id)).toEqual([candidate]);
+      expect(await catalog.listActorsForWorkspace(hr.id)).toEqual([jane]);
+      expect(await catalog.listActorsForWorkspace(recruiting.id)).toEqual([candidate]);
+      expect(await catalog.listActorsByRoot(root.id)).toHaveLength(2);
+      await persistence.close();
+    });
+
+    it("rejects inconsistent grouping, issuance, and cross-root Memberships", async () => {
+      expect.hasAssertions();
+      const persistence = await createAdapter().open();
+      const catalog = persistence.catalog;
+      const { workspace: root, actor, membership } = catalogFixture();
+      const other: Workspace = { ...root, id: "other-root", rootId: "other-root" };
+      await catalog.transaction(async (transaction) => {
+        await transaction.insertWorkspace(root);
+        await transaction.insertWorkspace(other);
+        await transaction.insertActor(actor);
+      });
+      const invalidWorkspaces: Workspace[] = [
+        { ...root, id: "invalid-root", parentId: root.id },
+        { ...root, id: "invalid-child", isRoot: false },
+        { ...root, id: "wrong-root", isRoot: false, parentId: root.id, rootId: other.id },
+      ];
+      for (const workspace of invalidWorkspaces) {
+        await expect(
+          catalog.transaction((transaction) => transaction.insertWorkspace(workspace)),
+        ).rejects.toMatchObject({ code: ERROR_CODES.resourceConflict });
+      }
+      await expect(
+        catalog.transaction((transaction) =>
+          transaction.insertActor({ ...actor, id: "wrong-origin", originId: other.id }),
+        ),
+      ).rejects.toMatchObject({ code: ERROR_CODES.resourceConflict });
+      await expect(
+        catalog.transaction((transaction) =>
+          transaction.insertMembership({ ...membership, workspaceId: other.id }),
+        ),
+      ).rejects.toMatchObject({ code: ERROR_CODES.resourceConflict });
+      await expect(
+        catalog.transaction((transaction) =>
+          transaction.updateWorkspace({
+            ...root,
+            isRoot: false,
+            parentId: other.id,
+            rootId: other.id,
+          }),
+        ),
+      ).rejects.toMatchObject({ code: ERROR_CODES.resourceConflict });
+      expect(await catalog.getWorkspace(root.id)).toEqual(root);
+      await persistence.close();
+    });
   });
 }
 
 type Mutable<T> = { -readonly [Property in keyof T]: T[Property] };
 
 function catalogFixture(): {
-  account: Account;
   workspace: Workspace;
   actor: Actor;
   membership: Membership;
@@ -114,7 +197,9 @@ function catalogFixture(): {
   const stamp = "2026-09-17T00:00:00.000Z";
   const workspace: Workspace = {
     id: "workspace-1",
-    accountId: "account-1",
+    isRoot: true,
+    parentId: null,
+    rootId: "workspace-1",
     name: "Acme",
     spec: {
       version: 2,
@@ -132,17 +217,11 @@ function catalogFixture(): {
     updatedAt: stamp,
   };
   return {
-    account: {
-      id: "account-1",
-      name: "Acme",
-      sharedWorkspaceId: workspace.id,
-      createdAt: stamp,
-      updatedAt: stamp,
-    },
     workspace,
     actor: {
       id: "actor-1",
-      accountId: "account-1",
+      originId: workspace.id,
+      rootId: workspace.id,
       kind: "user",
       name: "Jane",
       createdAt: stamp,

@@ -4,7 +4,7 @@ import {
   resourceConflict,
   resourceNotFound,
 } from "../errors/error.ts";
-import type { Account, Actor, ActorKind, Membership, Workspace } from "../kernel/model.ts";
+import type { Actor, ActorKind, Membership, Workspace } from "../kernel/model.ts";
 import type {
   CatalogRepository,
   CatalogTransaction,
@@ -12,6 +12,12 @@ import type {
   PersistenceSession,
 } from "../persistence/catalog.ts";
 import { SqliteRecordStore } from "./records.ts";
+import {
+  assertActorIntegrity,
+  assertMembershipIntegrity,
+  assertWorkspaceIntegrity,
+  assertWorkspaceTopologyUnchanged,
+} from "../persistence/catalog-integrity.ts";
 import type { Spec } from "../spec/model.ts";
 import type {
   OpenSqliteDatabase,
@@ -43,33 +49,41 @@ export class SqlitePersistenceAdapter implements PersistenceAdapter {
   }
 }
 
-export const SQLITE_CATALOG_SCHEMA_VERSION = 2;
+export const SQLITE_CATALOG_SCHEMA_VERSION = 3;
 
 export class SqliteCatalogRepository implements CatalogRepository {
   constructor(private readonly database: SqliteDatabase) {}
-
-  getAccount(id: string): Promise<Account | null> {
-    return reader(this.database).getAccount(id);
-  }
-
-  listAccounts(): Promise<Account[]> {
-    return reader(this.database).listAccounts();
-  }
 
   getWorkspace(id: string): Promise<Workspace | null> {
     return reader(this.database).getWorkspace(id);
   }
 
-  listWorkspaces(accountId: string): Promise<Workspace[]> {
-    return reader(this.database).listWorkspaces(accountId);
+  listRootWorkspaces(): Promise<Workspace[]> {
+    return reader(this.database).listRootWorkspaces();
+  }
+
+  listChildWorkspaces(parentId: string): Promise<Workspace[]> {
+    return reader(this.database).listChildWorkspaces(parentId);
+  }
+
+  listWorkspacesByRoot(rootId: string): Promise<Workspace[]> {
+    return reader(this.database).listWorkspacesByRoot(rootId);
   }
 
   getActor(id: string): Promise<Actor | null> {
     return reader(this.database).getActor(id);
   }
 
-  listActors(accountId: string): Promise<Actor[]> {
-    return reader(this.database).listActors(accountId);
+  listActorsByOrigin(originId: string): Promise<Actor[]> {
+    return reader(this.database).listActorsByOrigin(originId);
+  }
+
+  listActorsByRoot(rootId: string): Promise<Actor[]> {
+    return reader(this.database).listActorsByRoot(rootId);
+  }
+
+  listActorsForWorkspace(workspaceId: string): Promise<Actor[]> {
+    return reader(this.database).listActorsForWorkspace(workspaceId);
   }
 
   getMembership(actorId: string, workspaceId: string): Promise<Membership | null> {
@@ -94,28 +108,36 @@ export class SqliteCatalogRepository implements CatalogRepository {
 class SqliteCatalogTransaction implements CatalogTransaction {
   constructor(private readonly connection: SqliteConnection) {}
 
-  getAccount(id: string): Promise<Account | null> {
-    return reader(this.connection).getAccount(id);
-  }
-
-  listAccounts(): Promise<Account[]> {
-    return reader(this.connection).listAccounts();
-  }
-
   getWorkspace(id: string): Promise<Workspace | null> {
     return reader(this.connection).getWorkspace(id);
   }
 
-  listWorkspaces(accountId: string): Promise<Workspace[]> {
-    return reader(this.connection).listWorkspaces(accountId);
+  listRootWorkspaces(): Promise<Workspace[]> {
+    return reader(this.connection).listRootWorkspaces();
+  }
+
+  listChildWorkspaces(parentId: string): Promise<Workspace[]> {
+    return reader(this.connection).listChildWorkspaces(parentId);
+  }
+
+  listWorkspacesByRoot(rootId: string): Promise<Workspace[]> {
+    return reader(this.connection).listWorkspacesByRoot(rootId);
   }
 
   getActor(id: string): Promise<Actor | null> {
     return reader(this.connection).getActor(id);
   }
 
-  listActors(accountId: string): Promise<Actor[]> {
-    return reader(this.connection).listActors(accountId);
+  listActorsByOrigin(originId: string): Promise<Actor[]> {
+    return reader(this.connection).listActorsByOrigin(originId);
+  }
+
+  listActorsByRoot(rootId: string): Promise<Actor[]> {
+    return reader(this.connection).listActorsByRoot(rootId);
+  }
+
+  listActorsForWorkspace(workspaceId: string): Promise<Actor[]> {
+    return reader(this.connection).listActorsForWorkspace(workspaceId);
   }
 
   getMembership(actorId: string, workspaceId: string): Promise<Membership | null> {
@@ -130,20 +152,13 @@ class SqliteCatalogTransaction implements CatalogTransaction {
     return reader(this.connection).listMembershipsForWorkspace(workspaceId);
   }
 
-  async insertAccount(account: Account): Promise<void> {
-    await insert(this.connection, "accounts", [
-      account.id,
-      account.name,
-      account.sharedWorkspaceId,
-      account.createdAt,
-      account.updatedAt,
-    ]);
-  }
-
   async insertWorkspace(workspace: Workspace): Promise<void> {
+    await assertWorkspaceIntegrity(this, workspace);
     await insert(this.connection, "workspaces", [
       workspace.id,
-      workspace.accountId,
+      workspace.isRoot ? 1 : 0,
+      workspace.parentId,
+      workspace.rootId,
       workspace.name,
       workspace.createdByActorId ?? null,
       JSON.stringify(workspace.spec),
@@ -153,9 +168,11 @@ class SqliteCatalogTransaction implements CatalogTransaction {
   }
 
   async insertActor(actor: Actor): Promise<void> {
+    await assertActorIntegrity(this, actor);
     await insert(this.connection, "actors", [
       actor.id,
-      actor.accountId,
+      actor.originId,
+      actor.rootId,
       actor.kind,
       actor.name,
       actor.email ?? null,
@@ -165,6 +182,7 @@ class SqliteCatalogTransaction implements CatalogTransaction {
   }
 
   async insertMembership(membership: Membership): Promise<void> {
+    await assertMembershipIntegrity(this, membership);
     await insert(this.connection, "memberships", [
       membership.id,
       membership.actorId,
@@ -185,6 +203,7 @@ async function updateWorkspace(connection: SqliteConnection, workspace: Workspac
     workspace.id,
   ]);
   if (!existing) throw resourceNotFound("Workspace", workspace.id);
+  assertWorkspaceTopologyUnchanged(workspaceFromRow(existing), workspace);
   await connection.run(
     "UPDATE workspaces SET name = ?, created_by_actor_id = ?, spec_json = ?, updated_at = ? WHERE id = ?",
     [
@@ -200,17 +219,6 @@ async function updateWorkspace(connection: SqliteConnection, workspace: Workspac
 class SqliteCatalogReader {
   constructor(private readonly connection: SqliteConnection) {}
 
-  async getAccount(id: string): Promise<Account | null> {
-    const row = await this.connection.get<AccountRow>("SELECT * FROM accounts WHERE id = ?", [id]);
-    return row ? accountFromRow(row) : null;
-  }
-
-  async listAccounts(): Promise<Account[]> {
-    return (
-      await this.connection.all<AccountRow>("SELECT * FROM accounts ORDER BY created_at, id")
-    ).map(accountFromRow);
-  }
-
   async getWorkspace(id: string): Promise<Workspace | null> {
     const row = await this.connection.get<WorkspaceRow>("SELECT * FROM workspaces WHERE id = ?", [
       id,
@@ -218,11 +226,28 @@ class SqliteCatalogReader {
     return row ? workspaceFromRow(row) : null;
   }
 
-  async listWorkspaces(accountId: string): Promise<Workspace[]> {
+  async listRootWorkspaces(): Promise<Workspace[]> {
     return (
       await this.connection.all<WorkspaceRow>(
-        "SELECT * FROM workspaces WHERE account_id = ? ORDER BY created_at, id",
-        [accountId],
+        "SELECT * FROM workspaces WHERE is_root = 1 ORDER BY created_at, id",
+      )
+    ).map(workspaceFromRow);
+  }
+
+  async listChildWorkspaces(parentId: string): Promise<Workspace[]> {
+    return (
+      await this.connection.all<WorkspaceRow>(
+        "SELECT * FROM workspaces WHERE parent_id = ? ORDER BY created_at, id",
+        [parentId],
+      )
+    ).map(workspaceFromRow);
+  }
+
+  async listWorkspacesByRoot(rootId: string): Promise<Workspace[]> {
+    return (
+      await this.connection.all<WorkspaceRow>(
+        "SELECT * FROM workspaces WHERE root_id = ? ORDER BY created_at, id",
+        [rootId],
       )
     ).map(workspaceFromRow);
   }
@@ -232,11 +257,32 @@ class SqliteCatalogReader {
     return row ? actorFromRow(row) : null;
   }
 
-  async listActors(accountId: string): Promise<Actor[]> {
+  async listActorsByOrigin(originId: string): Promise<Actor[]> {
     return (
       await this.connection.all<ActorRow>(
-        "SELECT * FROM actors WHERE account_id = ? ORDER BY created_at, id",
-        [accountId],
+        "SELECT * FROM actors WHERE origin_id = ? ORDER BY created_at, id",
+        [originId],
+      )
+    ).map(actorFromRow);
+  }
+
+  async listActorsByRoot(rootId: string): Promise<Actor[]> {
+    return (
+      await this.connection.all<ActorRow>(
+        "SELECT * FROM actors WHERE root_id = ? ORDER BY created_at, id",
+        [rootId],
+      )
+    ).map(actorFromRow);
+  }
+
+  async listActorsForWorkspace(workspaceId: string): Promise<Actor[]> {
+    return (
+      await this.connection.all<ActorRow>(
+        `SELECT actors.* FROM actors
+         INNER JOIN memberships ON memberships.actor_id = actors.id
+         WHERE memberships.workspace_id = ?
+         ORDER BY actors.created_at, actors.id`,
+        [workspaceId],
       )
     ).map(actorFromRow);
   }
@@ -288,29 +334,29 @@ async function initializeCatalog(database: SqliteDatabase): Promise<void> {
   await database.execute(`
     PRAGMA foreign_keys = ON;
 
-    CREATE TABLE IF NOT EXISTS accounts (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      shared_workspace_id TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-
     CREATE TABLE IF NOT EXISTS workspaces (
       id TEXT PRIMARY KEY,
-      account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      is_root INTEGER NOT NULL CHECK (is_root IN (0, 1)),
+      parent_id TEXT REFERENCES workspaces(id) ON DELETE CASCADE,
+      root_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       created_by_actor_id TEXT,
       spec_json TEXT NOT NULL,
       created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      CHECK (
+        (is_root = 1 AND parent_id IS NULL AND root_id = id)
+        OR (is_root = 0 AND parent_id IS NOT NULL)
+      )
     );
 
-    CREATE INDEX IF NOT EXISTS workspaces_account_id ON workspaces(account_id);
+    CREATE INDEX IF NOT EXISTS workspaces_parent_id ON workspaces(parent_id);
+    CREATE INDEX IF NOT EXISTS workspaces_root_id ON workspaces(root_id);
 
     CREATE TABLE IF NOT EXISTS actors (
       id TEXT PRIMARY KEY,
-      account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      origin_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      root_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
       kind TEXT NOT NULL CHECK (kind IN ('user', 'agent', 'system')),
       name TEXT NOT NULL,
       email TEXT,
@@ -318,7 +364,8 @@ async function initializeCatalog(database: SqliteDatabase): Promise<void> {
       updated_at TEXT NOT NULL
     );
 
-    CREATE INDEX IF NOT EXISTS actors_account_id ON actors(account_id);
+    CREATE INDEX IF NOT EXISTS actors_origin_id ON actors(origin_id);
+    CREATE INDEX IF NOT EXISTS actors_root_id ON actors(root_id);
 
     CREATE TABLE IF NOT EXISTS memberships (
       id TEXT PRIMARY KEY,
@@ -343,12 +390,10 @@ async function readSchemaVersion(database: SqliteDatabase): Promise<number> {
 }
 
 const insertStatements = {
-  accounts:
-    "INSERT INTO accounts (id, name, shared_workspace_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
   workspaces:
-    "INSERT INTO workspaces (id, account_id, name, created_by_actor_id, spec_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO workspaces (id, is_root, parent_id, root_id, name, created_by_actor_id, spec_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
   actors:
-    "INSERT INTO actors (id, account_id, kind, name, email, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO actors (id, origin_id, root_id, kind, name, email, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
   memberships:
     "INSERT INTO memberships (id, actor_id, workspace_id, roles_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
 } as const;
@@ -378,17 +423,11 @@ function titleCase(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1, -1);
 }
 
-interface AccountRow {
-  id: string;
-  name: string;
-  shared_workspace_id: string;
-  created_at: string;
-  updated_at: string;
-}
-
 interface WorkspaceRow {
   id: string;
-  account_id: string;
+  is_root: number;
+  parent_id: string | null;
+  root_id: string;
   name: string;
   created_by_actor_id: string | null;
   spec_json: string;
@@ -398,7 +437,8 @@ interface WorkspaceRow {
 
 interface ActorRow {
   id: string;
-  account_id: string;
+  origin_id: string;
+  root_id: string;
   kind: ActorKind;
   name: string;
   email: string | null;
@@ -415,20 +455,12 @@ interface MembershipRow {
   updated_at: string;
 }
 
-function accountFromRow(row: AccountRow): Account {
-  return {
-    id: row.id,
-    name: row.name,
-    sharedWorkspaceId: row.shared_workspace_id,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
-
 function workspaceFromRow(row: WorkspaceRow): Workspace {
   return {
     id: row.id,
-    accountId: row.account_id,
+    isRoot: row.is_root === 1,
+    parentId: row.parent_id,
+    rootId: row.root_id,
     name: row.name,
     ...(row.created_by_actor_id === null ? {} : { createdByActorId: row.created_by_actor_id }),
     spec: JSON.parse(row.spec_json) as Spec,
@@ -440,7 +472,8 @@ function workspaceFromRow(row: WorkspaceRow): Workspace {
 function actorFromRow(row: ActorRow): Actor {
   return {
     id: row.id,
-    accountId: row.account_id,
+    originId: row.origin_id,
+    rootId: row.root_id,
     kind: row.kind,
     name: row.name,
     ...(row.email === null ? {} : { email: row.email }),

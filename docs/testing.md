@@ -72,7 +72,7 @@ Fixtures must not encode TypeScript object identity or SQLite implementation det
 
 The architecture defines three cross-cutting scenarios:
 
-- **S1:** Builder Account/shared Workspace/App and attached shared Collections;
+- **S1:** Builder root Space / child App Workspaces and attached shared Collections;
 - **S2:** Teamloop module scopes and module Events;
 - **S3:** delegated Workspace, local Actors, filtered Attachment, attenuation, revocation, and explicit `runAs`.
 

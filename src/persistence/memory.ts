@@ -1,5 +1,5 @@
 import { resourceConflict, resourceNotFound } from "../errors/error.ts";
-import type { Account, Actor, Membership, Workspace } from "../kernel/model.ts";
+import type { Actor, Membership, Workspace } from "../kernel/model.ts";
 import type { CollectionDefinition } from "../spec/model.ts";
 import type {
   CatalogRepository,
@@ -8,9 +8,14 @@ import type {
   PersistenceSession,
 } from "./catalog.ts";
 import type { CollectionRecord, RecordStore } from "./records.ts";
+import {
+  assertActorIntegrity,
+  assertMembershipIntegrity,
+  assertWorkspaceIntegrity,
+  assertWorkspaceTopologyUnchanged,
+} from "./catalog-integrity.ts";
 
 interface MemoryState {
-  accounts: Map<string, Account>;
   workspaces: Map<string, Workspace>;
   actors: Map<string, Actor>;
   memberships: Map<string, Membership>;
@@ -46,28 +51,41 @@ export class MemoryCatalogRepository implements CatalogRepository, CatalogTransa
   private state = emptyState();
   private queue: Promise<unknown> = Promise.resolve();
 
-  async getAccount(id: string): Promise<Account | null> {
-    return cloneOptional(this.state.accounts.get(id));
-  }
-
-  async listAccounts(): Promise<Account[]> {
-    return cloneValues(this.state.accounts);
-  }
-
   async getWorkspace(id: string): Promise<Workspace | null> {
     return cloneOptional(this.state.workspaces.get(id));
   }
 
-  async listWorkspaces(accountId: string): Promise<Workspace[]> {
-    return cloneValues(this.state.workspaces).filter((item) => item.accountId === accountId);
+  async listRootWorkspaces(): Promise<Workspace[]> {
+    return cloneValues(this.state.workspaces).filter((item) => item.isRoot);
+  }
+
+  async listChildWorkspaces(parentId: string): Promise<Workspace[]> {
+    return cloneValues(this.state.workspaces).filter((item) => item.parentId === parentId);
+  }
+
+  async listWorkspacesByRoot(rootId: string): Promise<Workspace[]> {
+    return cloneValues(this.state.workspaces).filter((item) => item.rootId === rootId);
   }
 
   async getActor(id: string): Promise<Actor | null> {
     return cloneOptional(this.state.actors.get(id));
   }
 
-  async listActors(accountId: string): Promise<Actor[]> {
-    return cloneValues(this.state.actors).filter((item) => item.accountId === accountId);
+  async listActorsByOrigin(originId: string): Promise<Actor[]> {
+    return cloneValues(this.state.actors).filter((item) => item.originId === originId);
+  }
+
+  async listActorsByRoot(rootId: string): Promise<Actor[]> {
+    return cloneValues(this.state.actors).filter((item) => item.rootId === rootId);
+  }
+
+  async listActorsForWorkspace(workspaceId: string): Promise<Actor[]> {
+    const actorIds = new Set(
+      cloneValues(this.state.memberships)
+        .filter((item) => item.workspaceId === workspaceId)
+        .map((item) => item.actorId),
+    );
+    return cloneValues(this.state.actors).filter((item) => actorIds.has(item.id));
   }
 
   async getMembership(actorId: string, workspaceId: string): Promise<Membership | null> {
@@ -86,19 +104,18 @@ export class MemoryCatalogRepository implements CatalogRepository, CatalogTransa
     return cloneValues(this.state.memberships).filter((item) => item.workspaceId === workspaceId);
   }
 
-  async insertAccount(account: Account): Promise<void> {
-    insertUnique(this.state.accounts, account, "Account");
-  }
-
   async insertWorkspace(workspace: Workspace): Promise<void> {
+    await assertWorkspaceIntegrity(this, workspace);
     insertUnique(this.state.workspaces, workspace, "Workspace");
   }
 
   async insertActor(actor: Actor): Promise<void> {
+    await assertActorIntegrity(this, actor);
     insertUnique(this.state.actors, actor, "Actor");
   }
 
   async insertMembership(membership: Membership): Promise<void> {
+    await assertMembershipIntegrity(this, membership);
     if (await this.getMembership(membership.actorId, membership.workspaceId)) {
       throw resourceConflict("The Actor is already a member of this Workspace.");
     }
@@ -106,7 +123,9 @@ export class MemoryCatalogRepository implements CatalogRepository, CatalogTransa
   }
 
   async updateWorkspace(workspace: Workspace): Promise<void> {
-    if (!this.state.workspaces.has(workspace.id)) throw resourceNotFound("Workspace", workspace.id);
+    const previous = this.state.workspaces.get(workspace.id);
+    if (!previous) throw resourceNotFound("Workspace", workspace.id);
+    assertWorkspaceTopologyUnchanged(previous, workspace);
     this.state.workspaces.set(workspace.id, clone(workspace));
   }
 
@@ -224,7 +243,6 @@ interface MemoryRecordState {
 
 function emptyState(): MemoryState {
   return {
-    accounts: new Map(),
     workspaces: new Map(),
     actors: new Map(),
     memberships: new Map(),
@@ -242,7 +260,6 @@ function insertUnique<T extends { readonly id: string }>(
 
 function cloneState(state: MemoryState): MemoryState {
   return {
-    accounts: cloneMap(state.accounts),
     workspaces: cloneMap(state.workspaces),
     actors: cloneMap(state.actors),
     memberships: cloneMap(state.memberships),

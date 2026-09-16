@@ -16,6 +16,11 @@ Greenfield and pre-release. Phases 0 and 1 are implemented: the Kernel can apply
 Collection Specs and perform validated record CRUD through interchangeable memory and SQLite
 adapters. There is no backwards-compatibility contract with the current Builder.run runtime.
 
+Workspace is the sole Kernel place. Root and parent columns group Workspaces without
+inheriting permissions. Actors are issued in a Workspace; persisted Memberships determine
+where they may act. There is no Kernel Account. See the [architecture](docs/architecture.md)
+for identity, roster, and host terminology.
+
 ## Development
 
 ```bash

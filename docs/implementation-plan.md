@@ -12,10 +12,10 @@ No compatibility with the current Spec, `Host`, `TypeDef`, `WorkflowDef`, widget
 
 ## Progress
 
-| Phase | Status   | Delivered                                                                                        |
-| ----- | -------- | ------------------------------------------------------------------------------------------------ |
-| 0     | Complete | Package boundary, Kernel, Account/Workspace/Actor/Membership, authorization, environment, SQLite |
-| 1     | Complete | Collection/Field Spec, runtime validation, RecordStore contracts, CRUD, schema materialization   |
+| Phase | Status   | Delivered                                                                                      |
+| ----- | -------- | ---------------------------------------------------------------------------------------------- |
+| 0     | Complete | Package boundary, Kernel, Workspace/Actor/Membership, authorization, environment, SQLite       |
+| 1     | Complete | Collection/Field Spec, runtime validation, RecordStore contracts, CRUD, schema materialization |
 
 Later phases remain intentionally unimplemented; their entries below are the source of truth for scope.
 
@@ -25,17 +25,17 @@ Later phases remain intentionally unimplemented; their entries below are the sou
 
 ### S1 — Builder.run (Space, App, expose)
 
-**Story:** Switch Spaces. Each Space has Apps. The Space's always-created shared Workspace owns shared Collections such as Contacts. Apps are Workspaces with local Collections such as Invoices and consume shared Collections through Attachments. Shared records live once. Implicit list/create/edit is Builder host policy.
+**Story:** Switch Spaces. Each Space is a root Workspace; its Apps are child Workspaces. The Space owns shared Collections such as Contacts. Apps have local Collections such as Invoices and consume shared Collections through Attachments. Shared records live once. Implicit list/create/edit is Builder host policy.
 
-**Kernel must:** Account + shared Workspace + App Workspaces + persisted Actor Memberships + Collections + live Attachments + Spec on a Workspace.
+**Kernel must:** root Space Workspace + child App Workspaces + workspace-issued Actors + persisted Memberships + Collections + live Attachments + Spec on a Workspace.
 
 **Host:** Space/App chrome, expose UX, Studio, implicit Pages, WebMCP.
 
-**Must not:** `parentWorkspaceId`; copy Contacts into every App; treat Account and Workspace as one recursive type.
+**Must not:** infer access from Workspace grouping; copy Contacts into every App; introduce Account as a second Kernel place.
 
 ### S2 — Teamloop (Organisation, Workspace, module scopes)
 
-**Story:** Switch Organisations. Each Account has Workspaces. Account-level Collections live in its shared Workspace and may be attached to operational Workspaces. Recursive Channels, Topics, Conversations, and Threads are module scopes inside a Workspace. A Collection may bind to a module scope. `message.posted` may trigger a Rule. Conversation invariants remain module code.
+**Story:** Switch Organisations. Each Organisation is a root Workspace with operational child Workspaces. Root-owned Collections may be attached to operational Workspaces. Recursive Channels, Topics, Conversations, and Threads are module scopes inside a Workspace. A Collection may bind to a module scope. `message.posted` may trigger a Rule. Conversation invariants remain module code.
 
 **Kernel must:** S1 capabilities + opaque Collection scope binding + module Actions, Sources, and string-key Events.
 
@@ -45,7 +45,7 @@ Later phases remain intentionally unimplemented; their entries below are the sou
 
 ### S3 — Delegated Workspace, local Actors, and attached slices
 
-**Story:** Jane is a member of operational Workspace **HR** (not the Account’s hidden shared Workspace) with read/write on Job Openings. Its ACL permits `others: read`. Jane creates Summer Recruiting and attaches a filtered live slice of Job Openings. Candidates are Account Actors whose **only** Membership is Summer Recruiting; they cannot access HR. A candidate action may trigger a Rule. Its local Actions inherit the candidate as execution Actor. An upstream close step works only when it explicitly uses a `runAs` Actor binding resolved to Jane, whose current HR permission is still checked. Attribution is Jane.
+**Story:** Jane is issued in the root Space and a member of non-root Workspace **HR**, with read/write on Job Openings. Its ACL permits `others: read`. From HR she spawns Summer Recruiting, which inherits the Space's `root_id`, and attaches a filtered live slice of Job Openings. Candidates are issued in Recruiting (`origin_id = recruiting`, `root_id = space`) and receive Membership only there. They cannot access HR and are not listed as root-issued people. A candidate action may trigger a Rule. Its local Actions inherit the candidate as execution Actor. An upstream close step works only when it explicitly uses a `runAs` Actor binding resolved to Jane, whose current HR permission is still checked. Attribution is Jane.
 
 A snapshot alternative copies selected openings into an independent local Collection. Local users may edit it. Only an explicit Rule bridges selected changes upstream.
 
@@ -66,18 +66,18 @@ A snapshot alternative copies selected openings into an independent local Collec
 
 ## Scenario progression
 
-| After phase                   | S1                                                     | S2                                         | S3                                                   |
-| ----------------------------- | ------------------------------------------------------ | ------------------------------------------ | ---------------------------------------------------- |
-| 0 Kernel/package skeleton     | Account, shared Workspace, Actor, persisted Membership | same                                       | fixture identities and authorization seam            |
-| 1 Collections                 | local/shared Collections                               | same                                       | isolated local Collections                           |
-| 2 Attachments                 | shared Workspace -> App live Attachment                | Organisation shared Workspace -> Workspace | mechanical live Attachment and revocation            |
-| 3 Sources, Views, Blocks      | Views over local/attached Sources                      | same                                       | filtered read and relation traversal                 |
-| 4 Forms, Pages, Builder slice | usable Builder host                                    | bound-Collection surface fixture           | snapshot surface may wait for Actions                |
-| 5 Primitive Actions + Rules   | record Rules                                           | `message.posted` trigger                   | Actor propagation, explicit `runAs`, snapshot Action |
-| 6 ACL, `others`, spawn        | restricted Builder policy                              | —                                          | complete narrow S3 proof and attenuation             |
-| 7 Durable RuleExecution       | waits                                                  | —                                          | optional User confirmation                           |
-| 8 AgentRuntime                | Agent execution Actor                                  | —                                          | —                                                    |
-| 9 Module scope binding        | —                                                      | Collection bound to Topic                  | —                                                    |
+| After phase                   | S1                                                  | S2                                     | S3                                                   |
+| ----------------------------- | --------------------------------------------------- | -------------------------------------- | ---------------------------------------------------- |
+| 0 Kernel/package skeleton     | root Space, child Apps, Actor, persisted Membership | root Organisation and child Workspaces | fixture identities and authorization seam            |
+| 1 Collections                 | local/shared Collections                            | same                                   | isolated local Collections                           |
+| 2 Attachments                 | root Space -> App live Attachment                   | root Organisation -> child Workspace   | mechanical live Attachment and revocation            |
+| 3 Sources, Views, Blocks      | Views over local/attached Sources                   | same                                   | filtered read and relation traversal                 |
+| 4 Forms, Pages, Builder slice | usable Builder host                                 | bound-Collection surface fixture       | snapshot surface may wait for Actions                |
+| 5 Primitive Actions + Rules   | record Rules                                        | `message.posted` trigger               | Actor propagation, explicit `runAs`, snapshot Action |
+| 6 ACL, `others`, spawn        | restricted Builder policy                           | —                                      | complete narrow S3 proof and attenuation             |
+| 7 Durable RuleExecution       | waits                                               | —                                      | optional User confirmation                           |
+| 8 AgentRuntime                | Agent execution Actor                               | —                                      | —                                                    |
+| 9 Module scope binding        | —                                                   | Collection bound to Topic              | —                                                    |
 
 Builder UI tracks S1. S2 and S3 remain conformance fixtures until their products exist.
 
@@ -88,7 +88,7 @@ Builder UI tracks S1. S2 and S3 remain conformance fixtures until their products
 - Teamloop or Workspaces-app production UI;
 - rolling Materialization, writable overlays, or bidirectional synchronization;
 - external API Sources or sync/CDC;
-- recursive Workspaces, parent inheritance, or topology SPI;
+- custom multi-level Workspace ACL, parent permission inheritance, or topology SPI;
 - nested permission evaluation;
 - a full ACL algebra in Phase 0;
 - user-managed Delegation/ActionAuthority for Rules;
@@ -107,11 +107,11 @@ Builder UI tracks S1. S2 and S3 remain conformance fixtures until their products
 
 **Goal:** Establish the new core and dependency direction without rewriting the Builder frontend.
 
-**In:** one framework package/folder in this repo with subpath-ready boundaries for Spec, Kernel, persistence contracts, SQLite, Svelte, and Blocks; `Kernel`; `Account`; always-created shared Workspace; operational Workspace; Actor (`user | agent | system`) **owned by Account**; persisted Membership; empty Spec v2 (`collections`, `views`, `forms`, `pages`, `rules`); `PersistenceAdapter`; browser-local `EnvironmentProfile`; execution context `{ accountId, workspaceId, actorId }`; authorization choke point `authorize(actor, action, resource)` with a coarse `ResourceRef` (`account` | `workspace` | `collection` | `record`) and a permissive local implementation. Remove Store from the new Spec. Use Block terminology in new APIs. Persist Memberships even for the single-user bootstrap (do not infer access from `created_by`).
+**In:** one framework package with subpath-ready boundaries for Spec, Kernel, persistence contracts, SQLite, Svelte, and Blocks; `Kernel`; Workspace with immutable `isRoot`, `parentId`, `rootId`; Actor (`user | agent | system`) with `originId`, `rootId`; persisted Membership; empty Spec v2 (`collections`, `views`, `forms`, `pages`, `rules`); `PersistenceAdapter`; browser-local `EnvironmentProfile`; execution context `{ workspaceId, actorId }`; authorization choke point `authorize(actor, action, resource)` with a coarse `ResourceRef` (`workspace` | `collection` | `record`) and a permissive local implementation. Bootstrap one root Workspace, issue User/System there, and persist Memberships. Ordinary spawning uses the active Workspace as parent and copies its root. Normal Actor rosters use issuance or Membership; universe listing is explicitly privileged. No Account Kernel type, topology ACL, or ancestry authorization. Remove Store from the new Spec. Use Block terminology. Never infer access from `created_by`.
 
 **Out:** complete ACL semantics, Attachments, Rules running, AgentRuntime, and UI rewrite.
 
-**Tests:** create Account and automatic shared Workspace; create operational Workspace and Actors on the Account; persist Memberships; switch Account and Workspace; `authorize` is invoked with Actor, action, and ResourceRef; S1/S2/S3 fixture identities (S3 HR is an operational Workspace).
+**Tests:** bootstrap root Workspace and locally issued User/System; spawn child and nested Workspaces from the current context; verify inherited root and immutable grouping; persist Memberships; verify issuance and membership rosters separately; reject cross-root Memberships; `authorize` is invoked with Actor, action, and ResourceRef without grouping fields; S1/S2/S3 fixtures (HR is non-root; candidate is issued in Recruiting).
 
 **Success:** new Kernel tests never use old `Host`; Kernel imports no Svelte, Builder navigation/session globals, or SQLite implementation.
 
@@ -241,9 +241,8 @@ Phase 5 may begin once Attachment resolution exists. Phase 6 completes security 
 Closed v1 set:
 
 ```text
-Account
-Workspace + always-created shared Workspace
-Actor + persisted Membership
+Workspace + root/parent grouping (not ACL)
+Actor + issuance/root grouping + persisted Membership
 Collection + Source + View
 Attachment + ACL (members and others)
 Field + Form
@@ -255,4 +254,4 @@ AgentRuntime port
 Module scope binding
 ```
 
-We are not buying Workspace trees, permission inheritance, topology SPI, nested permission checks, rolling Materialization in the v1 Spec, user-managed Delegation, revision authorization, ModuleDefinition, KernelConfig, Template as a Kernel node, or an agent SDK as foundation.
+We are not buying custom multi-level ACL, permission inheritance, topology SPI, nested permission checks, rolling Materialization in the v1 Spec, user-managed Delegation, revision authorization, ModuleDefinition, KernelConfig, Template as a Kernel node, or an agent SDK as foundation. Workspace grouping columns do not implement those features.

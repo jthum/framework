@@ -28,22 +28,20 @@ describe("SQLite catalog adapter", () => {
   it("runs the kernel on a normalized SQLite catalog", async () => {
     expect.hasAssertions();
     const kernel = await openKernel(":memory:");
-    const created = await kernel.createAccount({
+    const created = await kernel.createRootWorkspace({
       name: "Acme",
       user: { name: "Jane", email: "jane@example.com" },
     });
     const context = {
-      accountId: created.account.id,
-      workspaceId: created.sharedWorkspace.id,
+      workspaceId: created.rootWorkspace.id,
       actorId: created.user.id,
     };
     const { workspace } = await kernel.createWorkspace(context, { name: "Projects" });
 
-    expect(created.account.sharedWorkspaceId).toBe(created.sharedWorkspace.id);
-    expect((await kernel.listWorkspaces(created.account.id)).map((item) => item.name)).toEqual([
-      "Acme",
-      "Projects",
-    ]);
+    expect(created.rootWorkspace.rootId).toBe(created.rootWorkspace.id);
+    expect(
+      (await kernel.listWorkspacesByRoot(created.rootWorkspace.id)).map((item) => item.name),
+    ).toEqual(["Acme", "Projects"]);
     expect(await kernel.listMembershipsForActor(created.user.id)).toHaveLength(2);
     expect(workspace.spec).toMatchObject({ version: 2, key: "projects" });
 
@@ -55,14 +53,13 @@ describe("SQLite catalog adapter", () => {
     const directory = await makeTemporaryDirectory();
     const path = join(directory, "catalog.sqlite");
     const first = await openKernel(path);
-    const created = await first.createAccount({ name: "Acme", user: { name: "Jane" } });
+    const created = await first.createRootWorkspace({ name: "Acme", user: { name: "Jane" } });
     await first.close();
 
     const second = await openKernel(path);
 
-    expect(await second.getAccount(created.account.id)).toEqual(created.account);
-    expect(await second.getWorkspace(created.sharedWorkspace.id)).toEqual(created.sharedWorkspace);
-    expect(await second.listMembershipsForWorkspace(created.sharedWorkspace.id)).toEqual(
+    expect(await second.getWorkspace(created.rootWorkspace.id)).toEqual(created.rootWorkspace);
+    expect(await second.listMembershipsForWorkspace(created.rootWorkspace.id)).toEqual(
       created.memberships,
     );
 
@@ -99,15 +96,15 @@ describe("SQLite catalog adapter", () => {
     await second.close();
   });
 
-  it("rolls back an incomplete account bootstrap atomically", async () => {
+  it("rolls back an incomplete root Workspace bootstrap atomically", async () => {
     expect.hasAssertions();
     const persistence = new SqlitePersistenceAdapter(() => openNodeSqlite());
     const kernel = await Kernel.open({ persistence, ids: constantIds, clock: fixedClock });
 
     await expect(
-      kernel.createAccount({ name: "Acme", user: { name: "Jane" } }),
+      kernel.createRootWorkspace({ name: "Acme", user: { name: "Jane" } }),
     ).rejects.toMatchObject({ code: ERROR_CODES.resourceConflict });
-    expect(await kernel.listAccounts()).toEqual([]);
+    expect(await kernel.listRootWorkspaces()).toEqual([]);
 
     await kernel.close();
   });
@@ -120,7 +117,7 @@ describe("SQLite catalog adapter", () => {
 
     await expect(persistence.open()).rejects.toMatchObject({
       code: ERROR_CODES.persistenceUnsupported,
-      details: { actualVersion: 99, supportedVersion: 2 },
+      details: { actualVersion: 99, supportedVersion: 3 },
     });
 
     await database.close();

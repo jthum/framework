@@ -3,17 +3,11 @@ import type { Spec } from "../spec/model.ts";
 export const ACTOR_KINDS = ["user", "agent", "system"] as const;
 export type ActorKind = (typeof ACTOR_KINDS)[number];
 
-export interface Account {
-  readonly id: string;
-  readonly name: string;
-  readonly sharedWorkspaceId: string;
-  readonly createdAt: string;
-  readonly updatedAt: string;
-}
-
 export interface Workspace {
   readonly id: string;
-  readonly accountId: string;
+  readonly isRoot: boolean;
+  readonly parentId: string | null;
+  readonly rootId: string;
   readonly name: string;
   readonly createdByActorId?: string;
   readonly spec: Spec;
@@ -23,7 +17,8 @@ export interface Workspace {
 
 export interface Actor {
   readonly id: string;
-  readonly accountId: string;
+  readonly originId: string;
+  readonly rootId: string;
   readonly kind: ActorKind;
   readonly name: string;
   readonly email?: string;
@@ -41,7 +36,6 @@ export interface Membership {
 }
 
 export interface ExecutionContext {
-  readonly accountId: string;
   readonly workspaceId: string;
   readonly actorId: string;
 }

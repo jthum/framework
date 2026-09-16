@@ -26,14 +26,7 @@ import {
   prepareMigratedValues,
   prepareUpdateValues,
 } from "./record-values.ts";
-import type {
-  Account,
-  Actor,
-  ActorKind,
-  ExecutionContext,
-  Membership,
-  Workspace,
-} from "./model.ts";
+import type { Actor, ActorKind, ExecutionContext, Membership, Workspace } from "./model.ts";
 
 export interface KernelOptions {
   readonly persistence: PersistenceAdapter;
@@ -43,7 +36,7 @@ export interface KernelOptions {
   readonly environment?: EnvironmentProfile;
 }
 
-export interface CreateAccountInput {
+export interface CreateRootWorkspaceInput {
   readonly name: string;
   readonly user: {
     readonly name: string;
@@ -51,9 +44,8 @@ export interface CreateAccountInput {
   };
 }
 
-export interface AccountBootstrap {
-  readonly account: Account;
-  readonly sharedWorkspace: Workspace;
+export interface RootWorkspaceBootstrap {
+  readonly rootWorkspace: Workspace;
   readonly user: Actor;
   readonly system: Actor;
   readonly memberships: readonly [Membership, Membership];
@@ -91,28 +83,22 @@ export class Kernel {
     );
   }
 
-  async createAccount(input: CreateAccountInput): Promise<AccountBootstrap> {
-    const name = requiredName(input.name, "Account");
+  async createRootWorkspace(input: CreateRootWorkspaceInput): Promise<RootWorkspaceBootstrap> {
+    const name = requiredName(input.name, "Workspace");
     const userName = requiredName(input.user.name, "User");
     const stamp = this.clock.now();
-    const accountId = this.ids.create("account");
     const workspaceId = this.ids.create("workspace");
     const userId = this.ids.create("actor");
     const systemId = this.ids.create("actor");
-    const account: Account = {
-      id: accountId,
-      name,
-      sharedWorkspaceId: workspaceId,
-      createdAt: stamp,
-      updatedAt: stamp,
-    };
-    const sharedWorkspace: Workspace = {
+    const rootWorkspace: Workspace = {
       id: workspaceId,
-      accountId,
+      isRoot: true,
+      parentId: null,
+      rootId: workspaceId,
       name,
       spec: createEmptySpec({
         id: this.ids.create("spec"),
-        key: semanticKey(name, "shared"),
+        key: semanticKey(name),
         label: name,
       }),
       createdAt: stamp,
@@ -120,7 +106,8 @@ export class Kernel {
     };
     const user: Actor = {
       id: userId,
-      accountId,
+      originId: workspaceId,
+      rootId: workspaceId,
       kind: "user",
       name: userName,
       ...(input.user.email === undefined ? {} : { email: input.user.email }),
@@ -129,7 +116,8 @@ export class Kernel {
     };
     const system: Actor = {
       id: systemId,
-      accountId,
+      originId: workspaceId,
+      rootId: workspaceId,
       kind: "system",
       name: "System",
       createdAt: stamp,
@@ -141,15 +129,14 @@ export class Kernel {
     ] as const;
 
     await this.catalog.transaction(async (transaction) => {
-      await transaction.insertAccount(account);
-      await transaction.insertWorkspace(sharedWorkspace);
+      await transaction.insertWorkspace(rootWorkspace);
       await transaction.insertActor(user);
       await transaction.insertActor(system);
       await transaction.insertMembership(memberships[0]);
       await transaction.insertMembership(memberships[1]);
     });
 
-    return { account, sharedWorkspace, user, system, memberships };
+    return { rootWorkspace, user, system, memberships };
   }
 
   async createWorkspace(
@@ -157,17 +144,24 @@ export class Kernel {
     input: CreateWorkspaceInput,
   ): Promise<{ workspace: Workspace; membership: Membership }> {
     await this.assertContext(context);
+    const parent = await this.requireWorkspace(context.workspaceId);
     await this.assertAuthorized({
       context,
       operation: "workspaces.create",
-      resource: { kind: "account", id: context.accountId, accountId: context.accountId },
+      resource: {
+        kind: "workspace",
+        id: context.workspaceId,
+        workspaceId: context.workspaceId,
+      },
     });
 
     const name = requiredName(input.name, "Workspace");
     const stamp = this.clock.now();
     const workspace: Workspace = {
       id: this.ids.create("workspace"),
-      accountId: context.accountId,
+      isRoot: false,
+      parentId: parent.id,
+      rootId: parent.rootId,
       name,
       createdByActorId: context.actorId,
       spec: createEmptySpec({
@@ -188,15 +182,21 @@ export class Kernel {
 
   async createActor(context: ExecutionContext, input: CreateActorInput): Promise<Actor> {
     await this.assertContext(context);
+    const origin = await this.requireWorkspace(context.workspaceId);
     await this.assertAuthorized({
       context,
       operation: "actors.create",
-      resource: { kind: "account", id: context.accountId, accountId: context.accountId },
+      resource: {
+        kind: "workspace",
+        id: origin.id,
+        workspaceId: origin.id,
+      },
     });
     const stamp = this.clock.now();
     const actor: Actor = {
       id: this.ids.create("actor"),
-      accountId: context.accountId,
+      originId: origin.id,
+      rootId: origin.rootId,
       kind: input.kind,
       name: requiredName(input.name, "Actor"),
       ...(input.email === undefined ? {} : { email: input.email }),
@@ -214,10 +214,11 @@ export class Kernel {
     await this.assertContext(context);
     const actor = await this.requireActor(input.actorId);
     const workspace = await this.requireWorkspace(input.workspaceId);
-    if (actor.accountId !== context.accountId || workspace.accountId !== context.accountId) {
+    const active = await this.requireWorkspace(context.workspaceId);
+    if (actor.rootId !== workspace.rootId || active.rootId !== workspace.rootId) {
       throw new FrameworkError({
         code: ERROR_CODES.permissionDenied,
-        message: "Membership cannot cross Account boundaries.",
+        message: "Membership cannot cross root Workspace boundaries.",
       });
     }
     await this.assertAuthorized({
@@ -226,7 +227,6 @@ export class Kernel {
       resource: {
         kind: "workspace",
         id: workspace.id,
-        accountId: workspace.accountId,
         workspaceId: workspace.id,
       },
     });
@@ -247,17 +247,16 @@ export class Kernel {
   async applySpec(context: ExecutionContext, input: unknown): Promise<Workspace> {
     await this.assertContext(context);
     assertValidSpec(input);
+    const current = await this.requireWorkspace(context.workspaceId);
     await this.assertAuthorized({
       context,
       operation: "spec.update",
       resource: {
         kind: "workspace",
         id: context.workspaceId,
-        accountId: context.accountId,
         workspaceId: context.workspaceId,
       },
     });
-    const current = await this.requireWorkspace(context.workspaceId);
     const spec: Spec = structuredClone(input);
     await this.assertSchemaCompatible(current, spec);
     await this.persistence.records.materialize(current.id, spec.collections);
@@ -361,28 +360,43 @@ export class Kernel {
     await this.persistence.records.delete(context.workspaceId, collection, recordId);
   }
 
-  getAccount(id: string): Promise<Account | null> {
-    return this.catalog.getAccount(id);
-  }
-
-  listAccounts(): Promise<Account[]> {
-    return this.catalog.listAccounts();
-  }
-
   getWorkspace(id: string): Promise<Workspace | null> {
     return this.catalog.getWorkspace(id);
   }
 
-  listWorkspaces(accountId: string): Promise<Workspace[]> {
-    return this.catalog.listWorkspaces(accountId);
+  listRootWorkspaces(): Promise<Workspace[]> {
+    return this.catalog.listRootWorkspaces();
+  }
+
+  listChildWorkspaces(parentId: string): Promise<Workspace[]> {
+    return this.catalog.listChildWorkspaces(parentId);
+  }
+
+  listWorkspacesByRoot(rootId: string): Promise<Workspace[]> {
+    return this.catalog.listWorkspacesByRoot(rootId);
   }
 
   getActor(id: string): Promise<Actor | null> {
     return this.catalog.getActor(id);
   }
 
-  listActors(accountId: string): Promise<Actor[]> {
-    return this.catalog.listActors(accountId);
+  listActorsByOrigin(originId: string): Promise<Actor[]> {
+    return this.catalog.listActorsByOrigin(originId);
+  }
+
+  async listActorsByRoot(context: ExecutionContext): Promise<Actor[]> {
+    await this.assertContext(context);
+    await this.assertAuthorized({
+      context,
+      operation: "actors.listByRoot",
+      resource: { kind: "workspace", id: context.workspaceId, workspaceId: context.workspaceId },
+    });
+    const workspace = await this.requireWorkspace(context.workspaceId);
+    return this.catalog.listActorsByRoot(workspace.rootId);
+  }
+
+  listActorsForWorkspace(workspaceId: string): Promise<Actor[]> {
+    return this.catalog.listActorsForWorkspace(workspaceId);
   }
 
   listMembershipsForActor(actorId: string): Promise<Membership[]> {
@@ -403,16 +417,14 @@ export class Kernel {
   }
 
   private async assertContext(context: ExecutionContext): Promise<void> {
-    const account = await this.catalog.getAccount(context.accountId);
-    if (!account) throw resourceNotFound("Account", context.accountId);
     const workspace = await this.catalog.getWorkspace(context.workspaceId);
     if (!workspace) throw resourceNotFound("Workspace", context.workspaceId);
     const actor = await this.catalog.getActor(context.actorId);
     if (!actor) throw resourceNotFound("Actor", context.actorId);
-    if (workspace.accountId !== account.id || actor.accountId !== account.id) {
+    if (workspace.rootId !== actor.rootId) {
       throw new FrameworkError({
         code: ERROR_CODES.permissionDenied,
-        message: "Execution context crosses Account boundaries.",
+        message: "Execution context crosses root Workspace boundaries.",
       });
     }
     if (!(await this.catalog.getMembership(actor.id, workspace.id))) {
@@ -566,7 +578,6 @@ export class Kernel {
     return {
       kind: "collection",
       id: collection.id,
-      accountId: context.accountId,
       workspaceId: context.workspaceId,
       collectionId: collection.id,
     };
@@ -580,7 +591,6 @@ export class Kernel {
     return {
       kind: "record",
       id: recordId,
-      accountId: context.accountId,
       workspaceId: context.workspaceId,
       collectionId: collection.id,
     };

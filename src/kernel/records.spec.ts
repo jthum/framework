@@ -190,7 +190,7 @@ describe("Kernel Collections and records", () => {
 
 async function bootstrap(authorizer?: Authorizer): Promise<{
   kernel: Kernel;
-  context: { accountId: string; workspaceId: string; actorId: string };
+  context: { workspaceId: string; actorId: string };
 }> {
   const kernel = await Kernel.open({
     persistence: new MemoryPersistenceAdapter(),
@@ -198,15 +198,14 @@ async function bootstrap(authorizer?: Authorizer): Promise<{
     clock: fixedClock,
     ...(authorizer ? { authorizer } : {}),
   });
-  const { account, sharedWorkspace, user } = await kernel.createAccount({
+  const { rootWorkspace, user } = await kernel.createRootWorkspace({
     name: "Acme",
     user: { name: "Jane" },
   });
   return {
     kernel,
     context: {
-      accountId: account.id,
-      workspaceId: sharedWorkspace.id,
+      workspaceId: rootWorkspace.id,
       actorId: user.id,
     },
   };

@@ -25,7 +25,6 @@ Formatting is owned by Oxfmt through Vite+. Linting is owned by Oxlint. Do not a
 Use the framework terms consistently in code, Specs, tests, and documentation:
 
 ```text
-Account
 Workspace
 Actor
 Membership
@@ -93,7 +92,6 @@ Actor authority is explicit at mutation boundaries:
 
 ```ts
 interface ExecutionContext {
-  accountId: string;
   workspaceId: string;
   actorId: string;
 }
@@ -105,7 +103,9 @@ Actions in a Rule inherit its execution Actor. An explicit `runAs` changes the e
 
 ## Spec and instance boundaries
 
-The portable Spec contains definitions, semantic keys, and binding intent. It does not contain records, concrete Accounts, concrete Attachments, secrets, sessions, or deployment-specific handles.
+The portable Spec contains definitions, semantic keys, and binding intent. It does not contain records, concrete Workspaces, concrete Attachments, secrets, sessions, or deployment-specific handles.
+
+Workspace `isRoot`, `parentId`, and `rootId` are grouping only. Actor `originId` is issuance and login realm; `rootId` is grouping only. Never authorize by ancestry, issuance, or root. Use issuance/Membership for normal rosters; root-wide Actor discovery is an explicit privileged operation. There is no Kernel Account.
 
 - Spec values must be plain JSON-compatible data.
 - Do not store functions, class instances, Svelte proxies, database handles, or framework objects in the Spec.

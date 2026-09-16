@@ -1,13 +1,6 @@
 import { nanoid } from "nanoid";
 
-export type IdKind =
-  | "account"
-  | "actor"
-  | "definition"
-  | "membership"
-  | "record"
-  | "spec"
-  | "workspace";
+export type IdKind = "actor" | "definition" | "membership" | "record" | "spec" | "workspace";
 
 export interface IdGenerator {
   create(kind: IdKind): string;
