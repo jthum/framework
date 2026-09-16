@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import { ERROR_CODES } from "../errors/error.ts";
 import { Kernel } from "../kernel/kernel.ts";
-import type { ViewResult } from "../kernel/views.ts";
+import type { ViewQueryResult } from "../kernel/views.ts";
 import { MemoryPersistenceAdapter } from "../persistence/memory.ts";
 import type { BlockInput, BlockModule } from "./model.ts";
 import { BlockRegistry } from "./registry.ts";
@@ -123,7 +123,10 @@ function renderers(): BlockRegistry<Renderer> {
   ]);
 }
 
-async function renderView(registry: BlockRegistry<Renderer>, result: ViewResult): Promise<string> {
+async function renderView(
+  registry: BlockRegistry<Renderer>,
+  result: ViewQueryResult,
+): Promise<string> {
   if (!result.presentation) throw new Error("Fixture View has no presentation.");
   const module = await registry.load(result.presentation.block);
   return module.default({

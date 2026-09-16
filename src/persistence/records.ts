@@ -13,7 +13,7 @@ export interface CollectionRecord {
 }
 
 export interface RecordStore {
-  materialize(workspaceId: string, collections: readonly CollectionDefinition[]): Promise<void>;
+  applySchema(workspaceId: string, collections: readonly CollectionDefinition[]): Promise<void>;
   create(
     workspaceId: string,
     collection: CollectionDefinition,

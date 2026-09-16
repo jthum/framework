@@ -27,13 +27,13 @@ export class SqliteRecordStore implements RecordStore {
     `);
   }
 
-  materialize(workspaceId: string, collections: readonly CollectionDefinition[]): Promise<void> {
+  applySchema(workspaceId: string, collections: readonly CollectionDefinition[]): Promise<void> {
     return this.database.transaction((connection) =>
-      this.materializeWith(connection, workspaceId, collections),
+      this.applySchemaWith(connection, workspaceId, collections),
     );
   }
 
-  async materializeWith(
+  async applySchemaWith(
     connection: SqliteConnection,
     workspaceId: string,
     collections: readonly CollectionDefinition[],
@@ -224,7 +224,7 @@ async function reconcileFields(
       await connection.execute(
         `ALTER TABLE ${quoteIdentifier(table)} ADD COLUMN ${quoteIdentifier(fieldColumn(field))} TEXT`,
       );
-      const fallback = materializedDefault(next, field.id);
+      const fallback = schemaDefault(next, field.id);
       if (fallback !== undefined) {
         await connection.run(
           `UPDATE ${quoteIdentifier(table)} SET ${quoteIdentifier(fieldColumn(field))} = ?`,
@@ -242,10 +242,7 @@ async function reconcileFields(
   }
 }
 
-function materializedDefault(
-  collection: CollectionDefinition,
-  fieldId: string,
-): JsonValue | undefined {
+function schemaDefault(collection: CollectionDefinition, fieldId: string): JsonValue | undefined {
   const field = collection.fields.find((candidate) => candidate.id === fieldId);
   if (field?.default !== undefined) return field.default;
   return collection.lifecycle?.fieldId === fieldId ? collection.lifecycle.initial : undefined;

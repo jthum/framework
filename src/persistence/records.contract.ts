@@ -6,11 +6,11 @@ import type { CollectionRecord } from "./records.ts";
 
 export function recordStoreContract(name: string, createAdapter: () => PersistenceAdapter): void {
   describe(`${name} RecordStore contract`, () => {
-    it("materializes a Collection and persists detached record values", async () => {
+    it("applies a Collection schema and persists detached record values", async () => {
       expect.hasAssertions();
       const persistence = await createAdapter().open();
       const collection = taskCollection();
-      await persistence.records.materialize("workspace-1", [collection]);
+      await persistence.records.applySchema("workspace-1", [collection]);
       const record = taskRecord(collection.id, "record-1", "Write tests");
 
       await persistence.records.create("workspace-1", collection, record);
@@ -52,8 +52,8 @@ export function recordStoreContract(name: string, createAdapter: () => Persisten
       expect.hasAssertions();
       const persistence = await createAdapter().open();
       const collection = taskCollection();
-      await persistence.records.materialize("workspace-a", [collection]);
-      await persistence.records.materialize("workspace-b", [collection]);
+      await persistence.records.applySchema("workspace-a", [collection]);
+      await persistence.records.applySchema("workspace-b", [collection]);
       await persistence.records.create(
         "workspace-a",
         collection,
@@ -69,7 +69,7 @@ export function recordStoreContract(name: string, createAdapter: () => Persisten
       expect.hasAssertions();
       const persistence = await createAdapter().open();
       const collection = taskCollection();
-      await persistence.records.materialize("workspace-1", [collection]);
+      await persistence.records.applySchema("workspace-1", [collection]);
       await persistence.records.create(
         "workspace-1",
         collection,
@@ -92,7 +92,7 @@ export function recordStoreContract(name: string, createAdapter: () => Persisten
         ],
       };
 
-      await persistence.records.materialize("workspace-1", [renamed]);
+      await persistence.records.applySchema("workspace-1", [renamed]);
 
       expect(await persistence.records.get("workspace-1", renamed, "record-1")).toMatchObject({
         collectionId: collection.id,
@@ -101,18 +101,18 @@ export function recordStoreContract(name: string, createAdapter: () => Persisten
       await persistence.close();
     });
 
-    it("removes materialized data when a Collection leaves the Spec", async () => {
+    it("removes persisted data when a Collection leaves the Spec", async () => {
       expect.hasAssertions();
       const persistence = await createAdapter().open();
       const collection = taskCollection();
-      await persistence.records.materialize("workspace-1", [collection]);
+      await persistence.records.applySchema("workspace-1", [collection]);
       await persistence.records.create(
         "workspace-1",
         collection,
         taskRecord(collection.id, "record-1", "Delete me"),
       );
 
-      await persistence.records.materialize("workspace-1", []);
+      await persistence.records.applySchema("workspace-1", []);
 
       await expect(persistence.records.list("workspace-1", collection)).rejects.toMatchObject({
         code: ERROR_CODES.resourceNotFound,

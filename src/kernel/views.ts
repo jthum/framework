@@ -5,7 +5,7 @@ import type { AuthorizationRequest } from "./authorization.ts";
 import type { ExecutionContext } from "./model.ts";
 import type { SourceResult, SourceService } from "./sources.ts";
 
-export interface ViewResult {
+export interface ViewQueryResult {
   readonly view: ViewDefinition;
   readonly data: SourceResult;
   readonly presentation?: ViewPresentationDefinition;
@@ -34,7 +34,7 @@ export class ViewService {
     return structuredClone(view);
   }
 
-  async query(context: ExecutionContext, key: string): Promise<ViewResult> {
+  async query(context: ExecutionContext, key: string): Promise<ViewQueryResult> {
     const view = await this.get(context, key);
     if (!view) throw resourceNotFound("View", key);
     const data = await this.sources.query(context, view.source, view.query);

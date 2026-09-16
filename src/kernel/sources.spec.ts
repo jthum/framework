@@ -4,6 +4,7 @@ import type { PersistenceAdapter, PersistenceSession } from "../persistence/cata
 import { MemoryCatalogRepository, MemoryRecordStore } from "../persistence/memory.ts";
 import type { CollectionRecord } from "../persistence/records.ts";
 import type { CollectionDefinition } from "../spec/model.ts";
+import type { AuthorizationRequest } from "./authorization.ts";
 import { Kernel } from "./kernel.ts";
 
 describe("Source contract", () => {
@@ -76,6 +77,52 @@ describe("Source contract", () => {
     ).rejects.toMatchObject({ code: ERROR_CODES.validationInvalidInput });
     await kernel.close();
   });
+
+  it("authorizes every Collection traversed by a relationship query", async () => {
+    expect.hasAssertions();
+    const requests: AuthorizationRequest[] = [];
+    let denyRelations = false;
+    const kernel = await Kernel.open({
+      persistence: memoryAdapter(new MemoryRecordStore()),
+      authorizer: {
+        async authorize(request) {
+          requests.push(request);
+          return {
+            allowed: !(
+              denyRelations &&
+              request.operation === "records.list" &&
+              request.resource.collectionId === "collection-client"
+            ),
+          };
+        },
+      },
+    });
+    const { workspace, user } = await kernel.createRootWorkspace({
+      name: "Projects",
+      user: { name: "Jane" },
+    });
+    const context = { workspaceId: workspace.id, actorId: user.id };
+    const [clients, projects] = relationalCollections();
+    await kernel.applySpec(context, { ...workspace.spec, collections: [clients, projects] });
+    const client = await kernel.createRecord(context, "client", { name: "Acme" });
+    await kernel.createRecord(context, "project", { name: "Website", client: client.id });
+    denyRelations = true;
+
+    await expect(
+      kernel.querySource(context, "project", {
+        select: [{ path: ["field-client", "field-client-name"], as: "client_name" }],
+      }),
+    ).rejects.toMatchObject({ code: ERROR_CODES.permissionDenied });
+    expect(requests.at(-1)).toMatchObject({
+      operation: "records.list",
+      resource: {
+        kind: "collection",
+        id: "collection-client",
+        collectionId: "collection-client",
+      },
+    });
+    await kernel.close();
+  });
 });
 
 class TrackingRecordStore extends MemoryRecordStore {
@@ -102,7 +149,7 @@ function memoryAdapter(records: MemoryRecordStore): PersistenceAdapter {
         async applyWorkspaceSpec(workspace) {
           const snapshot = records.snapshot();
           try {
-            await records.materialize(workspace.id, workspace.spec.collections);
+            await records.applySchema(workspace.id, workspace.spec.collections);
             await catalog.transaction((transaction) => transaction.updateWorkspace(workspace));
           } catch (error) {
             records.restore(snapshot);

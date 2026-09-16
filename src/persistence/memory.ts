@@ -36,7 +36,7 @@ export class MemoryPersistenceAdapter implements PersistenceAdapter {
       applyWorkspaceSpec: async (workspace) => {
         const snapshot = this.records.snapshot();
         try {
-          await this.records.materialize(workspace.id, workspace.spec.collections);
+          await this.records.applySchema(workspace.id, workspace.spec.collections);
           await this.repository.transaction((transaction) =>
             transaction.updateWorkspace(workspace),
           );
@@ -201,7 +201,7 @@ export class MemoryRecordStore implements RecordStore {
     for (const [key, records] of state.records) this.records.set(key, records);
   }
 
-  async materialize(
+  async applySchema(
     workspaceId: string,
     collections: readonly CollectionDefinition[],
   ): Promise<void> {
@@ -352,7 +352,7 @@ function migrateMemoryRecords(
       if (value !== undefined) {
         values[field.key] = value;
       } else {
-        const fallback = materializedDefault(next, field.id);
+        const fallback = schemaDefault(next, field.id);
         if (fallback !== undefined) values[field.key] = fallback;
       }
     }
@@ -360,7 +360,7 @@ function migrateMemoryRecords(
   }
 }
 
-function materializedDefault(
+function schemaDefault(
   collection: CollectionDefinition,
   fieldId: string,
 ): CollectionRecord["values"][string] | undefined {

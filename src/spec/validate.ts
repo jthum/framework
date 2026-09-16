@@ -220,22 +220,44 @@ function requireSourceQueryShape(input: unknown, path: string, issues: Validatio
 function requireSourceFilterShape(input: unknown, path: string, issues: ValidationIssue[]): void {
   if (!isRecord(input))
     return issue(issues, path, "SPEC.TYPE_INVALID", "Source filter must be an object.");
-  if ("all" in input || "any" in input) {
-    const property = "all" in input ? "all" : "any";
+  const groups = ["all", "any", "not"].filter((property) => property in input);
+  const hasLeaf = ["path", "operator", "value"].some((property) => property in input);
+  if (groups.length + Number(hasLeaf) !== 1) {
+    issue(
+      issues,
+      path,
+      "SPEC.FILTER_SHAPE_INVALID",
+      "A Source filter must contain exactly one of all, any, not, or a Field predicate.",
+    );
+    return;
+  }
+  if (groups[0] === "all" || groups[0] === "any") {
+    const property = groups[0];
+    rejectUnexpectedProperties(input, [property], path, "Source filter group", issues);
     const items = input[property];
-    if (!Array.isArray(items))
+    if (!Array.isArray(items) || items.length === 0)
       return issue(
         issues,
         `${path}.${property}`,
         "SPEC.TYPE_INVALID",
-        "Filter group must be an array.",
+        "Filter group must be a non-empty array.",
       );
     items.forEach((item, index) =>
       requireSourceFilterShape(item, `${path}.${property}.${index}`, issues),
     );
     return;
   }
-  if ("not" in input) return requireSourceFilterShape(input.not, `${path}.not`, issues);
+  if (groups[0] === "not") {
+    rejectUnexpectedProperties(input, ["not"], path, "Source filter negation", issues);
+    return requireSourceFilterShape(input.not, `${path}.not`, issues);
+  }
+  rejectUnexpectedProperties(
+    input,
+    ["path", "operator", "value"],
+    path,
+    "Source predicate",
+    issues,
+  );
   requireSourcePath(input.path, `${path}.path`, issues);
   optionalEnum(
     input,
@@ -248,6 +270,24 @@ function requireSourceFilterShape(input: unknown, path: string, issues: Validati
     issue(issues, `${path}.operator`, "SPEC.TYPE_INVALID", "Filter operator is required.");
   if (input.value !== undefined && !isJsonValue(input.value))
     issue(issues, `${path}.value`, "SPEC.TYPE_INVALID", "Filter value must be JSON-compatible.");
+}
+
+function rejectUnexpectedProperties(
+  input: Readonly<Record<string, unknown>>,
+  allowed: readonly string[],
+  path: string,
+  label: string,
+  issues: ValidationIssue[],
+): void {
+  for (const property of Object.keys(input)) {
+    if (allowed.includes(property)) continue;
+    issue(
+      issues,
+      propertyPath(path, property),
+      "SPEC.PROPERTY_UNSUPPORTED",
+      `${property} is not supported by this ${label}.`,
+    );
+  }
 }
 
 function requireSourcePath(input: unknown, path: string, issues: ValidationIssue[]): void {

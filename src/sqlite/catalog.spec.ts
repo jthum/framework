@@ -124,7 +124,7 @@ describe("SQLite catalog adapter", () => {
     await second.close();
   });
 
-  it("persists materialized Collections and records across sessions", async () => {
+  it("persists Collection schemas and records across sessions", async () => {
     expect.hasAssertions();
     const directory = await makeTemporaryDirectory();
     const path = join(directory, "records.sqlite");
@@ -144,7 +144,7 @@ describe("SQLite catalog adapter", () => {
       updatedBy: "actor-1",
     };
     const first = await new SqlitePersistenceAdapter(() => openNodeSqlite(path)).open();
-    await first.records.materialize("workspace-1", [collection]);
+    await first.records.applySchema("workspace-1", [collection]);
     await first.records.create("workspace-1", collection, record);
     await first.close();
 

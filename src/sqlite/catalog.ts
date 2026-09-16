@@ -52,7 +52,7 @@ export class SqlitePersistenceAdapter implements PersistenceAdapter {
       records,
       applyWorkspaceSpec: (workspace) =>
         database.transaction(async (connection) => {
-          await records.materializeWith(connection, workspace.id, workspace.spec.collections);
+          await records.applySchemaWith(connection, workspace.id, workspace.spec.collections);
           await updateWorkspace(connection, workspace);
         }),
       close: () => database.close(),

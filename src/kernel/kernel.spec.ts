@@ -61,11 +61,11 @@ describe("Kernel catalog skeleton", () => {
     await kernel.close();
   });
 
-  it("does not materialize outside the atomic Spec application", async () => {
+  it("does not apply record schema outside the atomic Spec application", async () => {
     expect.hasAssertions();
     const adapter = new MemoryPersistenceAdapter();
     const session = await adapter.open();
-    let standaloneMaterializations = 0;
+    let standaloneSchemaApplications = 0;
     const failure = new Error("Spec application failed");
     const kernel = await Kernel.open({
       persistence: {
@@ -74,8 +74,8 @@ describe("Kernel catalog skeleton", () => {
           return {
             ...session,
             records: {
-              materialize: async () => {
-                standaloneMaterializations += 1;
+              applySchema: async () => {
+                standaloneSchemaApplications += 1;
               },
               create: session.records.create.bind(session.records),
               get: session.records.get.bind(session.records),
@@ -104,7 +104,7 @@ describe("Kernel catalog skeleton", () => {
         { ...workspace.spec, collections: [collection] },
       ),
     ).rejects.toBe(failure);
-    expect(standaloneMaterializations).toBe(0);
+    expect(standaloneSchemaApplications).toBe(0);
     expect(await session.catalog.getWorkspace(workspace.id)).toEqual(workspace);
     await expect(session.records.list(workspace.id, collection)).rejects.toMatchObject({
       code: ERROR_CODES.resourceNotFound,

@@ -115,6 +115,32 @@ describe("portable Collection Spec", () => {
       }),
     ).toContainEqual(expect.objectContaining({ code: "SPEC.RELATION_INVALID" }));
   });
+
+  it("rejects ambiguous and empty Source filter groups", () => {
+    expect.hasAssertions();
+    const spec = projectSpec();
+    const view = {
+      id: "view-projects",
+      key: "projects",
+      label: "Projects",
+      source: "project",
+      query: { filter: { all: [], any: [] } },
+    };
+    expect(validateSpec({ ...spec, views: [view] })).toContainEqual(
+      expect.objectContaining({ code: "SPEC.FILTER_SHAPE_INVALID" }),
+    );
+    expect(
+      validateSpec({
+        ...spec,
+        views: [{ ...view, query: { filter: { all: [] } } }],
+      }),
+    ).toContainEqual(
+      expect.objectContaining({
+        path: "views.0.query.filter.all",
+        code: "SPEC.TYPE_INVALID",
+      }),
+    );
+  });
 });
 
 function projectSpec(): Spec {
