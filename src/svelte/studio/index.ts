@@ -1,5 +1,7 @@
 export { default as EditorActions } from "./editor-actions.svelte";
 export { default as CollectionEditor } from "./collection-editor.svelte";
+export { default as ViewEditor } from "./view-editor.svelte";
+export type { ViewActions, ViewPreview } from "./authoring.js";
 export type {
   CollectionDraft,
   CollectionActions,

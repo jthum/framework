@@ -127,6 +127,29 @@ export interface EditorContext {
   forms: FormDraft[];
   rules: RuleDraft[];
 }
+export interface ViewActions {
+  save: (draft: Partial<ViewDraft> & { key: string }) => Promise<unknown>;
+  remove: (key: string) => Promise<unknown>;
+  query: (
+    draft: ViewDraft,
+    filters: Record<string, string>,
+  ) => Promise<Array<Record<string, unknown>>>;
+}
+export interface ViewPreview {
+  rows: Array<Record<string, unknown>> | null;
+  view: ViewDraft;
+  exposedFields: FieldDraft[];
+  exposedValues: Record<string, string>;
+  onFiltersChange: (values: Record<string, string>) => void;
+}
+export interface FormActions {
+  save: (draft: FormDraft) => Promise<unknown>;
+  remove: (key: string) => Promise<unknown>;
+  prepareField: (key: string, draft: Partial<FieldDraft>, existing?: FieldDraft) => FieldDraft;
+}
+export interface FormPreview {
+  form: FormDraft; collection?: CollectionDraft; fields?: string[];
+}
 export interface CollectionActions {
   save: (draft: {
     key: string;
