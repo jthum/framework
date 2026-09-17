@@ -53,6 +53,10 @@ export {
   type EditorContextOptions,
   type LoadedEditorContext,
 } from "./context-adapter.js";
+export {
+  createCollectionActions,
+  type CollectionAuthoringOptions,
+} from "./collection-authoring.js";
 export { default as BlockPicker } from "./block-picker.svelte";
 export { default as BlockSettings } from "./block-settings.svelte";
 export { default as PageEditor } from "./page-editor.svelte";

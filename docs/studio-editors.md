@@ -41,6 +41,11 @@ features an editor cannot preserve, including JSON fields in the shared field sh
 the cutover explicit rather than creating a lossy shadow model.
 
 `loadEditorContext(client)` is the simple host path: it loads the current authorized Workspace and
+every Source schema visible to that context. `createCollectionActions(client)` is the matching
+mutation path for the Collection editor: it reads the latest Spec for each focused change, maps
+friendly Fields and lifecycle controls back to stable definitions, and commits through the same
+context-bound client. Hosts choose the owning client (for example, an App versus its root Space)
+and receive the committed Spec through `onChange`; they do not reimplement schema transforms.
 Source descriptors through `WorkspaceClient`, then performs the same strict projection. Advanced
 hosts may fetch/cache through their own transport and call `editorContextFromSpec` directly.
 
