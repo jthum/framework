@@ -57,6 +57,11 @@
       "import": "./src/svelte/hooks/is-mobile.svelte.ts"
     },
     "./svelte/theme.css": "./src/svelte/theme.css",
+    "./svelte/studio": {
+      "types": "./src/svelte/studio/index.ts",
+      "svelte": "./src/svelte/studio/index.ts",
+      "import": "./src/svelte/studio/index.ts"
+    },
     "./svelte/ui/*": {
       "types": "./src/svelte/ui/*/index.ts",
       "svelte": "./src/svelte/ui/*/index.ts",
