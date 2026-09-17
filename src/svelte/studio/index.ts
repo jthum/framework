@@ -1,4 +1,15 @@
 export { default as EditorActions } from "./editor-actions.svelte";
+export { default as CollectionEditor } from "./collection-editor.svelte";
+export type {
+  CollectionDraft,
+  CollectionActions,
+  FieldDraft,
+  LifecycleDraft,
+  EditorContext,
+  ViewDraft,
+  FormDraft,
+} from "./authoring.js";
+export type { RuleDraft, RuleStep } from "./rule-model.js";
 export { default as BlockPicker } from "./block-picker.svelte";
 export { default as BlockSettings } from "./block-settings.svelte";
 export { default as PageEditor } from "./page-editor.svelte";
