@@ -58,6 +58,12 @@ A View editor should make the common path short: list local Collection Sources f
 
 A Block is registry metadata plus a lazy renderer loader. Metadata is cheap to list for a library or editor. Renderer code—and any heavy dependency imported by that renderer—is loaded only when `BlockRegistry.load(key)` is called, then cached.
 
+Block metadata may declare optional configuration inputs, catalog ordering, default configuration,
+and a preferred Page height. This metadata is portable and eager so Studio can build a picker and
+settings form without importing renderer code. A zero-configuration Block omits `inputs`; simple
+Blocks do not need an empty schema or registration ceremony. View, Form, Rule, and Field inputs are
+semantic selectors resolved by the host against the active Spec.
+
 Blocks receive a complete `BlockInput` containing resolved Source data and JSON configuration. They do not query SQLite, resolve Attachments, inspect Builder navigation, or reach into host session state. The framework publishes Table and Kanban definitions; concrete Svelte renderers remain a host/UI-package concern.
 
 Failed loads are not cached, so a transient chunk failure can be retried. Duplicate Block keys fail immediately. Layout groups remain Page layout nodes rather than fake Blocks.

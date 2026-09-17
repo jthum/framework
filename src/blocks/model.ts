@@ -1,12 +1,49 @@
 import type { SourceResult } from "../kernel/sources.ts";
-import type { SpecMeta } from "../spec/model.ts";
+import type { JsonValue, PageHeight, SpecMeta } from "../spec/model.ts";
+
+export type BlockInputType =
+  | "text"
+  | "textarea"
+  | "number"
+  | "boolean"
+  | "view"
+  | "form"
+  | "rule"
+  | "field"
+  | "select";
+
+export type BlockFieldKind = "number" | "date" | "datetime" | "choice" | "any";
+
+export interface BlockOptionDefinition {
+  readonly value: string;
+  readonly label: string;
+}
+
+/** Portable configuration metadata used by Studio; it never loads or executes a renderer. */
+export interface BlockInputDefinition {
+  readonly key: string;
+  readonly label: string;
+  readonly type: BlockInputType;
+  readonly description?: string;
+  readonly required?: boolean;
+  readonly default?: JsonValue;
+  /** Restricts a Field picker without coupling the Block to a concrete Collection. */
+  readonly fieldKind?: BlockFieldKind;
+  /** Key of the sibling input whose selection provides this input's choices. */
+  readonly dependsOn?: string;
+  readonly options?: readonly BlockOptionDefinition[];
+}
 
 export interface BlockDefinition {
   readonly key: string;
   readonly label: string;
   readonly category: string;
   readonly description?: string;
+  readonly order?: number;
+  readonly defaultHeight?: PageHeight;
   readonly defaultConfig?: SpecMeta;
+  /** Omit for a zero-configuration Block. */
+  readonly inputs?: readonly BlockInputDefinition[];
 }
 
 /** The complete declared input to a Block renderer. Blocks do not perform data access. */

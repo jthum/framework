@@ -43,6 +43,52 @@ describe("Block registry", () => {
     expect(attempts).toBe(2);
   });
 
+  it("keeps editor metadata available without loading a renderer", () => {
+    let loads = 0;
+    const registry = new BlockRegistry([
+      {
+        definition: {
+          key: "pipeline",
+          label: "Pipeline",
+          category: "data",
+          defaultHeight: "m",
+          inputs: [
+            { key: "view", label: "View", type: "view", required: true },
+            {
+              key: "stage",
+              label: "Stage",
+              type: "field",
+              dependsOn: "view",
+              fieldKind: "choice",
+            },
+          ],
+        },
+        load: async () => {
+          loads += 1;
+          return { default: "renderer" };
+        },
+      },
+    ]);
+
+    expect(registry.get("pipeline")).toEqual({
+      key: "pipeline",
+      label: "Pipeline",
+      category: "data",
+      defaultHeight: "m",
+      inputs: [
+        { key: "view", label: "View", type: "view", required: true },
+        {
+          key: "stage",
+          label: "Stage",
+          type: "field",
+          dependsOn: "view",
+          fieldKind: "choice",
+        },
+      ],
+    });
+    expect(loads).toBe(0);
+  });
+
   it("renders Table and Kanban Views over the same attached Collection", async () => {
     expect.hasAssertions();
     const kernel = await Kernel.open({ persistence: new MemoryPersistenceAdapter() });
