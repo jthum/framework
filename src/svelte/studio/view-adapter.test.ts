@@ -85,11 +85,11 @@ describe("View Studio adapter", () => {
           group: {
             path: ["field-project-client"],
             labelPath: ["field-project-client", "field-client-name"],
-            as: "client",
-            label: "Client",
+            as: "customer",
+            label: "Customer",
           },
           measures: [
-            { as: "project_count", label: "Project Count", operation: "count" },
+            { as: "project_count", label: "Number of projects", operation: "count" },
             {
               as: "total_budget",
               label: "Total Budget",
@@ -106,22 +106,47 @@ describe("View Studio adapter", () => {
 
     expect(draft).toMatchObject({
       group_by: "client",
+      group_alias: "customer",
+      group_label: "Customer",
       group_label_path: "client.name",
       order_by: { total_budget: "desc" },
+      measure_labels: { project_count: "Number of projects" },
     });
     expect(viewDefinitionFromDraft(draft, schemas)).toEqual(view);
   });
 
-  it("rejects canonical features the editor cannot preserve", () => {
+  it("retains stable aliases, labels, and parameter contracts across Field-key changes", () => {
     const customAlias: ViewDefinition = {
       id: "view-custom",
       key: "custom",
       label: "Custom",
       source: "project",
       query: {
-        select: [{ path: ["field-project-name"], as: "display_name" }],
+        select: [
+          { path: ["field-project-name"], as: "display_name", label: "Project display name" },
+        ],
       },
+      parameters: [
+        {
+          key: "current_status",
+          label: "Current status",
+          path: ["field-project-status"],
+          required: false,
+        },
+      ],
     };
+    const draft = viewDraftFromDefinition(customAlias, schemas);
+    expect(draft).toMatchObject({
+      aliases: { name: "display_name" },
+      column_labels: { name: "Project display name" },
+      parameters: {
+        status: { key: "current_status", label: "Current status", required: false },
+      },
+    });
+    expect(viewDefinitionFromDraft(draft, schemas)).toEqual(customAlias);
+  });
+
+  it("rejects canonical features the editor cannot preserve", () => {
     const nestedFilter: ViewDefinition = {
       id: "view-nested",
       key: "nested",
@@ -137,7 +162,6 @@ describe("View Studio adapter", () => {
       },
     };
 
-    expect(() => viewDraftFromDefinition(customAlias, schemas)).toThrow(ViewAuthoringError);
     expect(() => viewDraftFromDefinition(nestedFilter, schemas)).toThrow(ViewAuthoringError);
   });
 });

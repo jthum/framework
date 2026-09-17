@@ -31,18 +31,15 @@ export function viewDraftFromDefinition(
   schemas: ViewAuthoringSchemas,
 ): ViewDraft {
   const schema = requireSchema(schemas, view.source);
+  const aliases: Record<string, string> = {};
+  const columnLabels: Record<string, string> = {};
   const fields =
     view.query?.select?.map((selection) => {
       const path = keyPath(schema, selection.path, schemas);
-      if (selection.as !== selectionAlias(path))
-        throw new ViewAuthoringError(
-          `Selection ${selection.as} uses a custom alias that this editor cannot change safely.`,
-        );
+      if (selection.as !== selectionAlias(path)) aliases[path] = selection.as;
       const expectedLabel = labelFromKey(path.split(".").at(-1) ?? path);
       if (selection.label !== undefined && selection.label !== expectedLabel)
-        throw new ViewAuthoringError(
-          `Selection ${selection.as} uses a custom label that this editor cannot change safely.`,
-        );
+        columnLabels[path] = selection.label;
       return path;
     }) ?? [];
   const where: FilterClause[] = flattenFilters(view.query?.filter).map((filter) => ({
@@ -51,20 +48,23 @@ export function viewDraftFromDefinition(
     ...(filter.value === undefined ? {} : { value: filter.value }),
   }));
   const expose: string[] = [];
+  const parameters: NonNullable<ViewDraft["parameters"]> = {};
   for (const parameter of view.parameters ?? []) {
     const field = keyPath(schema, parameter.path, schemas);
     if ((parameter.source ?? "input") === "input" && (parameter.operator ?? "eq") === "eq") {
       const expectedKey = selectionAlias(field);
       const expectedLabel = labelFromKey(field.split(".").at(-1) ?? field);
+      expose.push(field);
       if (
         parameter.key !== expectedKey ||
-        parameter.required === true ||
+        parameter.required !== undefined ||
         (parameter.label !== undefined && parameter.label !== expectedLabel)
       )
-        throw new ViewAuthoringError(
-          `Parameter ${parameter.key} uses options that this editor cannot change safely.`,
-        );
-      expose.push(field);
+        parameters[field] = {
+          key: parameter.key,
+          ...(parameter.label !== undefined ? { label: parameter.label } : {}),
+          ...(parameter.required !== undefined ? { required: parameter.required } : {}),
+        };
     } else if (parameter.source === "context" && parameter.key === "record_id") {
       if (parameter.required !== true || parameter.label !== "Current record")
         throw new ViewAuthoringError(
@@ -83,21 +83,12 @@ export function viewDraftFromDefinition(
   }
   const aggregate = view.query?.aggregate;
   const groupBy = aggregate ? keyPath(schema, aggregate.group.path, schemas) : undefined;
-  if (aggregate && aggregate.group.as !== selectionAlias(groupBy!))
-    throw new ViewAuthoringError(
-      `Aggregate group ${aggregate.group.as} uses a custom alias that this editor cannot change safely.`,
-    );
-  if (aggregate?.group.label !== undefined && aggregate.group.label !== labelFromKey(groupBy!))
-    throw new ViewAuthoringError(
-      `Aggregate group ${aggregate.group.as} uses a custom label that this editor cannot change safely.`,
-    );
+  const measureLabels: Record<string, string> = {};
   const measures = aggregate
     ? Object.fromEntries(
         aggregate.measures.map((measure) => {
           if (measure.label !== undefined && measure.label !== labelFromKey(measure.as))
-            throw new ViewAuthoringError(
-              `Aggregate measure ${measure.as} uses a custom label that this editor cannot change safely.`,
-            );
+            measureLabels[measure.as] = measure.label;
           return [
             measure.as,
             {
@@ -134,17 +125,28 @@ export function viewDraftFromDefinition(
     ...(view.meta ? { meta: structuredClone(view.meta) } : {}),
     source: view.source,
     fields: aggregate ? [groupBy!, ...Object.keys(measures ?? {})] : fields,
+    ...(Object.keys(aliases).length ? { aliases } : {}),
+    ...(Object.keys(columnLabels).length ? { column_labels: columnLabels } : {}),
     ...(where.length ? { where } : {}),
     ...(expose.length ? { expose } : {}),
+    ...(Object.keys(parameters).length ? { parameters } : {}),
     ...(view.query?.limit !== undefined ? { limit: view.query.limit } : {}),
     ...(Object.keys(order).length ? { order_by: order } : {}),
     ...(groupBy
       ? {
           group_by: groupBy,
+          ...(aggregate?.group.as !== selectionAlias(groupBy!)
+            ? { group_alias: aggregate?.group.as }
+            : {}),
+          ...(aggregate?.group.label !== undefined &&
+          aggregate.group.label !== labelFromKey(groupBy!)
+            ? { group_label: aggregate.group.label }
+            : {}),
           ...(aggregate?.group.labelPath
             ? { group_label_path: keyPath(schema, aggregate.group.labelPath, schemas) }
             : {}),
           measures,
+          ...(Object.keys(measureLabels).length ? { measure_labels: measureLabels } : {}),
         }
       : {}),
     ...(view.presentation ? { presentation: structuredClone(view.presentation) } : {}),
@@ -179,25 +181,27 @@ export function viewDefinitionFromDraft(
     }
   }
   for (const field of draft.expose ?? []) {
+    const retained = draft.parameters?.[field];
     parameters.push({
-      key: selectionAlias(field),
-      label: labelFromKey(field.split(".").at(-1) ?? field),
+      key: retained?.key ?? selectionAlias(field),
+      label: retained?.label ?? labelFromKey(field.split(".").at(-1) ?? field),
       path: idPath(schema, field, schemas),
+      ...(retained?.required !== undefined ? { required: retained.required } : {}),
     });
   }
   const aggregate = draft.group_by
     ? {
         group: {
           path: idPath(schema, draft.group_by, schemas),
-          as: selectionAlias(draft.group_by),
-          label: labelFromKey(draft.group_by),
+          as: draft.group_alias ?? selectionAlias(draft.group_by),
+          label: draft.group_label ?? labelFromKey(draft.group_by),
           ...(draft.group_label_path
             ? { labelPath: idPath(schema, draft.group_label_path, schemas) }
             : {}),
         },
         measures: Object.entries(draft.measures ?? {}).map(([as, measure]) => ({
           as,
-          label: labelFromKey(as),
+          label: draft.measure_labels?.[as] ?? labelFromKey(as),
           operation: measure.op,
           ...(measure.field ? { path: idPath(schema, measure.field, schemas) } : {}),
           ...(measure.fields?.length
@@ -217,8 +221,8 @@ export function viewDefinitionFromDraft(
     ? undefined
     : draft.fields.map((field) => ({
         path: idPath(schema, field, schemas),
-        as: selectionAlias(field),
-        label: labelFromKey(field.split(".").at(-1) ?? field),
+        as: draft.aliases?.[field] ?? selectionAlias(field),
+        label: draft.column_labels?.[field] ?? labelFromKey(field.split(".").at(-1) ?? field),
       }));
   return {
     id: draft.id,
@@ -246,7 +250,9 @@ export function viewDefinitionFromDraft(
 function aggregateSort(draft: ViewDraft, groupBy: string) {
   const aliases = new Set([groupBy, ...Object.keys(draft.measures ?? {})]);
   const sort = Object.entries(draft.order_by ?? {}).flatMap(([key, direction]) =>
-    aliases.has(key) ? [{ key: key === groupBy ? selectionAlias(groupBy) : key, direction }] : [],
+    aliases.has(key)
+      ? [{ key: key === groupBy ? (draft.group_alias ?? selectionAlias(groupBy)) : key, direction }]
+      : [],
   );
   return sort.length ? { sort } : {};
 }

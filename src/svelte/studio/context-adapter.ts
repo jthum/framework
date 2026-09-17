@@ -4,6 +4,7 @@ import type {
   SourceDefinition,
   Spec,
 } from "@jthum/framework/spec";
+import type { WorkspaceClient } from "@jthum/framework/client";
 import type { CollectionDraft, EditorContext, FormDraft, LifecycleDraft } from "./authoring.js";
 import { fieldDraftFromDefinition } from "./field-adapter.js";
 import { ruleDraftFromDefinition } from "./rule-adapter.js";
@@ -16,6 +17,21 @@ import {
 export interface EditorContextOptions {
   /** Concrete schemas for attached Sources, keyed by their local binding key. */
   readonly schemas?: ViewAuthoringSchemas;
+}
+
+export interface LoadedEditorContext {
+  readonly spec: Spec;
+  readonly context: EditorContext;
+}
+
+/** Load the current authorized Workspace and every Source schema visible to Studio. */
+export async function loadEditorContext(client: WorkspaceClient): Promise<LoadedEditorContext> {
+  const [workspace, sources] = await Promise.all([client.getWorkspace(), client.listSources()]);
+  const schemas = Object.fromEntries(sources.map((source) => [source.key, source.schema]));
+  return {
+    spec: workspace.spec,
+    context: editorContextFromSpec(workspace.spec, { schemas }),
+  };
 }
 
 /**

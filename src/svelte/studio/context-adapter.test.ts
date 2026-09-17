@@ -2,6 +2,8 @@ import { describe, expect, it } from "vite-plus/test";
 import type { CollectionDefinition, Spec } from "@jthum/framework/spec";
 import { createEmptySpec } from "@jthum/framework/spec";
 import { editorContextFromSpec } from "./context-adapter.js";
+import { loadEditorContext } from "./context-adapter.js";
+import type { WorkspaceClient } from "@jthum/framework/client";
 
 function fixture(): Spec {
   const empty = createEmptySpec({ id: "spec-work", key: "work", label: "Work" });
@@ -87,6 +89,41 @@ const clients: CollectionDefinition = {
 };
 
 describe("Studio context adapter", () => {
+  it("loads the current Spec and authorized attached Source schemas through WorkspaceClient", async () => {
+    const spec = fixture();
+    const client = {
+      async getWorkspace() {
+        return { spec };
+      },
+      async listSources() {
+        return [
+          {
+            key: "client",
+            label: "Client",
+            kind: "attachment",
+            schema: clients,
+            capabilities: {
+              filter: true,
+              sort: true,
+              pagination: true,
+              relations: false,
+              aggregate: true,
+              suggestions: false,
+            },
+          },
+        ];
+      },
+    } as WorkspaceClient;
+
+    const loaded = await loadEditorContext(client);
+
+    expect(loaded.spec).toBe(spec);
+    expect(loaded.context.collections).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "source-client", key: "client" })]),
+    );
+    expect(loaded.context.views[0]).toMatchObject({ source: "client", fields: ["name"] });
+  });
+
   it("projects canonical identities, lifecycle, Forms, and attached Source schemas", () => {
     const context = editorContextFromSpec(fixture(), { schemas: { client: clients } });
 

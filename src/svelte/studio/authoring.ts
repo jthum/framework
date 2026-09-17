@@ -106,16 +106,24 @@ export interface ViewMeasure {
 export interface ViewDraft extends DraftIdentity {
   source: string;
   fields: string[];
+  /** Stable output contracts retained when they differ from key-derived defaults. */
+  aliases?: Record<string, string>;
+  column_labels?: Record<string, string>;
   where?: FilterClause[] | Record<string, unknown>;
   expose?: string[];
   limit?: number;
   order_by?: Record<string, SortDirection>;
   group_by?: string;
+  group_alias?: string;
+  group_label?: string;
   /** Canonical display path for a grouped relation; retained even when Studio does not edit it. */
   group_label_path?: string;
   measures?: Record<string, ViewMeasure>;
+  measure_labels?: Record<string, string>;
   implicit?: boolean;
   presentation?: { block: string; config?: SpecMeta };
+  /** Caller-parameter contracts retained while expose remains a field-path picker. */
+  parameters?: Record<string, { key: string; label?: string; required?: boolean }>;
 }
 export interface FormDraft extends DraftIdentity {
   type?: string;

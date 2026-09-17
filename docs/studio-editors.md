@@ -39,6 +39,10 @@ omitted unless another editable definition depends on them. The projection rejec
 features an editor cannot preserve, including JSON fields in the shared field sheet. This makes
 the cutover explicit rather than creating a lossy shadow model.
 
+`loadEditorContext(client)` is the simple host path: it loads the current authorized Workspace and
+Source descriptors through `WorkspaceClient`, then performs the same strict projection. Advanced
+hosts may fetch/cache through their own transport and call `editorContextFromSpec` directly.
+
 Studio consumers can style the semantic tokens and compose host preview snippets. Runtime-specific compatibility diagnostics and registries must come from the host, never an assumed browser runtime.
 
 All four full editors accept `class` for outer layout adjustments. Their controls use the shared chrome Card and semantic tokens, so the implementing app retains its theme rather than adopting a hard-coded Studio theme. The shadcn-Svelte extraction keeps the existing chrome/header/body/footer composition intact.
