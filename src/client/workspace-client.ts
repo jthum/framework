@@ -1,5 +1,28 @@
 import type { FormSubmission, SubmitFormInput } from "../kernel/forms.ts";
 import type { Kernel } from "../kernel/kernel.ts";
+import type {
+  ActorRequest,
+  ResumeRuleInput,
+  RuleExecutionDetails,
+  RuleExecutionSummary,
+} from "../kernel/durable-rules.ts";
+import type { RunRuleInput } from "../kernel/rules.ts";
+import type { JsonValue, RuleDefinition } from "../spec/model.ts";
+
+/** Transport-neutral durable operations. Components receive this, never a Kernel or database. */
+export interface RuleExecutionClient {
+  listRuleExecutions(limit?: number, offset?: number): Promise<readonly RuleExecutionSummary[]>;
+  getRuleExecutionDetails(id: string): Promise<RuleExecutionDetails | null>;
+  startRule(key: string, input?: RunRuleInput): Promise<RuleExecutionDetails>;
+  resumeRule(id: string, input?: ResumeRuleInput): Promise<RuleExecutionDetails>;
+  failRuleExecution(id: string): Promise<RuleExecutionDetails>;
+  listActorRequests(executionId: string): Promise<readonly ActorRequest[]>;
+  respondToActorRequest(
+    executionId: string,
+    requestId: string,
+    values: Readonly<Record<string, JsonValue>>,
+  ): Promise<ActorRequest>;
+}
 import type { ExecutionContext, Workspace } from "../kernel/model.ts";
 import type { SourceDescriptor, SourceResult, SourceRow } from "../kernel/sources.ts";
 import type { ViewQueryResult } from "../kernel/views.ts";
@@ -20,9 +43,10 @@ import type {
  * A browser host can bind this directly to an in-process Kernel. A server or remote host can
  * implement the same contract over its transport without exposing Kernel lifecycle to the UI.
  */
-export interface WorkspaceClient {
+export interface WorkspaceClient extends RuleExecutionClient {
   getWorkspace(): Promise<Workspace>;
   applySpec(spec: Spec): Promise<Workspace>;
+  listRules(): Promise<readonly RuleDefinition[]>;
 
   createRecord(collectionKey: string, values: RecordValues): Promise<CollectionRecord>;
   getRecord(collectionKey: string, recordId: string): Promise<CollectionRecord | null>;
@@ -65,6 +89,43 @@ class LocalWorkspaceClient implements WorkspaceClient {
     private readonly kernel: Kernel,
     private readonly context: ExecutionContext,
   ) {}
+
+  async listRules(): Promise<readonly RuleDefinition[]> {
+    return (await this.getWorkspace()).spec.rules;
+  }
+  listRuleExecutions(limit?: number, offset?: number) {
+    return this.kernel.listRuleExecutions(this.context, limit, offset);
+  }
+  getRuleExecutionDetails(id: string) {
+    return this.kernel.getRuleExecutionDetails(this.context, id);
+  }
+  async startRule(key: string, input?: RunRuleInput) {
+    const execution = await this.kernel.startRule(this.context, key, input);
+    return this.requireDetails(execution.id);
+  }
+  async resumeRule(id: string, input?: ResumeRuleInput) {
+    await this.kernel.resumeRule(this.context, id, input);
+    return this.requireDetails(id);
+  }
+  async failRuleExecution(id: string) {
+    await this.kernel.failRuleExecution(this.context, id);
+    return this.requireDetails(id);
+  }
+  listActorRequests(executionId: string) {
+    return this.kernel.listActorRequests(this.context, executionId);
+  }
+  respondToActorRequest(
+    executionId: string,
+    requestId: string,
+    values: Readonly<Record<string, JsonValue>>,
+  ) {
+    return this.kernel.respondToActorRequest(this.context, executionId, requestId, values);
+  }
+  private async requireDetails(id: string): Promise<RuleExecutionDetails> {
+    const execution = await this.getRuleExecutionDetails(id);
+    if (!execution) throw resourceNotFound("RuleExecution", id);
+    return execution;
+  }
 
   async getWorkspace(): Promise<Workspace> {
     const workspace = await this.kernel.getWorkspace(this.context);

@@ -20,6 +20,12 @@ export interface RuleExecution {
 export interface ExecutionStore {
   create(execution: RuleExecution): Promise<void>;
   get(workspaceId: string, id: string): Promise<RuleExecution | null>;
+  list(
+    workspaceId: string,
+    actorId: string,
+    limit: number,
+    offset: number,
+  ): Promise<readonly RuleExecution[]>;
   /** Atomically replace revision N with N+1; stale resumes must fail. */
   update(execution: RuleExecution, expectedRevision: number): Promise<void>;
 }
@@ -65,6 +71,32 @@ function canonicalJson(value: unknown): string | undefined {
 
 export class MemoryExecutionStore implements ExecutionStore {
   private readonly executions = new Map<string, RuleExecution>();
+
+  async list(
+    workspaceId: string,
+    actorId: string,
+    limit: number,
+    offset: number,
+  ): Promise<readonly RuleExecution[]> {
+    return structuredClone(
+      [...this.executions.values()]
+        .filter(
+          (item) => item.context.workspaceId === workspaceId && item.context.actorId === actorId,
+        )
+        .sort((a, b) =>
+          a.createdAt === b.createdAt
+            ? a.id < b.id
+              ? 1
+              : a.id === b.id
+                ? 0
+                : -1
+            : a.createdAt < b.createdAt
+              ? 1
+              : -1,
+        )
+        .slice(offset, offset + limit),
+    );
+  }
 
   async create(execution: RuleExecution): Promise<void> {
     if (execution.revision !== 0)

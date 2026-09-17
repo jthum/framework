@@ -331,6 +331,12 @@ export class Kernel {
   getRuleExecution(context: ExecutionContext, id: string) {
     return this.durableRules.get(context, id);
   }
+  getRuleExecutionDetails(context: ExecutionContext, id: string) {
+    return this.durableRules.details(context, id);
+  }
+  listRuleExecutions(context: ExecutionContext, limit?: number, offset?: number) {
+    return this.durableRules.list(context, limit, offset);
+  }
   getActorRequest(context: ExecutionContext, executionId: string, requestId: string) {
     return this.durableRules.getRequest(context, executionId, requestId);
   }

@@ -64,6 +64,12 @@ for (const [name, create] of [
           session.executions.update({ ...execution, ...changed, revision: 1 }, 0),
         ).rejects.toMatchObject({ code: ERROR_CODES.resourceConflict });
       expect(await session.executions.get("other", execution.id)).toBeNull();
+      expect(await session.executions.list("other", root.user.id, 20, 0)).toEqual([]);
+      expect(await session.executions.list(root.workspace.id, "other-actor", 20, 0)).toEqual([]);
+      expect(await session.executions.list(root.workspace.id, root.user.id, 1, 0)).toEqual([
+        execution,
+      ]);
+      expect(await session.executions.list(root.workspace.id, root.user.id, 1, 1)).toEqual([]);
       const loaded = (await session.executions.get(root.workspace.id, execution.id))!;
       (loaded.checkpoint as Record<string, unknown>).vars = { amount: 99 };
       expect(await session.executions.get(root.workspace.id, execution.id)).toEqual(execution);

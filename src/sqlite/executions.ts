@@ -48,6 +48,19 @@ export class SqliteExecutionStore implements ExecutionStore {
     return row ? (JSON.parse(row.execution_json) as RuleExecution) : null;
   }
 
+  async list(
+    workspaceId: string,
+    actorId: string,
+    limit: number,
+    offset: number,
+  ): Promise<readonly RuleExecution[]> {
+    const rows = await this.database.all<{ execution_json: string }>(
+      "SELECT execution_json FROM rule_executions WHERE workspace_id = ? AND json_extract(execution_json, '$.context.actorId') = ? ORDER BY json_extract(execution_json, '$.createdAt') DESC, id DESC LIMIT ? OFFSET ?",
+      [workspaceId, actorId, limit, offset],
+    );
+    return rows.map((row) => JSON.parse(row.execution_json) as RuleExecution);
+  }
+
   async update(execution: RuleExecution, expectedRevision: number): Promise<void> {
     assertExecutionRevision(execution, expectedRevision);
     await this.database.transaction(async (connection) => {

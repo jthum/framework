@@ -34,6 +34,32 @@ export interface ResumeRuleInput {
   readonly payload?: Readonly<Record<string, JsonValue>>;
 }
 
+/** Stable UI projection; continuation frames and variable scopes remain Kernel-owned. */
+export interface RuleExecutionDetails {
+  readonly id: string;
+  readonly actorId: string;
+  readonly rule: { readonly id: string; readonly key: string; readonly label: string };
+  readonly status: RuleExecution["status"];
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly trace: readonly (RuleStepTrace & { readonly label?: string })[];
+  /** Root Rule variables at this checkpoint. No internal continuation scopes. */
+  readonly vars?: Readonly<Record<string, JsonValue>>;
+  readonly failure?: string;
+  readonly waiting?: {
+    readonly stepId: string;
+    readonly kind: "delay" | "signal" | "request" | "timeout";
+    readonly dueAt?: string;
+    readonly signal?: string;
+    readonly requestId?: string;
+  };
+}
+
+export type RuleExecutionSummary = Pick<
+  RuleExecutionDetails,
+  "id" | "actorId" | "rule" | "status" | "createdAt" | "updatedAt"
+>;
+
 interface Scope {
   trigger: Record<string, JsonValue>;
   actor: Record<string, JsonValue>;
@@ -224,6 +250,40 @@ export class DurableRuleService {
     if (execution && execution.context.actorId !== context.actorId)
       await this.checkAuthority(context, "executions.inspect", "execution", id);
     return execution;
+  }
+
+  async details(context: ExecutionContext, id: string): Promise<RuleExecutionDetails | null> {
+    const execution = await this.get(context, id);
+    return execution ? describe(execution) : null;
+  }
+
+  async list(
+    context: ExecutionContext,
+    limit = 20,
+    offset = 0,
+  ): Promise<readonly RuleExecutionSummary[]> {
+    await this.assertContext(context);
+    await this.checkAuthority(context, "executions.list", "execution", context.workspaceId);
+    if (
+      !Number.isInteger(limit) ||
+      limit < 1 ||
+      limit > 100 ||
+      !Number.isSafeInteger(offset) ||
+      offset < 0
+    )
+      throw resourceConflict(
+        "Execution pagination requires a limit of 1–100 and a non-negative offset.",
+      );
+    return (await this.store.list(context.workspaceId, context.actorId, limit, offset)).map(
+      (execution) => ({
+        id: execution.id,
+        actorId: execution.context.actorId,
+        rule: { id: execution.rule.id, key: execution.rule.key, label: execution.rule.label },
+        status: execution.status,
+        createdAt: execution.createdAt,
+        updatedAt: execution.updatedAt,
+      }),
+    );
   }
 
   async getRequest(
@@ -577,6 +637,68 @@ export class DurableRuleService {
 
 function encode(checkpoint: Checkpoint): Readonly<Record<string, JsonValue>> {
   return structuredClone(checkpoint) as unknown as Readonly<Record<string, JsonValue>>;
+}
+function describe(execution: RuleExecution): RuleExecutionDetails {
+  const checkpoint = decode(execution);
+  const pending = checkpoint.pending;
+  const labels = new Map<string, string>();
+  for (const definition of Object.values(checkpoint.rules))
+    visitSteps(definition.steps, (step) => {
+      labels.set(
+        step.id,
+        "action" in step
+          ? step.action.key.replaceAll(".", " › ")
+          : "invoke" in step
+            ? `Run ${checkpoint.rules[step.invoke.ruleId]?.label ?? "workflow"}`
+            : "gate" in step
+              ? "Check conditions"
+              : "compute" in step
+                ? `Set ${Object.keys(step.compute.assign).join(", ")}`
+                : "wait" in step
+                  ? (step.wait.request?.label ??
+                    (step.wait.signal ? `Wait for ${step.wait.signal}` : "Wait until timeout"))
+                  : "delay" in step
+                    ? `Wait ${step.delay.duration}`
+                    : "foreach" in step
+                      ? "For each item"
+                      : "repeat" in step
+                        ? "Repeat steps"
+                        : "Parallel branches",
+      );
+    });
+  return {
+    id: execution.id,
+    actorId: execution.context.actorId,
+    rule: { id: execution.rule.id, key: execution.rule.key, label: execution.rule.label },
+    status: execution.status,
+    createdAt: execution.createdAt,
+    updatedAt: execution.updatedAt,
+    trace: checkpoint.state.trace.map((step) => ({
+      ...step,
+      ...(labels.has(step.stepId) ? { label: labels.get(step.stepId)! } : {}),
+    })),
+    vars: checkpoint.scopes[0]!.vars,
+    ...(checkpoint.failure ? { failure: checkpoint.failure } : {}),
+    ...(pending
+      ? {
+          waiting: {
+            stepId: pending.step.id,
+            kind: pending.requestId
+              ? "request"
+              : "delay" in pending.step
+                ? "delay"
+                : pending.step.wait.signal
+                  ? "signal"
+                  : "timeout",
+            ...(pending.dueAt ? { dueAt: pending.dueAt } : {}),
+            ...("wait" in pending.step && pending.step.wait.signal
+              ? { signal: pending.step.wait.signal }
+              : {}),
+            ...(pending.requestId ? { requestId: pending.requestId } : {}),
+          } as NonNullable<RuleExecutionDetails["waiting"]>,
+        }
+      : {}),
+  };
 }
 function decode(execution: RuleExecution): Checkpoint {
   return structuredClone(execution.checkpoint) as unknown as Checkpoint;

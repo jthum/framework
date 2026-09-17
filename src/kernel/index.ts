@@ -11,6 +11,11 @@ export * from "./pages.ts";
 export * from "./record-values.ts";
 export * from "./rule-compatibility.ts";
 export * from "./rules.ts";
-export type { ActorRequest, ResumeRuleInput } from "./durable-rules.ts";
+export type {
+  ActorRequest,
+  ResumeRuleInput,
+  RuleExecutionDetails,
+  RuleExecutionSummary,
+} from "./durable-rules.ts";
 export * from "./sources.ts";
 export * from "./views.ts";
