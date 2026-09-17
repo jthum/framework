@@ -77,6 +77,11 @@ export { default as BlockSettings } from "./block-settings.svelte";
 export { default as PageEditor } from "./page-editor.svelte";
 export { default as PageContent } from "./page-content.svelte";
 export { default as PageList } from "./page-list.svelte";
+export {
+  createPageActions,
+  type PageActions,
+  type PageAuthoringOptions,
+} from "./page-authoring.js";
 export { default as OptionSelect } from "./option-select.svelte";
 export { default as FormPurposePicker } from "./form-purpose-picker.svelte";
 export { default as NameDialog } from "./name-dialog.svelte";
