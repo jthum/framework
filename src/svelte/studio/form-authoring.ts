@@ -27,7 +27,7 @@ export function createFormActions(
       const base: FormDraft = previous
         ? formDraftFromDefinition(previous, workspace.spec, options.sources)
         : {
-            id: patch.id ?? nanoid(),
+            id: patch.id || nanoid(),
             key: patch.key,
             label: patch.label ?? labelFromKey(patch.key),
             mode: patch.mode,
