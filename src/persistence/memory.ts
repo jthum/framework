@@ -12,6 +12,7 @@ import {
   assertActorIntegrity,
   assertAttachmentIntegrity,
   assertAttachmentRevocation,
+  assertMembershipIdentityUnchanged,
   assertMembershipIntegrity,
   assertWorkspaceIntegrity,
   assertWorkspaceTopologyUnchanged,
@@ -163,9 +164,10 @@ export class MemoryCatalogRepository implements CatalogRepository, CatalogTransa
   }
 
   async updateMembership(membership: Membership): Promise<void> {
+    const previous = this.state.memberships.get(membership.id);
+    if (!previous) throw resourceNotFound("Membership", membership.id);
+    assertMembershipIdentityUnchanged(previous, membership);
     await assertMembershipIntegrity(this, membership);
-    if (!this.state.memberships.has(membership.id))
-      throw resourceNotFound("Membership", membership.id);
     this.state.memberships.set(membership.id, clone(membership));
   }
 

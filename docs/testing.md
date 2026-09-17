@@ -30,7 +30,7 @@ Exercise pure semantics with no persistence or UI:
 - Field capabilities;
 - queries and filters;
 - relationship planning;
-- rights attenuation;
+- permission attenuation;
 - Action input validation;
 - Rule planning and expression evaluation;
 - Block configuration;

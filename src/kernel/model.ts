@@ -3,14 +3,14 @@ import type { FieldCondition, Spec } from "../spec/model.ts";
 export const ACTOR_KINDS = ["user", "agent", "system"] as const;
 export type ActorKind = (typeof ACTOR_KINDS)[number];
 
-export const ACCESS_RIGHTS = ["read", "create", "update", "delete", "manage"] as const;
-export type AccessRight = (typeof ACCESS_RIGHTS)[number];
+export const PERMISSIONS = ["read", "create", "update", "delete", "manage"] as const;
+export type Permission = (typeof PERMISSIONS)[number];
 
 export interface WorkspaceAccess {
-  /** Maximum rights available to direct members, further narrowed by Membership rights. */
-  readonly members: readonly AccessRight[];
-  /** Maximum rights available through an Attachment without origin Membership. */
-  readonly others: readonly AccessRight[];
+  /** Maximum permissions available to direct members, narrowed by Membership permissions. */
+  readonly members: readonly Permission[];
+  /** Maximum permissions available through an Attachment without origin Membership. */
+  readonly others: readonly Permission[];
 }
 
 export interface WorkspacePolicy {
@@ -49,7 +49,7 @@ export interface Membership {
   readonly actorId: string;
   readonly workspaceId: string;
   readonly roles: readonly string[];
-  readonly rights: readonly AccessRight[];
+  readonly permissions: readonly Permission[];
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -59,8 +59,8 @@ export interface ExecutionContext {
   readonly actorId: string;
 }
 
-export const ATTACHMENT_RIGHTS = ["read", "create", "update", "delete"] as const;
-export type AttachmentRight = (typeof ATTACHMENT_RIGHTS)[number];
+export const ATTACHMENT_PERMISSIONS = ["read", "update", "delete"] as const;
+export type AttachmentPermission = (typeof ATTACHMENT_PERMISSIONS)[number];
 
 /** Instance binding; never serialized into a portable Spec. */
 export interface Attachment {
@@ -73,7 +73,7 @@ export interface Attachment {
   readonly targetId: string;
   readonly collectionId: string;
   readonly filter?: FieldCondition;
-  readonly rights: readonly AttachmentRight[];
+  readonly permissions: readonly AttachmentPermission[];
   readonly allowReshare: boolean;
   readonly createdBy: string;
   readonly createdAt: string;

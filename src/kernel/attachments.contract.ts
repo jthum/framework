@@ -57,7 +57,7 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
         status: "open",
       });
       expect(attachment).toMatchObject({
-        rights: ["read"],
+        permissions: ["read"],
         allowReshare: false,
         createdBy: origin.actorId,
       });
@@ -198,7 +198,7 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
           sourceKey: "shared_jobs",
           targetId: secondTarget.workspaceId,
           sourceId: "source-jobs",
-          rights: ["read", "update"],
+          permissions: ["read", "update"],
         }),
       ).rejects.toMatchObject({ code: ERROR_CODES.permissionDenied });
       const derived = await kernel.reshareAttachment(target, {
@@ -206,7 +206,7 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
         targetId: secondTarget.workspaceId,
         sourceId: "source-jobs",
       });
-      expect(derived).toMatchObject({ parentId: parent.id, rights: ["read"] });
+      expect(derived).toMatchObject({ parentId: parent.id, permissions: ["read"] });
       await kernel.createRecord(origin, collection.key, { title: "Engineer", status: "open" });
       expect(await sourceRows(kernel, secondTarget, "shared_jobs")).toHaveLength(1);
       await kernel.revokeAttachment(origin, parent.id);
@@ -216,7 +216,7 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
       await kernel.close();
     });
 
-    it("enforces declared rights and both target/origin authorization seams", async () => {
+    it("enforces declared permissions and both target/origin authorization seams", async () => {
       expect.hasAssertions();
       const requests: AuthorizationRequest[] = [];
       let deniedOperation = "";
@@ -245,7 +245,7 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
         collectionKey: collection.key,
         targetId: target.workspaceId,
         sourceId: "source-jobs",
-        rights: ["update"],
+        permissions: ["update"],
       });
       await expect(sourceRows(kernel, candidate, "shared_jobs")).rejects.toMatchObject({
         code: ERROR_CODES.permissionDenied,
@@ -343,9 +343,9 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
           filter: { fieldId: "unknown", operator: "eq", value: true },
         }),
       ).rejects.toMatchObject({ code: ERROR_CODES.validationInvalidInput });
-      await expect(kernel.createAttachment(origin, { ...input, rights: [] })).rejects.toMatchObject(
-        { code: ERROR_CODES.resourceConflict },
-      );
+      await expect(
+        kernel.createAttachment(origin, { ...input, permissions: [] }),
+      ).rejects.toMatchObject({ code: ERROR_CODES.resourceConflict });
       await expect(
         kernel.createAttachment(origin, { ...input, targetId: origin.workspaceId }),
       ).rejects.toMatchObject({ code: ERROR_CODES.resourceConflict });
@@ -362,7 +362,7 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
         others: ["read"],
       });
       await expect(
-        kernel.createAttachment(origin, { ...input, rights: ["read", "update"] }),
+        kernel.createAttachment(origin, { ...input, permissions: ["read", "update"] }),
       ).rejects.toMatchObject({ code: ERROR_CODES.permissionDenied });
       const attachment = await kernel.createAttachment(origin, input);
       await expect(kernel.revokeAttachment(secondTarget, attachment.id)).rejects.toMatchObject({

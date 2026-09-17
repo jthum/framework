@@ -43,7 +43,7 @@ describe("delegated Rule execution", () => {
       collectionKey: "job_opening",
       targetId: recruiting.id,
       sourceId: "source-openings",
-      rights: ["read"],
+      permissions: ["read"],
     });
     const candidate = await kernel.createActor(recruitingContext, {
       kind: "user",
@@ -53,7 +53,7 @@ describe("delegated Rule execution", () => {
       actorId: candidate.id,
       workspaceId: recruiting.id,
       roles: ["candidate"],
-      rights: ["read", "update"],
+      permissions: ["read", "update"],
     });
     const candidateContext = { workspaceId: recruiting.id, actorId: candidate.id };
 
@@ -61,7 +61,7 @@ describe("delegated Rule execution", () => {
       kernel.runRule(candidateContext, "close_opening", { input: { opening: opening.id } }),
     ).rejects.toMatchObject({
       code: ERROR_CODES.permissionDenied,
-      message: "This Attachment does not permit update operations.",
+      message: "This Attachment does not grant update permission.",
     });
     expect(await kernel.getRecord(hrContext, "job_opening", opening.id)).toMatchObject({
       values: { status: "open" },
@@ -89,7 +89,7 @@ describe("delegated Rule execution", () => {
       actorId: janeId,
       workspaceId: hr.id,
       roles: janeInHr.roles,
-      rights: ["read", "create", "delete", "manage"],
+      permissions: ["read", "create", "delete", "manage"],
     });
     await expect(
       kernel.runRule(candidateContext, "close_opening_as_owner", {

@@ -261,13 +261,27 @@ export function catalogAdapterContract(
         await transaction.updateMembership({
           ...current,
           roles: ["reviewer"],
-          rights: ["read", "update"],
+          permissions: ["read", "update"],
           updatedAt: "2026-09-18T00:00:00.000Z",
         });
       });
       expect(await catalog.getMembership(candidate.id, recruiting.id)).toMatchObject({
         roles: ["reviewer"],
-        rights: ["read", "update"],
+        permissions: ["read", "update"],
+      });
+      const candidateMembership = await catalog.getMembership(candidate.id, recruiting.id);
+      await expect(
+        catalog.transaction((transaction) =>
+          transaction.updateMembership({
+            ...candidateMembership!,
+            actorId: jane.id,
+            workspaceId: hr.id,
+          }),
+        ),
+      ).rejects.toMatchObject({ code: ERROR_CODES.resourceConflict });
+      expect(await catalog.getMembership(candidate.id, recruiting.id)).toMatchObject({
+        actorId: candidate.id,
+        workspaceId: recruiting.id,
       });
       await persistence.close();
     });
@@ -309,7 +323,7 @@ export function catalogAdapterContract(
         targetId: target.id,
         collectionId: collection.id,
         filter: { fieldId: "status", operator: "eq", value: "open" },
-        rights: ["read"],
+        permissions: ["read"],
         allowReshare: false,
         createdBy: actor.id,
         createdAt: root.createdAt,
@@ -324,12 +338,13 @@ export function catalogAdapterContract(
       await persistence.catalog.transaction((transaction) =>
         transaction.insertAttachment(attachment),
       );
-      (attachment.rights as string[]).push("delete");
+      (attachment.permissions as string[]).push("delete");
       const first = (await persistence.catalog.getAttachment(attachment.id))!;
-      expect(first.rights).toEqual(["read"]);
-      (first.rights as string[]).push("update");
+      expect(first.permissions).toEqual(["read"]);
+      (first.permissions as string[]).push("update");
       expect(
-        (await persistence.catalog.getAttachmentBySource(target.id, attachment.sourceId))?.rights,
+        (await persistence.catalog.getAttachmentBySource(target.id, attachment.sourceId))
+          ?.permissions,
       ).toEqual(["read"]);
       await expect(
         persistence.catalog.transaction(async (transaction) => {
@@ -457,7 +472,7 @@ function catalogFixture(): {
       actorId: "actor-1",
       workspaceId: workspace.id,
       roles: ["owner"],
-      rights: ["read", "create", "update", "delete", "manage"],
+      permissions: ["read", "create", "update", "delete", "manage"],
       createdAt: stamp,
       updatedAt: stamp,
     },

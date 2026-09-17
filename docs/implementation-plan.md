@@ -12,15 +12,15 @@ No compatibility with the current Spec, `Host`, `TypeDef`, `WorkflowDef`, widget
 
 ## Progress
 
-| Phase | Status   | Delivered                                                                                          |
-| ----- | -------- | -------------------------------------------------------------------------------------------------- |
-| 0     | Complete | Package boundary, Kernel, Workspace/Actor/Membership, authorization, environment, SQLite           |
-| 1     | Complete | Collection/Field Spec, runtime validation, RecordStore contracts, CRUD, schema materialization     |
-| 2     | Complete | Persisted live Attachments, semantic binding, filtered reads, origin schema, rights and revocation |
-| 3     | Complete | Sources, Views, relationship traversal, Block contracts, lazy renderer registry                    |
-| 4     | Complete | Forms, Pages, Builder projection, executable S1 slice, browser SQLite bridge                       |
-| 5     | Complete | Short Rules, Action/Condition registries, Events, snapshots, attached mutations                    |
-| 6     | Complete | Membership ACL, `others`, attenuation, explicit re-share, spawn policy, S3 proof                   |
+| Phase | Status   | Delivered                                                                                               |
+| ----- | -------- | ------------------------------------------------------------------------------------------------------- |
+| 0     | Complete | Package boundary, Kernel, Workspace/Actor/Membership, authorization, environment, SQLite                |
+| 1     | Complete | Collection/Field Spec, runtime validation, RecordStore contracts, CRUD, schema materialization          |
+| 2     | Complete | Persisted live Attachments, semantic binding, filtered reads, origin schema, permissions and revocation |
+| 3     | Complete | Sources, Views, relationship traversal, Block contracts, lazy renderer registry                         |
+| 4     | Complete | Forms, Pages, Builder projection, executable S1 slice, browser SQLite bridge                            |
+| 5     | Complete | Short Rules, Action/Condition registries, Events, snapshots, attached mutations                         |
+| 6     | Complete | Membership ACL, `others`, attenuation, explicit re-share, spawn policy, S3 proof                        |
 
 Later phases remain intentionally unimplemented; their entries below are the source of truth for scope.
 
@@ -62,7 +62,7 @@ A snapshot alternative copies selected openings into an independent local Collec
 4. The candidate cannot access HR directly.
 5. Default Rule execution as the triggering candidate cannot mutate HR.
 6. The explicit `runAs` binding to Jane can mutate HR while Jane retains permission.
-7. A derived Attachment cannot exceed received rights; re-sharing is off by default.
+7. A derived Attachment cannot exceed received permissions; re-sharing is off by default.
 8. Revoking the origin Attachment makes the live Source unavailable.
 
 **Must not:** recursive permission graph walks; candidates as HR members; implicit `runAs`; rolling synchronization hitchhiking on Attachment; full delegated-product UI.
@@ -134,15 +134,15 @@ Builder UI tracks S1. S2 and S3 remain conformance fixtures until their products
 
 **Goal:** A Collection or slice in Workspace A is usable as a live Source in Workspace B.
 
-**In:** canonical Attachment instance data: origin Workspace and Collection, target Workspace Source definition, optional filter, rights, re-share permission (default false), provenance, and revocation. Field schema comes from the origin Collection; never place concrete Workspace or Attachment IDs in a portable Spec. Phase 0's permissive authorizer is sufficient for mechanical S1 wiring; complete `others` enforcement lands in Phase 6.
+**In:** canonical Attachment instance data: origin Workspace and Collection, target Workspace Source definition, optional filter, permissions, re-share permission (default false), provenance, and revocation. Field schema comes from the origin Collection; never place concrete Workspace or Attachment IDs in a portable Spec. Phase 0's permissive authorizer is sufficient for mechanical S1 wiring; complete `others` enforcement lands in Phase 6.
 
 **Out:** rolling materialisation; implicit copies; full spawn UI.
 
 **Tests:** S1 and S2 shared records live once; target loses access after revocation; concrete binding is absent from exported Spec.
 
-**Delivered:** Attachment uses `originId`, `targetId`, `collectionId`, and stable target `sourceId`; rights (`read`, `create`, `update`, `delete`), `allowReshare` default false, creation provenance, and terminal idempotent revocation. Memory and SQLite persist detached bindings. Creation requires an origin member acting in the origin, explicit target Membership, and an existing target Source declaration, with separate create/accept authorization checks. Target Source declarations resolve live schema/records by semantic key without copying definitions or records; changing that key preserves the instance binding. Reads check target Attachment authority, declared read rights, and the origin resource with `attachmentId` conveyed to the Authorizer. Filter conditions reuse stable Field IDs and the existing condition primitive; current schema is revalidated on every access, failing closed on removed filter Fields. No binding/schema cache bypasses revocation.
+**Delivered:** Attachment uses `originId`, `targetId`, `collectionId`, and stable target `sourceId`; permissions (`read`, `update`, `delete`), `allowReshare` default false, creation provenance, and terminal idempotent revocation. Memory and SQLite persist detached bindings. Creation requires an origin member acting in the origin, explicit target Membership, and an existing target Source declaration, with separate create/accept authorization checks. Target Source declarations resolve live schema/records by semantic key without copying definitions or records; changing that key preserves the instance binding. Reads check target Attachment authority, declared read permission, and the origin resource with `attachmentId` conveyed to the Authorizer. Filter conditions reuse stable Field IDs and the existing condition primitive; current schema is revalidated on every access, failing closed on removed filter Fields. No binding/schema cache bypasses revocation.
 
-Attachment write and derived re-share APIs are not exposed yet. Their rights are persisted, not treated as implemented capabilities. General Source contracts arrive in Phase 3; full member/`others` policy and attenuation arrive in Phase 6. The permissive local Authorizer remains intentionally unsuitable as a production multi-user ACL. See [live Attachments](./attachments.md).
+Phase 6 subsequently adds attached updates/deletes, derived re-sharing, current member/`others` policy, and permission attenuation. Attached creation is intentionally not exposed because its interaction with filtered slices needs an explicit product contract. See [live Attachments](./attachments.md).
 
 ### Phase 3 — Sources, Views, relationships, and Blocks
 
@@ -230,13 +230,13 @@ semantics continue in Phase 6.
 
 **Goal:** Implement the people-world semantics demanded by delegated Workspaces without building the whole product.
 
-**In:** real Membership role/rights policy; ACL member rights plus `others` ceiling; filtered Attachment enforcement; rights attenuation; re-sharing default off and requiring both Workspace policy and Attachment permission; local Actors with Membership only in the delegated Workspace; minimal Workspace creation policy needed by S3. Builder remains a restricted host policy.
+**In:** real Membership roles and permissions; ACL member permissions plus `others` ceiling; filtered Attachment enforcement; permission attenuation; re-sharing default off and requiring both Workspace policy and Attachment permission; local Actors with Membership only in the delegated Workspace; minimal Workspace creation policy needed by S3. Builder remains a restricted host policy.
 
 **Out:** recursive ACLs; generic topology engine; every spawn flag and invitation UI; writable overlays; rolling refresh.
 
-**Tests:** complete all eight S3 minimum-proof assertions. In particular, target permission cannot elevate origin `others`, derived rights cannot exceed received rights, the candidate cannot enumerate HR, Jane's current permission is checked for `runAs`, and revocation invalidates the live Source.
+**Tests:** complete all eight S3 minimum-proof assertions. In particular, target permission cannot elevate origin `others`, derived permissions cannot exceed received permissions, the candidate cannot enumerate HR, Jane's current permission is checked for `runAs`, and revocation invalidates the live Source.
 
-**Delivered:** five local rights (`read`, `create`, `update`, `delete`, `manage`) are persisted on Memberships and bounded by Workspace `members` access. Attachment-mediated access is additionally bounded by the origin's current `others` access and declared Attachment rights. Initial and derived rights attenuate; derived filters are conjunctive; re-sharing requires both target Workspace policy and explicit permission on the received Attachment. Revoking any Attachment in the provenance chain invalidates its derived live Sources. Direct origin members may use an attached Source as a binding while their current origin Membership—not the narrower mediated right—authorizes the resource operation. Workspace policy independently gates child spawning, local Actor creation, and re-sharing. Root-wide discovery requires `manage`; ordinary rosters remain issuance- or Membership-scoped. No Workspace ancestry is consulted for authorization.
+**Delivered:** five local permissions (`read`, `create`, `update`, `delete`, `manage`) are persisted on Memberships and bounded by Workspace `members` access. Attachment-mediated access is additionally bounded by the origin's current `others` access and declared Attachment permissions. Initial and derived permissions attenuate; derived filters are conjunctive; re-sharing requires both target Workspace policy and explicit permission on the received Attachment. Revoking any Attachment in the provenance chain invalidates its derived live Sources. Direct origin members may use an attached Source as a binding while their current origin Membership—not the narrower mediated permission—authorizes the resource operation. Workspace policy independently gates child spawning, local Actor creation, and re-sharing. Root-wide discovery requires `manage`; ordinary rosters remain issuance- or Membership-scoped. No Workspace ancestry is consulted for authorization.
 
 ### Phase 7 — Durable Rules and ActorRequest
 
@@ -256,7 +256,7 @@ semantics continue in Phase 6.
 
 **Out:** ACP implementation; Strands as Kernel dependency; conversation history as the Agent's only mode.
 
-**Tests:** Rule step with Agent execution Actor; fake AgentRuntime swap; agent cannot exceed its current rights.
+**Tests:** Rule step with Agent execution Actor; fake AgentRuntime swap; agent cannot exceed its current permissions.
 
 ### Phase 9 — Module scope binding
 
@@ -307,7 +307,7 @@ Closed v1 set:
 Workspace + root/parent grouping (not ACL)
 Actor + issuance/root grouping + persisted Membership
 Collection + Source + View
-Attachment + ACL (members and others)
+Attachment + ACL (member permissions and others)
 Field + Form
 Page + Block + layout node
 primitive Action + Event

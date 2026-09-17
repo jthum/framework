@@ -11,9 +11,9 @@ import { assertValidFieldCondition } from "../spec/validate.ts";
 import type { AuthorizationRequest } from "./authorization.ts";
 import type { Clock, IdGenerator } from "./defaults.ts";
 import {
-  ATTACHMENT_RIGHTS,
+  ATTACHMENT_PERMISSIONS,
   type Attachment,
-  type AttachmentRight,
+  type AttachmentPermission,
   type ExecutionContext,
 } from "./model.ts";
 import { evaluateCondition } from "./record-values.ts";
@@ -23,7 +23,7 @@ export interface CreateAttachmentInput {
   readonly targetId: string;
   readonly sourceId: string;
   readonly filter?: FieldCondition;
-  readonly rights?: readonly AttachmentRight[];
+  readonly permissions?: readonly AttachmentPermission[];
   readonly allowReshare?: boolean;
 }
 
@@ -32,17 +32,17 @@ export interface ReshareAttachmentInput {
   readonly targetId: string;
   readonly sourceId: string;
   readonly filter?: FieldCondition;
-  readonly rights?: readonly AttachmentRight[];
+  readonly permissions?: readonly AttachmentPermission[];
   readonly allowReshare?: boolean;
 }
 
-export interface AttachmentMutationTarget {
+interface ResolvedAttachmentRecord {
   readonly attachment: Attachment;
   readonly collection: CollectionDefinition;
   readonly record: CollectionRecord;
 }
 
-/** Mechanical live binding. Full origin/member/others policy is supplied by the Authorizer. */
+/** Live binding with local attenuation/re-share invariants and Authorizer-backed access checks. */
 export class AttachmentService {
   constructor(
     private readonly catalog: CatalogRepository,
@@ -80,9 +80,9 @@ export class AttachmentService {
       operation: "attachments.accept",
       resource: { kind: "workspace", id: input.targetId, workspaceId: input.targetId },
     });
-    const rights = normalizedRights(input.rights ?? ["read"]);
-    if (rights.some((right) => !origin.access.others.includes(right)))
-      throw denied("Attachment rights cannot exceed the origin Workspace's others access.");
+    const permissions = normalizePermissions(input.permissions ?? ["read"]);
+    if (permissions.some((permission) => !origin.access.others.includes(permission)))
+      throw denied("Attachment permissions cannot exceed the origin Workspace's others access.");
     const attachment: Attachment = {
       id: this.ids.create("attachment"),
       sourceId: input.sourceId,
@@ -90,7 +90,7 @@ export class AttachmentService {
       targetId: input.targetId,
       collectionId: collection.id,
       ...(input.filter === undefined ? {} : { filter: structuredClone(input.filter) }),
-      rights,
+      permissions,
       allowReshare: input.allowReshare ?? false,
       createdBy: context.actorId,
       createdAt: this.clock.now(),
@@ -130,9 +130,9 @@ export class AttachmentService {
       operation: "attachments.accept",
       resource: { kind: "workspace", id: input.targetId, workspaceId: input.targetId },
     });
-    const rights = normalizedRights(input.rights ?? parent.rights);
-    if (rights.some((right) => !parent.rights.includes(right)))
-      throw denied("Derived Attachment rights cannot exceed the received Attachment.");
+    const permissions = normalizePermissions(input.permissions ?? parent.permissions);
+    if (permissions.some((permission) => !parent.permissions.includes(permission)))
+      throw denied("Derived Attachment permissions cannot exceed the received Attachment.");
     const attachment: Attachment = {
       id: this.ids.create("attachment"),
       parentId: parent.id,
@@ -141,7 +141,7 @@ export class AttachmentService {
       targetId: input.targetId,
       collectionId: parent.collectionId,
       ...combineFilters(parent.filter, input.filter),
-      rights,
+      permissions,
       allowReshare: input.allowReshare ?? false,
       createdBy: context.actorId,
       createdAt: this.clock.now(),
@@ -236,15 +236,15 @@ export class AttachmentService {
   async resolveMutation(
     context: ExecutionContext,
     key: string,
-    right: "update" | "delete",
+    permission: "update" | "delete",
     recordId: string,
-  ): Promise<AttachmentMutationTarget> {
+  ): Promise<ResolvedAttachmentRecord> {
     const { attachment, collection } = await this.resolve(
       context,
       key,
-      `records.${right}`,
+      `records.${permission}`,
       recordId,
-      right,
+      permission,
     );
     const record = await this.records.get(attachment.originId, collection, recordId);
     await this.assertLive(attachment.id);
@@ -258,7 +258,7 @@ export class AttachmentService {
     key: string,
     operation: string,
     recordId?: string,
-    right: AttachmentRight = "read",
+    permission: AttachmentPermission = "read",
   ): Promise<{ attachment: Attachment; collection: CollectionDefinition }> {
     await this.assertContext(context);
     const target = await this.catalog.getWorkspace(context.workspaceId);
@@ -268,7 +268,7 @@ export class AttachmentService {
     if (!attachment) throw resourceNotFound("Source binding", key);
     await this.authorize({
       context,
-      operation: `attachments.${right}`,
+      operation: `attachments.${permission}`,
       resource: {
         kind: "attachment",
         id: attachment.id,
@@ -281,8 +281,8 @@ export class AttachmentService {
     const collection = origin?.spec.collections.find((item) => item.id === attachment.collectionId);
     if (!collection) throw resourceNotFound("Collection", attachment.collectionId);
     const originMembership = await this.catalog.getMembership(context.actorId, attachment.originId);
-    if (!originMembership && !attachment.rights.includes(right))
-      throw denied(`This Attachment does not permit ${right} operations.`);
+    if (!originMembership && !attachment.permissions.includes(permission))
+      throw denied(`This Attachment does not grant ${permission} permission.`);
     // Revalidate against current schema: removed filter Fields must fail closed.
     if (attachment.filter !== undefined) assertValidFieldCondition(attachment.filter, collection);
     await this.authorize({
@@ -313,14 +313,20 @@ export class AttachmentService {
   }
 }
 
-function normalizedRights(rights: readonly AttachmentRight[]): AttachmentRight[] {
-  const normalized = ATTACHMENT_RIGHTS.filter((right) => rights.includes(right));
+function normalizePermissions(
+  permissions: readonly AttachmentPermission[],
+): AttachmentPermission[] {
+  const normalized = ATTACHMENT_PERMISSIONS.filter((permission) =>
+    permissions.includes(permission),
+  );
   if (
     normalized.length === 0 ||
-    normalized.length !== rights.length ||
-    normalized.length !== new Set(rights).size
+    normalized.length !== permissions.length ||
+    normalized.length !== new Set(permissions).size
   )
-    throw resourceConflict("Attachment rights must be a non-empty unique set of supported rights.");
+    throw resourceConflict(
+      "Attachment permissions must be a non-empty unique set of supported permissions.",
+    );
   return normalized;
 }
 

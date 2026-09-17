@@ -50,10 +50,10 @@ Example:
 
 ```json
 {
-  "code": "ATTACHMENT.RIGHTS_EXCEEDED",
-  "message": "The requested rights exceed the available rights.",
+  "code": "ATTACHMENT.PERMISSIONS_EXCEEDED",
+  "message": "The requested permissions exceed the available permissions.",
   "details": {
-    "requested": ["read", "write"],
+    "requested": ["read", "update"],
     "available": ["read"]
   },
   "retryable": false
@@ -83,19 +83,19 @@ and receive an occurrence-specific `errorId` that support can correlate with int
 
 Keep the base set small. Add a code only when a caller, UI, agent, test, support workflow, or alternative consumer benefits from distinguishing it.
 
-| Category      | Meaning                                                             |
-| ------------- | ------------------------------------------------------------------- |
-| `SPEC`        | Invalid, unsupported, or unresolved portable definitions            |
-| `VALIDATION`  | Invalid user, Form, Rule, or Action input                           |
-| `RESOURCE`    | Generic resource absence or state conflict                          |
-| `PERMISSION`  | Membership, ACL, execution Actor, or `runAs` denial                 |
-| `ATTACHMENT`  | Attached-resource rights, availability, attenuation, and revocation |
-| `SOURCE`      | Query and Source capability failures                                |
-| `ACTION`      | Action discovery and invocation contract failures                   |
-| `RULE`        | Rule definition and execution failures                              |
-| `PERSISTENCE` | Adapter availability, conflicts, and unsupported operations         |
-| `ENVIRONMENT` | Capability unavailable in the active EnvironmentProfile             |
-| `INTERNAL`    | Unexpected defect or unclassified internal failure                  |
+| Category      | Meaning                                                                  |
+| ------------- | ------------------------------------------------------------------------ |
+| `SPEC`        | Invalid, unsupported, or unresolved portable definitions                 |
+| `VALIDATION`  | Invalid user, Form, Rule, or Action input                                |
+| `RESOURCE`    | Generic resource absence or state conflict                               |
+| `PERMISSION`  | Membership, ACL, execution Actor, or `runAs` denial                      |
+| `ATTACHMENT`  | Attached-resource permissions, availability, attenuation, and revocation |
+| `SOURCE`      | Query and Source capability failures                                     |
+| `ACTION`      | Action discovery and invocation contract failures                        |
+| `RULE`        | Rule definition and execution failures                                   |
+| `PERSISTENCE` | Adapter availability, conflicts, and unsupported operations              |
+| `ENVIRONMENT` | Capability unavailable in the active EnvironmentProfile                  |
+| `INTERNAL`    | Unexpected defect or unclassified internal failure                       |
 
 ## Initial codes
 
@@ -112,7 +112,7 @@ These codes define the initial shared meanings. Add narrower codes as implementa
 | `PERMISSION.DENIED`                  | The execution Actor lacks the required permission               |
 | `PERMISSION.RUN_AS_DENIED`           | The requested `runAs` Actor is not permitted for this operation |
 | `ATTACHMENT.REVOKED`                 | The Attachment is no longer active                              |
-| `ATTACHMENT.RIGHTS_EXCEEDED`         | Requested or derived rights exceed available rights             |
+| `ATTACHMENT.PERMISSIONS_EXCEEDED`    | Requested or derived permissions exceed available permissions   |
 | `ATTACHMENT.RESHARE_DENIED`          | Re-sharing is disabled by policy or the received Attachment     |
 | `SOURCE.UNAVAILABLE`                 | The Source cannot currently be read                             |
 | `SOURCE.CAPABILITY_UNSUPPORTED`      | The Source does not support the requested operation             |

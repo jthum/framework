@@ -21,7 +21,7 @@ import {
 } from "../spec/model.ts";
 import { assertValidSpec } from "../spec/validate.ts";
 import {
-  MembershipAuthorizer,
+  WorkspaceAuthorizer,
   type AuthorizationRequest,
   type Authorizer,
 } from "./authorization.ts";
@@ -55,12 +55,12 @@ import {
   prepareUpdateValues,
 } from "./record-values.ts";
 import {
-  ACCESS_RIGHTS,
-  type AccessRight,
+  PERMISSIONS,
   type Actor,
   type ActorKind,
   type ExecutionContext,
   type Membership,
+  type Permission,
   type Workspace,
   type WorkspaceAccess,
   type WorkspacePolicy,
@@ -115,19 +115,19 @@ export interface AddMembershipInput {
   readonly actorId: string;
   readonly workspaceId: string;
   readonly roles?: readonly string[];
-  readonly rights?: readonly AccessRight[];
+  readonly permissions?: readonly Permission[];
 }
 
 export interface UpdateMembershipInput {
   readonly actorId: string;
   readonly workspaceId: string;
   readonly roles?: readonly string[];
-  readonly rights: readonly AccessRight[];
+  readonly permissions: readonly Permission[];
 }
 
 export interface UpdateWorkspaceAccessInput {
-  readonly members: readonly AccessRight[];
-  readonly others: readonly AccessRight[];
+  readonly members: readonly Permission[];
+  readonly others: readonly Permission[];
 }
 
 export type UpdateWorkspacePolicyInput = WorkspacePolicy;
@@ -327,7 +327,7 @@ export class Kernel {
     return new Kernel(
       persistence,
       persistence.catalog,
-      options.authorizer ?? new MembershipAuthorizer(persistence.catalog),
+      options.authorizer ?? new WorkspaceAuthorizer(persistence.catalog),
       options.ids ?? new NanoIdGenerator(),
       options.clock ?? new SystemClock(),
       options.environment ?? LOCAL_BROWSER_ENVIRONMENT,
@@ -381,8 +381,8 @@ export class Kernel {
       updatedAt: stamp,
     };
     const memberships = [
-      membership(this.ids, stamp, userId, workspaceId, ["owner"], ACCESS_RIGHTS),
-      membership(this.ids, stamp, systemId, workspaceId, ["system"], ACCESS_RIGHTS),
+      membership(this.ids, stamp, userId, workspaceId, ["owner"], PERMISSIONS),
+      membership(this.ids, stamp, systemId, workspaceId, ["system"], PERMISSIONS),
     ] as const;
 
     await this.catalog.transaction(async (transaction) => {
@@ -442,7 +442,7 @@ export class Kernel {
       context.actorId,
       workspace.id,
       ["owner"],
-      ACCESS_RIGHTS,
+      PERMISSIONS,
     );
     await this.catalog.transaction(async (transaction) => {
       await transaction.insertWorkspace(workspace);
@@ -512,7 +512,7 @@ export class Kernel {
       actor.id,
       workspace.id,
       input.roles ?? ["member"],
-      input.rights ?? ["read"],
+      input.permissions ?? ["read"],
     );
     await this.catalog.transaction((transaction) => transaction.insertMembership(next));
     return next;
@@ -537,7 +537,7 @@ export class Kernel {
     const membership: Membership = {
       ...current,
       roles: input.roles === undefined ? current.roles : [...input.roles],
-      rights: normalizedRights(input.rights),
+      permissions: normalizePermissions(input.permissions),
       updatedAt: this.clock.now(),
     };
     await this.catalog.transaction((transaction) => transaction.updateMembership(membership));
@@ -558,8 +558,8 @@ export class Kernel {
     const workspace: Workspace = {
       ...current,
       access: {
-        members: normalizedRights(input.members),
-        others: normalizedRights(input.others),
+        members: normalizePermissions(input.members),
+        others: normalizePermissions(input.others),
       },
       updatedAt: this.clock.now(),
     };
@@ -1267,34 +1267,34 @@ function membership(
   actorId: string,
   workspaceId: string,
   roles: readonly string[],
-  rights: readonly AccessRight[],
+  permissions: readonly Permission[],
 ): Membership {
   return {
     id: ids.create("membership"),
     actorId,
     workspaceId,
     roles: [...roles],
-    rights: [...rights],
+    permissions: [...permissions],
     createdAt: stamp,
     updatedAt: stamp,
   };
 }
 
 function defaultAccess(): WorkspaceAccess {
-  return { members: [...ACCESS_RIGHTS], others: [] };
+  return { members: [...PERMISSIONS], others: [] };
 }
 
 function defaultPolicy(): WorkspacePolicy {
   return { spawn: true, createActors: true, reshare: false };
 }
 
-function normalizedRights(rights: readonly AccessRight[]): AccessRight[] {
-  if (rights.some((right) => !ACCESS_RIGHTS.includes(right)))
+function normalizePermissions(permissions: readonly Permission[]): Permission[] {
+  if (permissions.some((permission) => !PERMISSIONS.includes(permission)))
     throw new FrameworkError({
       code: ERROR_CODES.validationInvalidInput,
-      message: "Workspace access contains an unsupported right.",
+      message: "Workspace access contains an unsupported permission.",
     });
-  return ACCESS_RIGHTS.filter((right) => rights.includes(right));
+  return PERMISSIONS.filter((permission) => permissions.includes(permission));
 }
 
 function requiredName(value: string, kind: string): string {

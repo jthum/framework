@@ -16,6 +16,7 @@ import {
   assertActorIntegrity,
   assertAttachmentIntegrity,
   assertAttachmentRevocation,
+  assertMembershipIdentityUnchanged,
   assertMembershipIntegrity,
   assertWorkspaceIntegrity,
   assertWorkspaceTopologyUnchanged,
@@ -63,7 +64,7 @@ export class SqlitePersistenceAdapter implements PersistenceAdapter {
   }
 }
 
-export const SQLITE_CATALOG_SCHEMA_VERSION = 7;
+export const SQLITE_CATALOG_SCHEMA_VERSION = 8;
 
 export class SqliteCatalogRepository implements CatalogRepository {
   constructor(private readonly database: SqliteDatabase) {}
@@ -158,7 +159,7 @@ class SqliteCatalogTransaction implements CatalogTransaction {
       attachment.targetId,
       attachment.collectionId,
       attachment.filter === undefined ? null : JSON.stringify(attachment.filter),
-      JSON.stringify(attachment.rights),
+      JSON.stringify(attachment.permissions),
       attachment.allowReshare ? 1 : 0,
       attachment.createdBy,
       attachment.createdAt,
@@ -257,22 +258,25 @@ class SqliteCatalogTransaction implements CatalogTransaction {
       membership.actorId,
       membership.workspaceId,
       JSON.stringify(membership.roles),
-      JSON.stringify(membership.rights),
+      JSON.stringify(membership.permissions),
       membership.createdAt,
       membership.updatedAt,
     ]);
   }
 
   async updateMembership(membership: Membership): Promise<void> {
+    const row = await this.connection.get<MembershipRow>("SELECT * FROM memberships WHERE id = ?", [
+      membership.id,
+    ]);
+    if (!row) throw resourceNotFound("Membership", membership.id);
+    const existing = membershipFromRow(row);
+    assertMembershipIdentityUnchanged(existing, membership);
     await assertMembershipIntegrity(this, membership);
-    const existing = await this.getMembership(membership.actorId, membership.workspaceId);
-    if (!existing || existing.id !== membership.id)
-      throw resourceNotFound("Membership", membership.id);
     await this.connection.run(
-      "UPDATE memberships SET roles_json = ?, rights_json = ?, updated_at = ? WHERE id = ?",
+      "UPDATE memberships SET roles_json = ?, permissions_json = ?, updated_at = ? WHERE id = ?",
       [
         JSON.stringify(membership.roles),
-        JSON.stringify(membership.rights),
+        JSON.stringify(membership.permissions),
         membership.updatedAt,
         membership.id,
       ],
@@ -494,7 +498,7 @@ async function initializeCatalog(database: SqliteDatabase): Promise<void> {
       actor_id TEXT NOT NULL REFERENCES actors(id) ON DELETE CASCADE,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
       roles_json TEXT NOT NULL,
-      rights_json TEXT NOT NULL,
+      permissions_json TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       UNIQUE (actor_id, workspace_id)
@@ -511,7 +515,7 @@ async function initializeCatalog(database: SqliteDatabase): Promise<void> {
       target_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
       collection_id TEXT NOT NULL,
       filter_json TEXT,
-      rights_json TEXT NOT NULL,
+      permissions_json TEXT NOT NULL,
       allow_reshare INTEGER NOT NULL CHECK (allow_reshare IN (0, 1)),
       created_by TEXT NOT NULL REFERENCES actors(id),
       created_at TEXT NOT NULL,
@@ -535,13 +539,13 @@ async function readSchemaVersion(database: SqliteDatabase): Promise<number> {
 
 const insertStatements = {
   attachments:
-    "INSERT INTO attachments (id, parent_id, source_id, origin_id, target_id, collection_id, filter_json, rights_json, allow_reshare, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO attachments (id, parent_id, source_id, origin_id, target_id, collection_id, filter_json, permissions_json, allow_reshare, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   workspaces:
     "INSERT INTO workspaces (id, is_root, parent_id, root_id, name, created_by, access_json, policy_json, spec_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   actors:
     "INSERT INTO actors (id, origin_id, root_id, kind, name, email, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
   memberships:
-    "INSERT INTO memberships (id, actor_id, workspace_id, roles_json, rights_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO memberships (id, actor_id, workspace_id, roles_json, permissions_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
 } as const;
 
 async function insert(
@@ -591,7 +595,7 @@ interface AttachmentRow {
   target_id: string;
   collection_id: string;
   filter_json: string | null;
-  rights_json: string;
+  permissions_json: string;
   allow_reshare: number;
   created_by: string;
   created_at: string;
@@ -610,7 +614,7 @@ function attachmentFromRow(row: AttachmentRow): Attachment {
     ...(row.filter_json === null
       ? {}
       : { filter: JSON.parse(row.filter_json) as NonNullable<Attachment["filter"]> }),
-    rights: JSON.parse(row.rights_json) as Attachment["rights"],
+    permissions: JSON.parse(row.permissions_json) as Attachment["permissions"],
     allowReshare: row.allow_reshare === 1,
     createdBy: row.created_by,
     createdAt: row.created_at,
@@ -635,7 +639,7 @@ interface MembershipRow {
   actor_id: string;
   workspace_id: string;
   roles_json: string;
-  rights_json: string;
+  permissions_json: string;
   created_at: string;
   updated_at: string;
 }
@@ -675,7 +679,7 @@ function membershipFromRow(row: MembershipRow): Membership {
     actorId: row.actor_id,
     workspaceId: row.workspace_id,
     roles: JSON.parse(row.roles_json) as string[],
-    rights: JSON.parse(row.rights_json) as Membership["rights"],
+    permissions: JSON.parse(row.permissions_json) as Membership["permissions"],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

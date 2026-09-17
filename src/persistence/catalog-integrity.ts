@@ -1,7 +1,7 @@
 import { resourceConflict, resourceNotFound } from "../errors/error.ts";
 import {
-  ACCESS_RIGHTS,
-  ATTACHMENT_RIGHTS,
+  ATTACHMENT_PERMISSIONS,
+  PERMISSIONS,
   type Actor,
   type Attachment,
   type Membership,
@@ -14,8 +14,8 @@ export async function assertWorkspaceIntegrity(
   catalog: CatalogReader,
   workspace: Workspace,
 ): Promise<void> {
-  assertRights(workspace.access.members, "Workspace member");
-  assertRights(workspace.access.others, "Workspace others");
+  assertPermissions(workspace.access.members, "Workspace member");
+  assertPermissions(workspace.access.others, "Workspace others");
   if (
     typeof workspace.policy.spawn !== "boolean" ||
     typeof workspace.policy.createActors !== "boolean" ||
@@ -60,7 +60,7 @@ export async function assertMembershipIntegrity(
   catalog: CatalogReader,
   membership: Membership,
 ): Promise<void> {
-  assertRights(membership.rights, "Membership");
+  assertPermissions(membership.permissions, "Membership");
   const actor = await catalog.getActor(membership.actorId);
   if (!actor) throw resourceNotFound("Actor", membership.actorId);
   const workspace = await catalog.getWorkspace(membership.workspaceId);
@@ -70,12 +70,23 @@ export async function assertMembershipIntegrity(
   }
 }
 
-function assertRights(rights: readonly string[], kind: string): void {
+export function assertMembershipIdentityUnchanged(previous: Membership, next: Membership): void {
   if (
-    new Set(rights).size !== rights.length ||
-    rights.some((right) => !ACCESS_RIGHTS.includes(right as (typeof ACCESS_RIGHTS)[number]))
+    previous.id !== next.id ||
+    previous.actorId !== next.actorId ||
+    previous.workspaceId !== next.workspaceId
   )
-    throw resourceConflict(`${kind} rights must be a unique set of supported rights.`);
+    throw resourceConflict("Membership identity cannot be changed after creation.");
+}
+
+function assertPermissions(permissions: readonly string[], kind: string): void {
+  if (
+    new Set(permissions).size !== permissions.length ||
+    permissions.some(
+      (permission) => !PERMISSIONS.includes(permission as (typeof PERMISSIONS)[number]),
+    )
+  )
+    throw resourceConflict(`${kind} permissions must be a unique set of supported permissions.`);
 }
 
 export async function assertAttachmentIntegrity(
@@ -93,9 +104,11 @@ export async function assertAttachmentIntegrity(
       parent.targetId === attachment.targetId ||
       parent.originId !== attachment.originId ||
       parent.collectionId !== attachment.collectionId ||
-      attachment.rights.some((right) => !parent.rights.includes(right))
+      attachment.permissions.some((permission) => !parent.permissions.includes(permission))
     )
-      throw resourceConflict("A derived Attachment must preserve origin and attenuate rights.");
+      throw resourceConflict(
+        "A derived Attachment must preserve origin and attenuate permissions.",
+      );
   }
   const origin = await catalog.getWorkspace(attachment.originId);
   if (!origin) throw resourceNotFound("Workspace", attachment.originId);
@@ -108,11 +121,13 @@ export async function assertAttachmentIntegrity(
   const source = target.spec.sources.find((item) => item.id === attachment.sourceId);
   if (!source) throw resourceNotFound("Source", attachment.sourceId);
   if (
-    attachment.rights.length === 0 ||
-    new Set(attachment.rights).size !== attachment.rights.length ||
-    attachment.rights.some((right) => !ATTACHMENT_RIGHTS.includes(right))
+    attachment.permissions.length === 0 ||
+    new Set(attachment.permissions).size !== attachment.permissions.length ||
+    attachment.permissions.some((permission) => !ATTACHMENT_PERMISSIONS.includes(permission))
   )
-    throw resourceConflict("Attachment rights must be a non-empty unique set of supported rights.");
+    throw resourceConflict(
+      "Attachment permissions must be a non-empty unique set of supported permissions.",
+    );
   if (typeof attachment.allowReshare !== "boolean")
     throw resourceConflict("Attachment re-share permission must be a boolean.");
   if (attachment.revokedAt !== undefined || attachment.revokedBy !== undefined)

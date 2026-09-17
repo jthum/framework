@@ -155,29 +155,29 @@ Audit records the effective Actor and Rule/Action. The triggering Event already 
 
 ### People and permissions
 
-| Primitive          | Meaning                                                                                                         |
-| ------------------ | --------------------------------------------------------------------------------------------------------------- |
-| **Actor**          | **User** \| **Agent** \| **System**. System is non-interactive and cannot satisfy an ActorRequest.              |
-| **Membership**     | Persisted Actor x Workspace relationship with local role/rights. One Actor may belong to several Workspaces.    |
-| **ACL**            | Rights within one Workspace for members plus an **`others`** ceiling for access conveyed through Attachments.   |
-| **Attachment**     | Makes a Collection or filtered slice from one Workspace available as a Source in another, with narrowed rights. |
-| **Spawn settings** | Workspace policy controlling Workspace creation, local Actors, and re-sharing.                                  |
+| Primitive          | Meaning                                                                                                                |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| **Actor**          | **User** \| **Agent** \| **System**. System is non-interactive and cannot satisfy an ActorRequest.                     |
+| **Membership**     | Persisted Actor x Workspace relationship with local roles and permissions. One Actor may belong to several Workspaces. |
+| **ACL**            | Rights within one Workspace for members plus an **`others`** ceiling for access conveyed through Attachments.          |
+| **Attachment**     | Makes a Collection or filtered slice from one Workspace available as a Source in another, with narrowed permissions.   |
+| **Spawn settings** | Workspace policy controlling Workspace creation, local Actors, and re-sharing.                                         |
 
 Membership answers whether an Actor participates in a Workspace. Attachment answers whether a Workspace can consume a resource owned elsewhere. Membership cannot replace Attachment: a candidate may read selected HR openings without becoming an HR member.
 
-`others` is the maximum set of rights available to Actors who reach a resource through an Attachment rather than direct membership in its owning Workspace.
+`others` is the maximum set of permissions available to Actors who reach a resource through an Attachment rather than direct membership in its owning Workspace.
 
-Rights only attenuate:
+Permissions only attenuate:
 
 ```text
-derived Attachment rights ⊆ received Attachment rights ⊆ origin ACL.others
+derived Attachment permissions ⊆ received Attachment permissions ⊆ origin ACL.others
 ```
 
 That formula governs mediated access by target-local Actors. An effective Actor who is also a direct origin member is checked against the Actor's current origin Membership and member ceiling; the Source remains a stable binding, not an artificial reduction of authority the Actor already holds at the origin.
 
 Re-sharing is off by default. It requires explicit Workspace policy and permission on the received Attachment; read permission alone never implies redistribution permission. Provenance supports audit and revocation, but authorization does not walk a recursive Workspace tree.
 
-A snapshot needs origin authority while it is created, then becomes independent. A live Attachment requires continuing authority. Target Workspace permissions can narrow but never elevate origin rights.
+A snapshot needs origin authority while it is created, then becomes independent. A live Attachment requires continuing authority. Target Workspace permissions can narrow but never elevate origin permissions.
 
 Auth providers (password, magic link, SSO) are outside the Spec. After authentication, the session resolves to an Actor.
 
@@ -339,8 +339,8 @@ execution Actor     Actor whose authority an Action currently uses
 runAs               optional Action override of the execution Actor
 ActorRequest        wait for a User
 Membership          persisted Actor participation in a Workspace
-ACL                 member rights plus others ceiling
-Attachment          cross-Workspace Source access with narrowed rights
+ACL                 member permissions plus others ceiling
+Attachment          cross-Workspace Source access with narrowed permissions
 AgentRuntime        how an Agent reasons
 Kernel              TypeScript reference engine
 Module              domain code
