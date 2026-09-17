@@ -14,7 +14,7 @@ export interface CatalogReader {
   listMembershipsForActor(actorId: string): Promise<Membership[]>;
   listMembershipsForWorkspace(workspaceId: string): Promise<Membership[]>;
   getAttachment(id: string): Promise<Attachment | null>;
-  getAttachmentByKey(targetId: string, key: string): Promise<Attachment | null>;
+  getAttachmentBySource(targetId: string, sourceId: string): Promise<Attachment | null>;
   listIncomingAttachments(targetId: string): Promise<Attachment[]>;
   listOutgoingAttachments(originId: string): Promise<Attachment[]>;
 }

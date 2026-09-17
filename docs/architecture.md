@@ -76,7 +76,7 @@ Definition nodes have opaque portable stable IDs. Authors use semantic keys. ID 
 | **Page**       | Authored layout of Blocks and layout nodes.                                                                                       |
 | **Block**      | Configurable visual unit resolved through a registry. Receives values, rows, and schema; it is not a data-access layer.           |
 
-One View has one **root** Source. It may traverse explicitly declared relationships such as `project.client.name`. Arbitrary unrelated federated joins are not implicit.
+One View has one **root** Source. It may traverse explicitly declared relationships such as `project.client.name`. A reference identifies a local Collection or declared Source binding by its stable definition ID. A local relationship may therefore terminate in an attached record, but it does not confer implicit traversal into that record's other origin relationships. Arbitrary unrelated federated joins are not implicit.
 
 Source capabilities may include schema discovery, relationship traversal, filtering, sorting, aggregation, batched relation resolution, and optional search suggestions. An external Source need not provide every capability a local Collection Source provides. External Source kinds are later work.
 
@@ -88,7 +88,7 @@ Components -> Blocks -> Templates
 
 ### Live data, snapshots, and later materialisation
 
-The schema of an **attached** Source is the **origin Collection’s** definition. The target Workspace Spec does not duplicate those Fields. It refers to the Source by a **semantic key** that the Workspace instance binds to a local Collection or an Attachment. Export never writes Attachment IDs.
+The schema of an **attached** Source is the **origin Collection’s** definition. The target Workspace Spec does not duplicate those Fields. It declares a Source with a stable definition ID and semantic key; the Workspace instance binds the definition ID to an Attachment, while author-facing APIs resolve the semantic key. Export never writes Attachment IDs.
 
 A View is live by default: it queries its Source when read.
 

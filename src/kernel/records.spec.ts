@@ -262,7 +262,7 @@ function projectSpec(): Spec {
             key: "client",
             label: "Client",
             type: "reference",
-            collectionId: "collection-client",
+            sourceId: "collection-client",
           },
         ],
         lifecycle: {

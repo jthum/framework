@@ -326,7 +326,7 @@ export class Kernel {
       },
     });
     const spec: Spec = structuredClone(input);
-    await this.assertSchemaCompatible(current, spec);
+    await this.assertSchemaCompatible(context, current, spec);
     const workspace: Workspace = {
       ...current,
       spec,
@@ -606,32 +606,22 @@ export class Kernel {
       const value = values[field.key];
       const ids = typeof value === "string" ? [value] : Array.isArray(value) ? value : [];
       if (ids.length === 0) continue;
-      const target = workspace.spec.collections.find(
-        (candidate) => candidate.id === field.collectionId,
-      );
-      if (!target) throw resourceNotFound("Collection", field.collectionId);
-      for (const id of ids) {
-        if (
-          typeof id !== "string" ||
-          !(await this.persistence.records.get(workspace.id, target, id))
-        ) {
-          throw new FrameworkError({
-            code: ERROR_CODES.validationInvalidInput,
-            message: "Some record values need attention.",
-            issues: [
-              {
-                path: `values.${field.key}`,
-                code: "VALIDATION.REFERENCE_NOT_FOUND",
-                message: `${field.label} refers to a record that does not exist.`,
-              },
-            ],
-          });
-        }
+      const target = sourceDefinition(workspace.spec, field.sourceId);
+      if (!target || ids.some((id) => typeof id !== "string"))
+        throw this.invalidReference(field.key, field.label);
+      const records = await this.sources.getMany(context, target.key, ids as string[]);
+      const found = new Set(records.map((record) => record.id));
+      if (ids.some((id) => !found.has(id as string))) {
+        throw this.invalidReference(field.key, field.label);
       }
     }
   }
 
-  private async assertSchemaCompatible(current: Workspace, next: Spec): Promise<void> {
+  private async assertSchemaCompatible(
+    context: ExecutionContext,
+    current: Workspace,
+    next: Spec,
+  ): Promise<void> {
     const currentCollections = new Map(
       current.spec.collections.map((collection) => [collection.id, collection]),
     );
@@ -641,12 +631,13 @@ export class Kernel {
       const records = await this.persistence.records.list(current.id, previous);
       for (const record of records) {
         const values = prepareMigratedValues(previous, collection, record.values);
-        await this.assertMigratedReferences(current, next, collection, values);
+        await this.assertMigratedReferences(context, current, next, collection, values);
       }
     }
   }
 
   private async assertMigratedReferences(
+    context: ExecutionContext,
     workspace: Workspace,
     next: Spec,
     collection: CollectionDefinition,
@@ -657,28 +648,31 @@ export class Kernel {
       const value = values[field.key];
       const ids = typeof value === "string" ? [value] : Array.isArray(value) ? value : [];
       if (ids.length === 0) continue;
-      const nextTarget = next.collections.find((candidate) => candidate.id === field.collectionId);
-      const currentTarget = workspace.spec.collections.find(
-        (candidate) => candidate.id === field.collectionId,
-      );
+      const nextTarget = sourceDefinition(next, field.sourceId);
+      const currentTarget = sourceDefinition(workspace.spec, field.sourceId);
       if (!nextTarget || !currentTarget) {
-        throw this.invalidMigratedReference(field.key, field.label);
+        throw this.invalidReference(field.key, field.label, true);
       }
-      for (const id of ids) {
-        if (
-          typeof id !== "string" ||
-          !(await this.persistence.records.get(workspace.id, currentTarget, id))
-        ) {
-          throw this.invalidMigratedReference(field.key, field.label);
-        }
+      if (ids.some((id) => typeof id !== "string"))
+        throw this.invalidReference(field.key, field.label, true);
+      const records = await this.sources.getMany(context, currentTarget.key, ids as string[]);
+      const found = new Set(records.map((record) => record.id));
+      if (ids.some((id) => !found.has(id as string))) {
+        throw this.invalidReference(field.key, field.label, true);
       }
     }
   }
 
-  private invalidMigratedReference(fieldKey: string, fieldLabel: string): FrameworkError {
+  private invalidReference(
+    fieldKey: string,
+    fieldLabel: string,
+    migration = false,
+  ): FrameworkError {
     return new FrameworkError({
       code: ERROR_CODES.validationInvalidInput,
-      message: "The Spec is incompatible with existing records.",
+      message: migration
+        ? "The Spec is incompatible with existing records."
+        : "Some record values need attention.",
       issues: [
         {
           path: `values.${fieldKey}`,
@@ -713,6 +707,16 @@ export class Kernel {
       collectionId: collection.id,
     };
   }
+}
+
+function sourceDefinition(
+  spec: Spec,
+  id: string,
+): Spec["collections"][number] | Spec["sources"][number] | undefined {
+  return (
+    spec.collections.find((collection) => collection.id === id) ??
+    spec.sources.find((source) => source.id === id)
+  );
 }
 
 function membership(

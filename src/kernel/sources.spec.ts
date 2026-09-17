@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 import { ERROR_CODES } from "../errors/error.ts";
 import type { PersistenceAdapter, PersistenceSession } from "../persistence/catalog.ts";
-import { MemoryCatalogRepository, MemoryRecordStore } from "../persistence/memory.ts";
+import {
+  MemoryCatalogRepository,
+  MemoryPersistenceAdapter,
+  MemoryRecordStore,
+} from "../persistence/memory.ts";
 import type { CollectionRecord } from "../persistence/records.ts";
 import type { CollectionDefinition } from "../spec/model.ts";
 import type { AuthorizationRequest } from "./authorization.ts";
@@ -31,6 +35,7 @@ describe("Source contract", () => {
       client: beta.id,
       status: "active",
     });
+    records.getManyCalls = 0;
 
     const descriptor = await kernel.getSource(context, "project");
     expect(descriptor?.capabilities).toMatchObject({ relations: true, suggestions: false });
@@ -123,6 +128,135 @@ describe("Source contract", () => {
     });
     await kernel.close();
   });
+
+  it("references and traverses an attached Source without exposing deeper origin relations", async () => {
+    expect.hasAssertions();
+    const kernel = await Kernel.open({ persistence: new MemoryPersistenceAdapter() });
+    const { workspace: space, user } = await kernel.createRootWorkspace({
+      name: "Space",
+      user: { name: "Jane" },
+    });
+    const origin = { workspaceId: space.id, actorId: user.id };
+    const { workspace: app } = await kernel.createWorkspace(origin, { name: "Billing" });
+    const target = { ...origin, workspaceId: app.id };
+    await kernel.applySpec(origin, {
+      ...space.spec,
+      collections: [
+        {
+          id: "collection-company",
+          key: "company",
+          label: "Company",
+          fields: [{ id: "field-company-name", key: "name", label: "Name", type: "text" }],
+        },
+        {
+          id: "collection-contact",
+          key: "contact",
+          label: "Contact",
+          fields: [
+            { id: "field-contact-name", key: "name", label: "Name", type: "text" },
+            { id: "field-contact-status", key: "status", label: "Status", type: "text" },
+            {
+              id: "field-contact-company",
+              key: "company",
+              label: "Company",
+              type: "reference",
+              sourceId: "collection-company",
+            },
+          ],
+        },
+      ],
+    });
+    await kernel.applySpec(target, {
+      ...app.spec,
+      sources: [{ id: "source-contacts", key: "contacts", label: "Contacts" }],
+      collections: [
+        {
+          id: "collection-invoice",
+          key: "invoice",
+          label: "Invoice",
+          fields: [
+            { id: "field-invoice-number", key: "number", label: "Number", type: "text" },
+            {
+              id: "field-invoice-contact",
+              key: "contact",
+              label: "Contact",
+              type: "reference",
+              sourceId: "source-contacts",
+            },
+          ],
+        },
+      ],
+    });
+    const attachment = await kernel.createAttachment(origin, {
+      collectionKey: "contact",
+      targetId: app.id,
+      sourceId: "source-contacts",
+      filter: { fieldId: "field-contact-status", operator: "eq", value: "active" },
+    });
+    const company = await kernel.createRecord(origin, "company", { name: "Acme" });
+    const active = await kernel.createRecord(origin, "contact", {
+      name: "Ada",
+      status: "active",
+      company: company.id,
+    });
+    const hidden = await kernel.createRecord(origin, "contact", {
+      name: "Grace",
+      status: "inactive",
+      company: company.id,
+    });
+    await expect(
+      kernel.createRecord(target, "invoice", { number: "INV-2", contact: hidden.id }),
+    ).rejects.toMatchObject({ code: ERROR_CODES.validationInvalidInput });
+    await kernel.createRecord(target, "invoice", { number: "INV-1", contact: active.id });
+
+    const result = await kernel.querySource(target, "invoice", {
+      select: [
+        { path: ["field-invoice-number"], as: "number" },
+        {
+          path: ["field-invoice-contact", "field-contact-name"],
+          as: "contact_name",
+        },
+      ],
+    });
+    expect(result.rows.map((row) => row.values)).toEqual([
+      { number: "INV-1", contact_name: "Ada" },
+    ]);
+    await expect(
+      kernel.querySource(target, "invoice", {
+        select: [
+          {
+            path: ["field-invoice-contact", "field-contact-company", "field-company-name"],
+            as: "company_name",
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: "SOURCE.CAPABILITY_UNSUPPORTED" });
+
+    const current = (await kernel.getWorkspace(target))!;
+    await kernel.applySpec(target, {
+      ...current.spec,
+      sources: [{ ...current.spec.sources[0]!, key: "customers" }],
+    });
+    expect(
+      (
+        await kernel.querySource(target, "invoice", {
+          select: [
+            {
+              path: ["field-invoice-contact", "field-contact-name"],
+              as: "contact_name",
+            },
+          ],
+        })
+      ).rows[0]?.values.contact_name,
+    ).toBe("Ada");
+    await kernel.revokeAttachment(origin, attachment.id);
+    await expect(
+      kernel.querySource(target, "invoice", {
+        select: [{ path: ["field-invoice-contact", "field-contact-name"], as: "contact_name" }],
+      }),
+    ).rejects.toMatchObject({ code: ERROR_CODES.resourceNotFound });
+    await kernel.close();
+  });
 });
 
 class TrackingRecordStore extends MemoryRecordStore {
@@ -181,7 +315,7 @@ function relationalCollections(): readonly [CollectionDefinition, CollectionDefi
           key: "client",
           label: "Client",
           type: "reference",
-          collectionId: "collection-client",
+          sourceId: "collection-client",
         },
         { id: "field-status", key: "status", label: "Status", type: "text" },
       ],

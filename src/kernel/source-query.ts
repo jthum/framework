@@ -1,5 +1,5 @@
 import { FrameworkError } from "../errors/error.ts";
-import type { CollectionRecord, RecordStore } from "../persistence/records.ts";
+import type { CollectionRecord, RecordValues } from "../persistence/records.ts";
 import type {
   CollectionDefinition,
   FieldDefinition,
@@ -8,22 +8,28 @@ import type {
   SourceFilter,
   SourceQueryDefinition,
 } from "../spec/model.ts";
-import type { AuthorizationRequest } from "./authorization.ts";
-import type { ExecutionContext } from "./model.ts";
 import type {
   SourceCapabilities,
   SourceColumn,
   SourceDescriptor,
   SourceResult,
+  SourceRow,
   SourceSchema,
 } from "./sources.ts";
 
 interface RelationContext {
-  readonly workspaceId: string;
-  readonly collections: readonly CollectionDefinition[];
-  readonly records: RecordStore;
-  readonly context: ExecutionContext;
-  readonly authorize: (request: AuthorizationRequest) => Promise<void>;
+  resolve(sourceId: string, ids: readonly string[]): Promise<RelationTarget>;
+}
+
+interface RelationTarget {
+  readonly schema: SourceSchema;
+  readonly rows: readonly SourceRow[];
+  readonly traversable: boolean;
+}
+
+interface QueryRecord {
+  readonly id: string;
+  readonly values: RecordValues;
 }
 
 /** Pure query execution plus optional authorized local relationship resolution. */
@@ -79,7 +85,8 @@ export async function executeSourceQuery(
 
 class RelationResolver {
   private readonly cache = new Map<string, Promise<Map<string, JsonValue | undefined>>>();
-  private readonly authorized = new Set<string>();
+  private readonly targets = new Map<string, Promise<RelationTarget>>();
+  private readonly terminalFields = new Map<string, FieldDefinition>();
 
   constructor(private readonly relation: RelationContext) {}
 
@@ -98,18 +105,10 @@ class RelationResolver {
   }
 
   field(root: CollectionDefinition, path: readonly string[]): FieldDefinition {
-    let collection = root;
-    for (const [index, fieldId] of path.entries()) {
-      const field = collection.fields.find((item) => item.id === fieldId);
-      if (!field) throw invalidQuery("Field path contains an unknown Field.");
-      if (index === path.length - 1) return field;
-      if (field.type !== "reference")
-        throw invalidQuery("Only declared reference Fields may be traversed.");
-      const target = this.relation.collections.find((item) => item.id === field.collectionId);
-      if (!target) throw invalidQuery("Relationship target Collection is unavailable.");
-      collection = target;
-    }
-    throw invalidQuery("Field path cannot be empty.");
+    if (path.length === 1) return rootField(root, path);
+    const field = this.terminalFields.get(pathKey(path));
+    if (!field) throw invalidQuery("Relationship path was not resolved.");
+    return field;
   }
 
   private async resolve(
@@ -120,11 +119,15 @@ class RelationResolver {
     if (path.length === 0) throw invalidQuery("Field path cannot be empty.");
     let collection = root;
     let plural = false;
-    let nodes = new Map(rows.map((record) => [record.id, [record]]));
+    let traversable = true;
+    let nodes = new Map<string, readonly QueryRecord[]>(
+      rows.map((record) => [record.id, [record]]),
+    );
     for (let index = 0; index < path.length; index += 1) {
       const field = collection.fields.find((item) => item.id === path[index]);
       if (!field) throw invalidQuery("Field path contains an unknown Field.");
       if (index === path.length - 1) {
+        this.terminalFields.set(pathKey(path), field);
         return new Map(
           rows.map((rootRecord) => {
             const values = (nodes.get(rootRecord.id) ?? []).flatMap((record) => {
@@ -137,9 +140,8 @@ class RelationResolver {
       }
       if (field.type !== "reference")
         throw invalidQuery("Only declared reference Fields may be traversed.");
-      const target = this.relation.collections.find((item) => item.id === field.collectionId);
-      if (!target) throw invalidQuery("Relationship target Collection is unavailable.");
-      await this.authorizeTarget(target);
+      if (!traversable)
+        throw unsupported("This Source does not expose further relationship traversal.");
       plural ||= field.multiple === true;
       const ids = [
         ...new Set(
@@ -148,8 +150,14 @@ class RelationResolver {
           ),
         ),
       ];
-      const related = await this.relation.records.getMany(this.relation.workspaceId, target, ids);
-      const byId = new Map(related.map((record) => [record.id, record]));
+      const prefix = pathKey(path.slice(0, index + 1));
+      let pending = this.targets.get(prefix);
+      if (!pending) {
+        pending = this.relation.resolve(field.sourceId, ids);
+        this.targets.set(prefix, pending);
+      }
+      const target = await pending;
+      const byId = new Map(target.rows.map((record) => [record.id, record]));
       nodes = new Map(
         rows.map((rootRecord) => [
           rootRecord.id,
@@ -161,24 +169,10 @@ class RelationResolver {
           ),
         ]),
       );
-      collection = target;
+      collection = target.schema;
+      traversable = target.traversable;
     }
     return new Map();
-  }
-
-  private async authorizeTarget(collection: CollectionDefinition): Promise<void> {
-    if (this.authorized.has(collection.id)) return;
-    await this.relation.authorize({
-      context: this.relation.context,
-      operation: "records.list",
-      resource: {
-        kind: "collection",
-        id: collection.id,
-        workspaceId: this.relation.workspaceId,
-        collectionId: collection.id,
-      },
-    });
-    this.authorized.add(collection.id);
   }
 }
 

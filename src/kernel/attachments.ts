@@ -1,4 +1,9 @@
-import { ERROR_CODES, FrameworkError, resourceNotFound } from "../errors/error.ts";
+import {
+  ERROR_CODES,
+  FrameworkError,
+  resourceConflict,
+  resourceNotFound,
+} from "../errors/error.ts";
 import type { CatalogRepository } from "../persistence/catalog.ts";
 import type { CollectionRecord, RecordStore } from "../persistence/records.ts";
 import type { CollectionDefinition, FieldCondition } from "../spec/model.ts";
@@ -11,7 +16,7 @@ import { evaluateCondition } from "./record-values.ts";
 export interface CreateAttachmentInput {
   readonly collectionKey: string;
   readonly targetId: string;
-  readonly key: string;
+  readonly sourceId: string;
   readonly filter?: FieldCondition;
   readonly rights?: readonly AttachmentRight[];
   readonly allowReshare?: boolean;
@@ -35,6 +40,11 @@ export class AttachmentService {
     const collection = origin.spec.collections.find((item) => item.key === input.collectionKey);
     if (!collection) throw resourceNotFound("Collection", input.collectionKey);
     await this.assertContext({ ...context, workspaceId: input.targetId });
+    const target = await this.catalog.getWorkspace(input.targetId);
+    if (target?.id === origin.id)
+      throw resourceConflict("Attachments require distinct Workspaces.");
+    if (!target?.spec.sources.some((source) => source.id === input.sourceId))
+      throw resourceNotFound("Source", input.sourceId);
     await this.authorize({
       context,
       operation: "attachments.create",
@@ -52,7 +62,7 @@ export class AttachmentService {
     });
     const attachment: Attachment = {
       id: this.ids.create("attachment"),
-      key: input.key,
+      sourceId: input.sourceId,
       originId: origin.id,
       targetId: input.targetId,
       collectionId: collection.id,
@@ -136,6 +146,19 @@ export class AttachmentService {
       : null;
   }
 
+  async getManyRecords(
+    context: ExecutionContext,
+    key: string,
+    ids: readonly string[],
+  ): Promise<CollectionRecord[]> {
+    const { attachment, collection } = await this.resolve(context, key, "records.list");
+    const records = await this.records.getMany(attachment.originId, collection, ids);
+    await this.assertLive(attachment.id);
+    return records.filter((record) =>
+      evaluateCondition(attachment.filter, collection, record.values, true),
+    );
+  }
+
   private async resolve(
     context: ExecutionContext,
     key: string,
@@ -144,9 +167,9 @@ export class AttachmentService {
   ): Promise<{ attachment: Attachment; collection: CollectionDefinition }> {
     await this.assertContext(context);
     const target = await this.catalog.getWorkspace(context.workspaceId);
-    if (!target?.spec.sources.some((source) => source.key === key))
-      throw resourceNotFound("Source", key);
-    const attachment = await this.catalog.getAttachmentByKey(context.workspaceId, key);
+    const source = target?.spec.sources.find((candidate) => candidate.key === key);
+    if (!source) throw resourceNotFound("Source", key);
+    const attachment = await this.catalog.getAttachmentBySource(context.workspaceId, source.id);
     if (!attachment) throw resourceNotFound("Source binding", key);
     await this.authorize({
       context,

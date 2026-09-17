@@ -72,8 +72,8 @@ export async function assertAttachmentIntegrity(
     throw resourceConflict("Attachments require distinct Workspaces in the same root universe.");
   const collection = origin.spec.collections.find((item) => item.id === attachment.collectionId);
   if (!collection) throw resourceNotFound("Collection", attachment.collectionId);
-  if (!/^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/.test(attachment.key))
-    throw resourceConflict("Attachment key must be a semantic key.");
+  const source = target.spec.sources.find((item) => item.id === attachment.sourceId);
+  if (!source) throw resourceNotFound("Source", attachment.sourceId);
   if (
     attachment.rights.length === 0 ||
     new Set(attachment.rights).size !== attachment.rights.length ||
@@ -91,8 +91,8 @@ export async function assertAttachmentIntegrity(
       "Attachment provenance must reference an Actor in the same root universe.",
     );
   if (attachment.filter !== undefined) assertValidFieldCondition(attachment.filter, collection);
-  if (await catalog.getAttachmentByKey(target.id, attachment.key))
-    throw resourceConflict("This Source key already has an active Attachment.");
+  if (await catalog.getAttachmentBySource(target.id, attachment.sourceId))
+    throw resourceConflict("This Source already has an active Attachment.");
 }
 
 export async function assertAttachmentRevocation(

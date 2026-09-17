@@ -191,7 +191,16 @@ export function catalogAdapterContract(
         fields: [{ id: "status", key: "status", label: "Status", type: "text" as const }],
       };
       const origin = { ...root, spec: { ...root.spec, collections: [collection] } };
-      const target = { ...root, id: "target", isRoot: false, parentId: root.id };
+      const target = {
+        ...root,
+        id: "target",
+        isRoot: false,
+        parentId: root.id,
+        spec: {
+          ...root.spec,
+          sources: [{ id: "source-jobs", key: "jobs", label: "Jobs" }],
+        },
+      };
       const other = { ...root, id: "other", rootId: "other" };
       const outsider = { ...actor, id: "outsider", originId: other.id, rootId: other.id };
       await persistence.catalog.transaction(async (transaction) => {
@@ -203,7 +212,7 @@ export function catalogAdapterContract(
       });
       const attachment: Attachment = {
         id: "attachment",
-        key: "jobs",
+        sourceId: "source-jobs",
         originId: origin.id,
         targetId: target.id,
         collectionId: collection.id,
@@ -228,7 +237,7 @@ export function catalogAdapterContract(
       expect(first.rights).toEqual(["read"]);
       (first.rights as string[]).push("update");
       expect(
-        (await persistence.catalog.getAttachmentByKey(target.id, attachment.key))?.rights,
+        (await persistence.catalog.getAttachmentBySource(target.id, attachment.sourceId))?.rights,
       ).toEqual(["read"]);
       await expect(
         persistence.catalog.transaction(async (transaction) => {
@@ -237,7 +246,7 @@ export function catalogAdapterContract(
         }),
       ).rejects.toThrow("rollback");
       expect(
-        await persistence.catalog.getAttachmentByKey(target.id, attachment.key),
+        await persistence.catalog.getAttachmentBySource(target.id, attachment.sourceId),
       ).not.toBeNull();
       await expect(
         persistence.catalog.transaction((transaction) =>
@@ -250,7 +259,9 @@ export function catalogAdapterContract(
       await persistence.catalog.transaction((transaction) =>
         transaction.revokeAttachment(attachment.id, actor.id, "later"),
       );
-      expect(await persistence.catalog.getAttachmentByKey(target.id, attachment.key)).toBeNull();
+      expect(
+        await persistence.catalog.getAttachmentBySource(target.id, attachment.sourceId),
+      ).toBeNull();
       expect(await persistence.catalog.listIncomingAttachments(target.id)).toEqual(
         await persistence.catalog.listOutgoingAttachments(origin.id),
       );

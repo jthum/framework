@@ -49,7 +49,7 @@ describe("portable Collection Spec", () => {
               key: "owner",
               label: "Owner",
               type: "reference",
-              collectionId: "missing-collection",
+              sourceId: "missing-collection",
             },
           ],
         },

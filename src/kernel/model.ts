@@ -46,7 +46,8 @@ export type AttachmentRight = (typeof ATTACHMENT_RIGHTS)[number];
 /** Instance binding; never serialized into a portable Spec. */
 export interface Attachment {
   readonly id: string;
-  readonly key: string;
+  /** Stable ID of the target Workspace's Source binding definition. */
+  readonly sourceId: string;
   readonly originId: string;
   readonly targetId: string;
   readonly collectionId: string;

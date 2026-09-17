@@ -10,7 +10,7 @@ import type {
 import { assertValidSourceQuery } from "../spec/validate.ts";
 import type { AttachmentService } from "./attachments.ts";
 import type { AuthorizationRequest } from "./authorization.ts";
-import type { ExecutionContext } from "./model.ts";
+import type { ExecutionContext, Workspace } from "./model.ts";
 import { executeSourceQuery } from "./source-query.ts";
 
 export interface SourceCapabilities {
@@ -63,6 +63,11 @@ export interface SourceProvider {
     query?: SourceQueryDefinition,
   ): Promise<SourceResult>;
   get(context: ExecutionContext, key: string, id: string): Promise<SourceRow | null>;
+  getMany(
+    context: ExecutionContext,
+    key: string,
+    ids: readonly string[],
+  ): Promise<readonly SourceRow[]>;
   suggest?(
     context: ExecutionContext,
     key: string,
@@ -133,16 +138,17 @@ export class SourceService implements SourceProvider {
     const workspace = await this.requireWorkspace(context.workspaceId);
     const local = workspace.spec.collections.find((collection) => collection.key === key);
     if (local) {
-      assertValidSourceQuery(query, local, workspace.spec.collections);
+      assertValidSourceQuery(
+        query,
+        local,
+        workspace.spec.collections,
+        new Set(workspace.spec.sources.map((source) => source.id)),
+      );
       await this.authorizeCollection(context, "records.list", workspace.id, local.id);
       const records = await this.records.list(workspace.id, local);
       const source = await this.describeLocal(context, local);
       return executeSourceQuery(source, records, query, {
-        workspaceId: workspace.id,
-        collections: workspace.spec.collections,
-        records: this.records,
-        context,
-        authorize: this.authorize,
+        resolve: (sourceId, ids) => this.resolveRelation(context, workspace, sourceId, ids),
       });
     }
     if (!workspace.spec.sources.some((source) => source.key === key))
@@ -168,6 +174,23 @@ export class SourceService implements SourceProvider {
       throw resourceNotFound("Source", key);
     const record = await this.attachments.getRecord(context, key, id);
     return record ? sourceRow(record) : null;
+  }
+
+  async getMany(
+    context: ExecutionContext,
+    key: string,
+    ids: readonly string[],
+  ): Promise<readonly SourceRow[]> {
+    await this.assertContext(context);
+    const workspace = await this.requireWorkspace(context.workspaceId);
+    const local = workspace.spec.collections.find((collection) => collection.key === key);
+    if (local) {
+      await this.authorizeCollection(context, "records.list", workspace.id, local.id);
+      return (await this.records.getMany(workspace.id, local, ids)).map(sourceRow);
+    }
+    if (!workspace.spec.sources.some((source) => source.key === key))
+      throw resourceNotFound("Source", key);
+    return (await this.attachments.getManyRecords(context, key, ids)).map(sourceRow);
   }
 
   private async describeLocal(
@@ -213,6 +236,31 @@ export class SourceService implements SourceProvider {
         collectionId,
       },
     });
+  }
+
+  private async resolveRelation(
+    context: ExecutionContext,
+    workspace: Workspace,
+    sourceId: string,
+    ids: readonly string[],
+  ) {
+    const collection = workspace.spec.collections.find((item) => item.id === sourceId);
+    if (collection) {
+      const source = await this.describeLocal(context, collection);
+      return {
+        schema: source.schema,
+        rows: await this.getMany(context, collection.key, ids),
+        traversable: true,
+      };
+    }
+    const binding = workspace.spec.sources.find((item) => item.id === sourceId);
+    if (!binding) throw resourceNotFound("Source", sourceId);
+    const source = await this.describeAttached(context, binding.key);
+    return {
+      schema: source.schema,
+      rows: await this.getMany(context, binding.key, ids),
+      traversable: false,
+    };
   }
 
   private async requireWorkspace(id: string) {

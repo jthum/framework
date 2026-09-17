@@ -90,7 +90,7 @@ describe("Block registry", () => {
     await kernel.createAttachment(origin, {
       collectionKey: "project",
       targetId: app.id,
-      key: "shared_projects",
+      sourceId: "source-projects",
     });
     await kernel.createRecord(origin, "project", { name: "Launch", stage: "active" });
     const registry = renderers();

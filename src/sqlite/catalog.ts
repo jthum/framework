@@ -60,7 +60,7 @@ export class SqlitePersistenceAdapter implements PersistenceAdapter {
   }
 }
 
-export const SQLITE_CATALOG_SCHEMA_VERSION = 5;
+export const SQLITE_CATALOG_SCHEMA_VERSION = 6;
 
 export class SqliteCatalogRepository implements CatalogRepository {
   constructor(private readonly database: SqliteDatabase) {}
@@ -68,8 +68,8 @@ export class SqliteCatalogRepository implements CatalogRepository {
   getAttachment(id: string): Promise<Attachment | null> {
     return reader(this.database).getAttachment(id);
   }
-  getAttachmentByKey(targetId: string, key: string): Promise<Attachment | null> {
-    return reader(this.database).getAttachmentByKey(targetId, key);
+  getAttachmentBySource(targetId: string, sourceId: string): Promise<Attachment | null> {
+    return reader(this.database).getAttachmentBySource(targetId, sourceId);
   }
   listIncomingAttachments(targetId: string): Promise<Attachment[]> {
     return reader(this.database).listIncomingAttachments(targetId);
@@ -135,8 +135,8 @@ class SqliteCatalogTransaction implements CatalogTransaction {
   getAttachment(id: string): Promise<Attachment | null> {
     return reader(this.connection).getAttachment(id);
   }
-  getAttachmentByKey(targetId: string, key: string): Promise<Attachment | null> {
-    return reader(this.connection).getAttachmentByKey(targetId, key);
+  getAttachmentBySource(targetId: string, sourceId: string): Promise<Attachment | null> {
+    return reader(this.connection).getAttachmentBySource(targetId, sourceId);
   }
   listIncomingAttachments(targetId: string): Promise<Attachment[]> {
     return reader(this.connection).listIncomingAttachments(targetId);
@@ -149,7 +149,7 @@ class SqliteCatalogTransaction implements CatalogTransaction {
     await assertAttachmentIntegrity(this, attachment);
     await insert(this.connection, "attachments", [
       attachment.id,
-      attachment.key,
+      attachment.sourceId,
       attachment.originId,
       attachment.targetId,
       attachment.collectionId,
@@ -288,10 +288,10 @@ class SqliteCatalogReader {
     ]);
     return row ? attachmentFromRow(row) : null;
   }
-  async getAttachmentByKey(targetId: string, key: string): Promise<Attachment | null> {
+  async getAttachmentBySource(targetId: string, sourceId: string): Promise<Attachment | null> {
     const row = await this.connection.get<AttachmentRow>(
-      "SELECT * FROM attachments WHERE target_id = ? AND key = ? AND revoked_at IS NULL",
-      [targetId, key],
+      "SELECT * FROM attachments WHERE target_id = ? AND source_id = ? AND revoked_at IS NULL",
+      [targetId, sourceId],
     );
     return row ? attachmentFromRow(row) : null;
   }
@@ -476,7 +476,7 @@ async function initializeCatalog(database: SqliteDatabase): Promise<void> {
 
     CREATE TABLE IF NOT EXISTS attachments (
       id TEXT PRIMARY KEY,
-      key TEXT NOT NULL,
+      source_id TEXT NOT NULL,
       origin_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
       target_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
       collection_id TEXT NOT NULL,
@@ -490,7 +490,7 @@ async function initializeCatalog(database: SqliteDatabase): Promise<void> {
       CHECK (origin_id != target_id),
       CHECK ((revoked_at IS NULL AND revoked_by IS NULL) OR (revoked_at IS NOT NULL AND revoked_by IS NOT NULL))
     );
-    CREATE UNIQUE INDEX IF NOT EXISTS attachments_active_key ON attachments(target_id, key) WHERE revoked_at IS NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS attachments_active_source ON attachments(target_id, source_id) WHERE revoked_at IS NULL;
     CREATE INDEX IF NOT EXISTS attachments_origin_id ON attachments(origin_id);
     CREATE INDEX IF NOT EXISTS attachments_target_id ON attachments(target_id);
 
@@ -505,7 +505,7 @@ async function readSchemaVersion(database: SqliteDatabase): Promise<number> {
 
 const insertStatements = {
   attachments:
-    "INSERT INTO attachments (id, key, origin_id, target_id, collection_id, filter_json, rights_json, allow_reshare, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO attachments (id, source_id, origin_id, target_id, collection_id, filter_json, rights_json, allow_reshare, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   workspaces:
     "INSERT INTO workspaces (id, is_root, parent_id, root_id, name, created_by, spec_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
   actors:
@@ -553,7 +553,7 @@ interface WorkspaceRow {
 
 interface AttachmentRow {
   id: string;
-  key: string;
+  source_id: string;
   origin_id: string;
   target_id: string;
   collection_id: string;
@@ -569,7 +569,7 @@ interface AttachmentRow {
 function attachmentFromRow(row: AttachmentRow): Attachment {
   return {
     id: row.id,
-    key: row.key,
+    sourceId: row.source_id,
     originId: row.origin_id,
     targetId: row.target_id,
     collectionId: row.collection_id,

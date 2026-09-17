@@ -84,7 +84,8 @@ export interface ChoiceFieldDefinition extends FieldDefinitionBase {
 
 export interface ReferenceFieldDefinition extends FieldDefinitionBase {
   readonly type: "reference";
-  readonly collectionId: string;
+  /** Stable ID of a local Collection or declared Source binding in this Spec. */
+  readonly sourceId: string;
   readonly multiple?: boolean;
 }
 

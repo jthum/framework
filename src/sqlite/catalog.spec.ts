@@ -47,7 +47,7 @@ describe("SQLite catalog adapter", () => {
     const attachment = await first.createAttachment(origin, {
       collectionKey: "contact",
       targetId: app.id,
-      key: "contacts",
+      sourceId: "shared-contacts",
     });
     const record = await first.createRecord(origin, "contact", {});
     await first.close();
@@ -177,7 +177,7 @@ describe("SQLite catalog adapter", () => {
 
     await expect(persistence.open()).rejects.toMatchObject({
       code: ERROR_CODES.persistenceUnsupported,
-      details: { actualVersion: 99, supportedVersion: 5 },
+      details: { actualVersion: 99, supportedVersion: 6 },
     });
 
     await expect(database.get("SELECT 1")).rejects.toThrow();

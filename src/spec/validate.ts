@@ -23,9 +23,12 @@ export function validateSpec(input: unknown): ValidationIssue[] {
   }
   validateIdentity(spec, "", issues);
   unique(spec.collections, "collections", issues);
-  const collectionIds = new Set(spec.collections.map((collection) => collection.id));
+  const sourceIds = new Set([
+    ...spec.collections.map((collection) => collection.id),
+    ...spec.sources.map((source) => source.id),
+  ]);
   spec.collections.forEach((collection, index) =>
-    validateCollection(collection, `collections.${index}`, collectionIds, issues),
+    validateCollection(collection, `collections.${index}`, sourceIds, issues),
   );
   validateSourceNamespace(spec, issues);
   spec.views.forEach((view, index) => validateView(view, index, spec, issues));
@@ -75,6 +78,7 @@ export function assertValidSourceQuery(
   input: unknown,
   root: CollectionDefinition,
   collections: readonly CollectionDefinition[] = [root],
+  boundSourceIds: ReadonlySet<string> = new Set(),
 ): asserts input is SourceQueryDefinition {
   const issues: ValidationIssue[] = [];
   requireSourceQueryShape(input, "query", issues);
@@ -92,7 +96,7 @@ export function assertValidSourceQuery(
     });
     const byId = new Map(collections.map((collection) => [collection.id, collection]));
     for (const [fieldPath, fieldPathLabel] of queryPaths(query)) {
-      validateSourcePath(root, fieldPath, byId, fieldPathLabel, issues);
+      validateSourcePath(root, fieldPath, byId, boundSourceIds, fieldPathLabel, issues);
     }
   }
   if (issues.length === 0) return;
@@ -407,7 +411,7 @@ function requireFieldShape(input: unknown, path: string, issues: ValidationIssue
       }
       break;
     case "reference":
-      requireString(input, "collectionId", path, issues);
+      requireString(input, "sourceId", path, issues);
       optionalBoolean(input, "multiple", path, issues);
       break;
     case "boolean":
@@ -709,21 +713,21 @@ const fieldProperties: Readonly<Record<string, readonly string[]>> = {
   date: ["validation"],
   datetime: ["validation"],
   choice: ["options", "multiple"],
-  reference: ["collectionId", "multiple"],
+  reference: ["sourceId", "multiple"],
   json: [],
 };
 
 function validateCollection(
   collection: CollectionDefinition,
   path: string,
-  collectionIds: ReadonlySet<string>,
+  sourceIds: ReadonlySet<string>,
   issues: ValidationIssue[],
 ): void {
   validateIdentity(collection, path, issues);
   unique(collection.fields, `${path}.fields`, issues);
   const fieldsById = new Map(collection.fields.map((field) => [field.id, field]));
   collection.fields.forEach((field, index) =>
-    validateField(field, `${path}.fields.${index}`, fieldsById, collectionIds, issues),
+    validateField(field, `${path}.fields.${index}`, fieldsById, sourceIds, issues),
   );
   if (collection.titleFieldId && !fieldsById.has(collection.titleFieldId)) {
     issue(
@@ -800,8 +804,9 @@ function validateView(
   // Bound Source schemas are instance data and are validated again when the View executes.
   if (!collection) return;
   const collections = new Map(spec.collections.map((item) => [item.id, item]));
+  const boundSourceIds = new Set(spec.sources.map((source) => source.id));
   for (const [fieldPath, fieldPathLabel] of queryPaths(query, `${path}.query`)) {
-    validateSourcePath(collection, fieldPath, collections, fieldPathLabel, issues);
+    validateSourcePath(collection, fieldPath, collections, boundSourceIds, fieldPathLabel, issues);
   }
 }
 
@@ -839,6 +844,7 @@ function validateSourcePath(
   root: CollectionDefinition,
   path: readonly string[],
   collections: ReadonlyMap<string, CollectionDefinition>,
+  boundSourceIds: ReadonlySet<string>,
   issuePath: string,
   issues: ValidationIssue[],
 ): void {
@@ -864,8 +870,11 @@ function validateSourcePath(
       );
       break;
     }
-    const target = collections.get(field.collectionId);
+    const target = collections.get(field.sourceId);
     if (!target) {
+      // A declared bound Source gets its concrete schema from the Workspace instance.
+      // Remaining path validation is repeated when the query executes.
+      if (boundSourceIds.has(field.sourceId)) break;
       issue(
         issues,
         issuePath,
@@ -917,17 +926,17 @@ function validateField(
   field: FieldDefinition,
   path: string,
   fieldsById: ReadonlyMap<string, FieldDefinition>,
-  collectionIds: ReadonlySet<string>,
+  sourceIds: ReadonlySet<string>,
   issues: ValidationIssue[],
 ): void {
   validateIdentity(field, path, issues);
   if (field.type === "choice") validateChoices(field, path, issues);
-  if (field.type === "reference" && !collectionIds.has(field.collectionId)) {
+  if (field.type === "reference" && !sourceIds.has(field.sourceId)) {
     issue(
       issues,
-      `${path}.collectionId`,
+      `${path}.sourceId`,
       "SPEC.REFERENCE_UNRESOLVED",
-      "The referenced Collection does not exist in this Spec.",
+      "The referenced Source does not exist in this Spec.",
     );
   }
   if (field.type === "number") {

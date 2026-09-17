@@ -29,7 +29,7 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
       const attachment = await kernel.createAttachment(origin, {
         collectionKey: collection.key,
         targetId: target.workspaceId,
-        key: "shared_jobs",
+        sourceId: "source-jobs",
       });
       await kernel.createRecord(origin, collection.key, { title: "Engineer", status: "open" });
       revokeDuringRead = () => kernel.revokeAttachment(origin, attachment.id);
@@ -45,12 +45,12 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
       const attachment = await kernel.createAttachment(origin, {
         collectionKey: collection.key,
         targetId: target.workspaceId,
-        key: "shared_jobs",
+        sourceId: "source-jobs",
       });
       await kernel.createAttachment(origin, {
         collectionKey: collection.key,
         targetId: secondTarget.workspaceId,
-        key: "shared_jobs",
+        sourceId: "source-jobs",
       });
       const record = await kernel.createRecord(origin, collection.key, {
         title: "Engineer",
@@ -91,7 +91,7 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
       await kernel.createAttachment(origin, {
         collectionKey: collection.key,
         targetId: target.workspaceId,
-        key: "shared_jobs",
+        sourceId: "source-jobs",
         filter: {
           all: [
             { fieldId: "status", operator: "eq", value: "open" },
@@ -117,7 +117,7 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
         kernel.createAttachment(candidate, {
           collectionKey: "shared_jobs",
           targetId: origin.workspaceId,
-          key: "reshared",
+          sourceId: "source-jobs",
         }),
       ).rejects.toMatchObject({ code: ERROR_CODES.resourceNotFound });
       await kernel.updateRecord(origin, collection.key, open.id, { status: "closed" });
@@ -131,7 +131,7 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
       const input = {
         collectionKey: collection.key,
         targetId: target.workspaceId,
-        key: "shared_jobs",
+        sourceId: "source-jobs",
       };
       const attachment = await kernel.createAttachment(origin, input);
       expect(await kernel.listOutgoingAttachments(origin)).toEqual([attachment]);
@@ -179,7 +179,7 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
         kernel.createAttachment(origin, {
           collectionKey: collection.key,
           targetId: target.workspaceId,
-          key: "shared_jobs",
+          sourceId: "source-jobs",
         }),
       ).rejects.toMatchObject({ code: ERROR_CODES.permissionDenied });
       deniedOperation = "";
@@ -188,7 +188,7 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
       const writeOnly = await kernel.createAttachment(origin, {
         collectionKey: collection.key,
         targetId: target.workspaceId,
-        key: "shared_jobs",
+        sourceId: "source-jobs",
         rights: ["update"],
       });
       await expect(sourceRows(kernel, target, "shared_jobs")).rejects.toMatchObject({
@@ -198,7 +198,7 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
       const attachment = await kernel.createAttachment(origin, {
         collectionKey: collection.key,
         targetId: target.workspaceId,
-        key: "shared_jobs",
+        sourceId: "source-jobs",
       });
       deniedOperation = "records.list";
       await expect(sourceRows(kernel, target, "shared_jobs")).rejects.toMatchObject({
@@ -230,13 +230,19 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
       await kernel.createAttachment(origin, {
         collectionKey: collection.key,
         targetId: target.workspaceId,
-        key: "shared_jobs",
+        sourceId: "source-jobs",
         filter: { fieldId: "status", operator: "eq", value: "open" },
       });
       const record = await kernel.createRecord(origin, collection.key, {
         title: "Engineer",
         status: "open",
       });
+      const targetWorkspace = (await kernel.getWorkspace(target))!;
+      await kernel.applySpec(target, {
+        ...targetWorkspace.spec,
+        sources: [{ ...targetWorkspace.spec.sources[0]!, key: "open_jobs" }],
+      });
+      expect(await sourceSchema(kernel, target, "shared_jobs")).toBeUndefined();
       const workspace = (await kernel.getWorkspace(origin))!;
       const renamed = {
         ...collection,
@@ -246,8 +252,8 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
         ),
       };
       await kernel.applySpec(origin, { ...workspace.spec, collections: [renamed] });
-      expect(await sourceSchema(kernel, target, "shared_jobs")).toEqual(renamed);
-      expect((await kernel.getSourceRecord(target, "shared_jobs", record.id))?.values).toEqual({
+      expect(await sourceSchema(kernel, target, "open_jobs")).toEqual(renamed);
+      expect((await kernel.getSourceRecord(target, "open_jobs", record.id))?.values).toEqual({
         title: "Engineer",
         state: "open",
       });
@@ -257,11 +263,11 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
           { ...renamed, fields: renamed.fields.filter((field) => field.id !== "status") },
         ],
       });
-      await expect(sourceRows(kernel, target, "shared_jobs")).rejects.toMatchObject({
+      await expect(sourceRows(kernel, target, "open_jobs")).rejects.toMatchObject({
         code: ERROR_CODES.validationInvalidInput,
       });
       await kernel.applySpec(origin, { ...workspace.spec, collections: [] });
-      await expect(sourceSchema(kernel, target, "shared_jobs")).rejects.toMatchObject({
+      await expect(sourceSchema(kernel, target, "open_jobs")).rejects.toMatchObject({
         code: ERROR_CODES.resourceNotFound,
       });
       await kernel.close();
@@ -273,7 +279,7 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
       const input = {
         collectionKey: collection.key,
         targetId: target.workspaceId,
-        key: "shared_jobs",
+        sourceId: "source-jobs",
       };
       await expect(
         kernel.createAttachment(origin, {
@@ -287,6 +293,10 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
       await expect(
         kernel.createAttachment(origin, { ...input, targetId: origin.workspaceId }),
       ).rejects.toMatchObject({ code: ERROR_CODES.resourceConflict });
+      await expect(
+        kernel.createAttachment(origin, { ...input, sourceId: "source-undeclared" }),
+      ).rejects.toMatchObject({ code: ERROR_CODES.resourceNotFound });
+      expect(await kernel.listIncomingAttachments(target)).toEqual([]);
       const other = await kernel.createRootWorkspace({ name: "Other", user: { name: "Sam" } });
       await expect(
         kernel.createAttachment(origin, { ...input, targetId: other.workspace.id }),

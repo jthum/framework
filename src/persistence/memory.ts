@@ -116,10 +116,11 @@ export class MemoryCatalogRepository implements CatalogRepository, CatalogTransa
     return cloneOptional(this.state.attachments.get(id));
   }
 
-  async getAttachmentByKey(targetId: string, key: string): Promise<Attachment | null> {
+  async getAttachmentBySource(targetId: string, sourceId: string): Promise<Attachment | null> {
     return (
       cloneValues(this.state.attachments).find(
-        (item) => item.targetId === targetId && item.key === key && item.revokedAt === undefined,
+        (item) =>
+          item.targetId === targetId && item.sourceId === sourceId && item.revokedAt === undefined,
       ) ?? null
     );
   }
