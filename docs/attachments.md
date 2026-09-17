@@ -24,8 +24,8 @@ const schema = await kernel.getAttachedSchema(candidateContext, "hr_openings");
 const rows = await kernel.listAttachedRecords(candidateContext, "hr_openings");
 const row = await kernel.getAttachedRecord(candidateContext, "hr_openings", recordId);
 
-const received = await kernel.listIncomingAttachments(recruitingContext);
-const exposed = await kernel.listOutgoingAttachments(hrContext);
+const received = await kernel.listAttachmentsTo(recruitingContext);
+const exposed = await kernel.listAttachmentsFrom(hrContext);
 
 await kernel.revokeAttachment(hrContext, attachment.id);
 ```

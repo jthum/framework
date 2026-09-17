@@ -71,11 +71,11 @@ export class SqliteCatalogRepository implements CatalogRepository {
   getAttachmentBySource(targetId: string, sourceId: string): Promise<Attachment | null> {
     return reader(this.database).getAttachmentBySource(targetId, sourceId);
   }
-  listIncomingAttachments(targetId: string): Promise<Attachment[]> {
-    return reader(this.database).listIncomingAttachments(targetId);
+  listAttachmentsTo(targetId: string): Promise<Attachment[]> {
+    return reader(this.database).listAttachmentsTo(targetId);
   }
-  listOutgoingAttachments(originId: string): Promise<Attachment[]> {
-    return reader(this.database).listOutgoingAttachments(originId);
+  listAttachmentsFrom(originId: string): Promise<Attachment[]> {
+    return reader(this.database).listAttachmentsFrom(originId);
   }
 
   getWorkspace(id: string): Promise<Workspace | null> {
@@ -138,11 +138,11 @@ class SqliteCatalogTransaction implements CatalogTransaction {
   getAttachmentBySource(targetId: string, sourceId: string): Promise<Attachment | null> {
     return reader(this.connection).getAttachmentBySource(targetId, sourceId);
   }
-  listIncomingAttachments(targetId: string): Promise<Attachment[]> {
-    return reader(this.connection).listIncomingAttachments(targetId);
+  listAttachmentsTo(targetId: string): Promise<Attachment[]> {
+    return reader(this.connection).listAttachmentsTo(targetId);
   }
-  listOutgoingAttachments(originId: string): Promise<Attachment[]> {
-    return reader(this.connection).listOutgoingAttachments(originId);
+  listAttachmentsFrom(originId: string): Promise<Attachment[]> {
+    return reader(this.connection).listAttachmentsFrom(originId);
   }
 
   async insertAttachment(attachment: Attachment): Promise<void> {
@@ -295,7 +295,7 @@ class SqliteCatalogReader {
     );
     return row ? attachmentFromRow(row) : null;
   }
-  async listIncomingAttachments(targetId: string): Promise<Attachment[]> {
+  async listAttachmentsTo(targetId: string): Promise<Attachment[]> {
     return (
       await this.connection.all<AttachmentRow>(
         "SELECT * FROM attachments WHERE target_id = ? ORDER BY created_at, id",
@@ -304,7 +304,7 @@ class SqliteCatalogReader {
     ).map(attachmentFromRow);
   }
 
-  async listOutgoingAttachments(originId: string): Promise<Attachment[]> {
+  async listAttachmentsFrom(originId: string): Promise<Attachment[]> {
     return (
       await this.connection.all<AttachmentRow>(
         "SELECT * FROM attachments WHERE origin_id = ? ORDER BY created_at, id",

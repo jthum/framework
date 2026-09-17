@@ -150,7 +150,7 @@ export interface CollectionDefinition extends DefinitionIdentity {
 }
 
 /** A semantic Source binding is portable; its concrete resolution is instance data. */
-export interface SourceBindingDefinition extends DefinitionIdentity {}
+export interface SourceDefinition extends DefinitionIdentity {}
 
 export type SourceFilter =
   | { readonly all: readonly SourceFilter[] }
@@ -252,7 +252,7 @@ export interface RuleDefinition extends DefinitionIdentity {}
 export interface Spec extends DefinitionIdentity {
   readonly version: typeof SPEC_VERSION;
   readonly collections: readonly CollectionDefinition[];
-  readonly sources: readonly SourceBindingDefinition[];
+  readonly sources: readonly SourceDefinition[];
   readonly views: readonly ViewDefinition[];
   readonly forms: readonly FormDefinition[];
   readonly pages: readonly PageDefinition[];

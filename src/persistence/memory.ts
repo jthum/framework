@@ -125,11 +125,11 @@ export class MemoryCatalogRepository implements CatalogRepository, CatalogTransa
     );
   }
 
-  async listIncomingAttachments(targetId: string): Promise<Attachment[]> {
+  async listAttachmentsTo(targetId: string): Promise<Attachment[]> {
     return cloneValues(this.state.attachments).filter((item) => item.targetId === targetId);
   }
 
-  async listOutgoingAttachments(originId: string): Promise<Attachment[]> {
+  async listAttachmentsFrom(originId: string): Promise<Attachment[]> {
     return cloneValues(this.state.attachments).filter((item) => item.originId === originId);
   }
 

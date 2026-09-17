@@ -130,11 +130,11 @@ export class Kernel {
     return this.attachments.create(context, input);
   }
 
-  listIncomingAttachments(context: ExecutionContext) {
-    return this.attachments.listIncoming(context);
+  listAttachmentsTo(context: ExecutionContext) {
+    return this.attachments.listTo(context);
   }
-  listOutgoingAttachments(context: ExecutionContext) {
-    return this.attachments.listOutgoing(context);
+  listAttachmentsFrom(context: ExecutionContext) {
+    return this.attachments.listFrom(context);
   }
   revokeAttachment(context: ExecutionContext, id: string) {
     return this.attachments.revoke(context, id);

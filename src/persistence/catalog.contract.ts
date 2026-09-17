@@ -262,10 +262,10 @@ export function catalogAdapterContract(
       expect(
         await persistence.catalog.getAttachmentBySource(target.id, attachment.sourceId),
       ).toBeNull();
-      expect(await persistence.catalog.listIncomingAttachments(target.id)).toEqual(
-        await persistence.catalog.listOutgoingAttachments(origin.id),
+      expect(await persistence.catalog.listAttachmentsTo(target.id)).toEqual(
+        await persistence.catalog.listAttachmentsFrom(origin.id),
       );
-      expect((await persistence.catalog.listIncomingAttachments(target.id))[0]?.revokedAt).toBe(
+      expect((await persistence.catalog.listAttachmentsTo(target.id))[0]?.revokedAt).toBe(
         root.updatedAt,
       );
       await persistence.close();
