@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { render } from "svelte/server";
 import CollectionEditor from "./collection-editor.svelte";
 import ViewFixture from "./view-fixture.svelte";
+import FormFixture from "./form-fixture.svelte";
 import type { CollectionActions, CollectionDraft, EditorContext } from "./authoring.js";
 const collection: CollectionDraft = {
   id: "contact",
@@ -23,6 +24,20 @@ const actions: CollectionActions = {
   remove: untouched,
 };
 describe("Standalone Studio editors", () => {
+  it("renders Form authoring without importing a host form runtime", () => {
+    const form = {
+      id: "inquiry",
+      key: "inquiry",
+      label: "Inquiry",
+      mode: "standalone" as const,
+      inputs: [{ id: "message", key: "message", label: "Message", type: "text" as const }],
+    };
+    const body = render(FormFixture, { props: { context, form } }).body;
+    expect(body).toContain("Inquiry");
+    expect(body).toContain("What is this form for?");
+    expect(body).toContain("Live preview");
+    expect(body).not.toContain("/build/");
+  });
   it("renders View authoring with host-injected services and preview", () => {
     const view = {
       id: "contacts",

@@ -1,6 +1,10 @@
 export { default as EditorActions } from "./editor-actions.svelte";
 export { default as CollectionEditor } from "./collection-editor.svelte";
 export { default as ViewEditor } from "./view-editor.svelte";
+export { default as FormEditor } from "./form-editor.svelte";
+export { default as FormInputSheet } from "./form-input-sheet.svelte";
+export { default as FieldConditionControl } from "./field-condition-control.svelte";
+export type { FormActions, FormPreview } from "./authoring.js";
 export type { ViewActions, ViewPreview } from "./authoring.js";
 export type {
   CollectionDraft,
