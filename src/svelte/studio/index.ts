@@ -1,6 +1,13 @@
 export { default as EditorActions } from "./editor-actions.svelte";
 export { default as CollectionEditor } from "./collection-editor.svelte";
 export { default as ViewEditor } from "./view-editor.svelte";
+export {
+  localViewSchemas,
+  viewDraftFromDefinition,
+  viewDefinitionFromDraft,
+  ViewAuthoringError,
+  type ViewAuthoringSchemas,
+} from "./view-adapter.js";
 export { default as FormEditor } from "./form-editor.svelte";
 export { default as RuleEditor } from "./rule-editor.svelte";
 export { default as RuleSteps } from "./automation-step-list.svelte";

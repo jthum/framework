@@ -11,7 +11,7 @@ Source -> View -> Block
 
 A Source exposes structured rows, schema, and explicit capabilities. The built-in Workspace provider resolves both local Collections and semantic Source bindings backed by live Attachments. Consumers discover capabilities instead of assuming that every Source can filter, sort, traverse relationships, aggregate, paginate, or suggest values.
 
-Local Collection Sources currently support filtering, stable sorting, pagination, and declared relationship traversal. A reference Field identifies its target by stable `sourceId`: either a local Collection definition ID or a declared Source-binding definition ID. Attached Sources support filtering, sorting, pagination, and batched lookup for those explicit references, but deliberately do not expose origin relationships. Neither built-in Source advertises suggestions or aggregation yet. A Source without suggestions is still a fully usable Source.
+Local Collection Sources currently support filtering, stable sorting, pagination, aggregation, and declared relationship traversal. A reference Field identifies its target by stable `sourceId`: either a local Collection definition ID or a declared Source-binding definition ID. Attached Sources support filtering, sorting, pagination, aggregation, and batched lookup for those explicit references, but deliberately do not expose origin relationships. Neither built-in Source advertises suggestions. A Source without suggestions is still a fully usable Source.
 
 Queries identify Fields with stable Field-ID paths:
 
@@ -50,6 +50,17 @@ A View is portable Spec data with exactly one root Source, an optional query, an
 }
 ```
 
+A query may instead define one grouped aggregate with named measures. `count`, `sum`, `avg`,
+`min`, and `max` are portable operations; a multi-path average first averages each record and
+then the records in its group. Group and measure aliases are stable output keys. A relation group
+may retain its reference identity while using `labelPath` for display.
+
+Views may declare caller parameters separately from their stored query. Each parameter maps a
+semantic input key to a stable Field-ID path and operator. `queryView(key, { parameters })` validates
+the declared inputs and adds them to the stored filter without mutating the View. `input`
+parameters can be shown as exposed filters; `context` parameters are supplied by an embedding
+surface, such as the current record.
+
 `queryView` resolves the current Source binding every time and returns the View, Source result, and presentation hint. It never embeds an Attachment ID in the Spec. Hosts may let a Page override presentation without duplicating the View query.
 
 A View editor should make the common path short: list local Collection Sources first, choose one by default when appropriate, and keep query and presentation optional. Bound and future external Sources use the same contract.
@@ -74,5 +85,5 @@ Failed loads are not cached, so a transient chunk failure can be retried. Duplic
 - no arbitrary or unrelated joins;
 - no implicit traversal beyond an attached record into origin Collections;
 - no external API Source implementation yet;
-- no assumption that suggestions, aggregation, or every other capability exists;
+- no assumption that suggestions, aggregation, or every other capability exists on every provider;
 - no renderer bundled into the Kernel.

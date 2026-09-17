@@ -5,8 +5,13 @@
 ```ts
 const client = await createWorkspaceClient(kernel, { workspaceId, actorId });
 const views = await client.listViews();
-const result = await client.queryView("invoices");
+const result = await client.queryView("invoices", {
+  parameters: { status: "overdue" },
+});
 ```
+
+View parameters are declared in the portable View definition. The client does not accept an
+arbitrary extra filter language at this boundary.
 
 Binding validates and copies the execution context. Every operation still goes through the Kernel's current membership and authorization checks; binding is not an access grant or permission cache. Clients cannot close the Kernel or change their Actor. The host owns Kernel lifetime and creates a new client when the active Workspace or Actor changes.
 

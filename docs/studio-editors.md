@@ -12,9 +12,15 @@ Studio owns the editor interfaces, draft interactions and reusable controls. A h
 
 ## Working models versus the portable Spec
 
-`CollectionDraft`, `FieldDraft`, `ViewDraft`, `FormDraft` and `RuleDraft` are UI working models, not a second accepted Spec version. They use editable keys for picker choices. Hosts resolve those keys to portable definition identities when persisting. Arbitrary `meta` survives draft edits unchanged. Studio does not perform schema migrations or authorize sharing based on presentation hints.
+`CollectionDraft`, `FieldDraft`, `ViewDraft`, `FormDraft` and `RuleDraft` are UI working models, not a second accepted Spec version. They use editable keys for picker choices. Canonical adapters resolve those keys to portable definition identities when persisting. Arbitrary `meta` survives draft edits unchanged. Studio does not perform schema migrations or authorize sharing based on presentation hints.
 
-Some existing authoring features are ahead of the Kernel contracts: aggregate View authoring and the executable structured Rule model in particular. Extraction preserves them rather than deleting functionality or copying an executor into Studio. Completing their portable Spec/Kernel mapping remains core work. Builder.run currently supplies adapters to its existing runtime at this boundary; this is not old-spec compatibility inside Framework.
+The View adapter maps ordinary columns, flat filters, caller parameters, relationship paths,
+sorting, grouped measures, presentation, identity, and metadata to the canonical View contract.
+It rejects canonical options that the current editor cannot preserve—such as custom output aliases,
+nested boolean filters, and query offsets—instead of silently rewriting them. Aggregate View
+authoring therefore has a complete portable Spec and Kernel path. The executable structured Rule
+model remains ahead of the Kernel contract; extraction preserves that surface rather than deleting
+functionality or copying an executor into Studio.
 
 Studio consumers can style the semantic tokens and compose host preview snippets. Runtime-specific compatibility diagnostics and registries must come from the host, never an assumed browser runtime.
 

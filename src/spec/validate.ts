@@ -99,6 +99,50 @@ export function assertValidSourceQuery(
       }
       aliases.add(selection.as);
     });
+    if (query.aggregate) {
+      if (query.select)
+        issue(
+          issues,
+          "query.select",
+          "SPEC.PROPERTY_CONFLICT",
+          "Select and aggregate cannot be combined.",
+        );
+      const output = new Set([query.aggregate.group.as]);
+      query.aggregate.measures.forEach((measure, index) => {
+        const path = `query.aggregate.measures.${index}`;
+        if (output.has(measure.as))
+          issue(
+            issues,
+            `${path}.as`,
+            "SPEC.KEY_DUPLICATE",
+            "Aggregate output alias is duplicated.",
+          );
+        output.add(measure.as);
+        if (measure.operation !== "count" && !measure.path && !measure.paths?.length)
+          issue(
+            issues,
+            path,
+            "SPEC.AGGREGATE_PATH_REQUIRED",
+            "Numeric aggregate measures need a path.",
+          );
+        if (measure.paths && measure.operation !== "avg")
+          issue(
+            issues,
+            `${path}.paths`,
+            "SPEC.PROPERTY_UNSUPPORTED",
+            "Multiple paths are supported only by average measures.",
+          );
+      });
+      query.aggregate.sort?.forEach((sort, index) => {
+        if (!output.has(sort.key))
+          issue(
+            issues,
+            `query.aggregate.sort.${index}.key`,
+            "SPEC.REFERENCE_UNRESOLVED",
+            "Aggregate sort key must name a group or measure output.",
+          );
+      });
+    }
     const byId = new Map(collections.map((collection) => [collection.id, collection]));
     for (const [fieldPath, fieldPathLabel] of queryPaths(query)) {
       validateSourcePath(root, fieldPath, byId, boundSourceIds, fieldPathLabel, issues);
@@ -269,6 +313,34 @@ function requireViewShape(
 ): void {
   requireString(input, "source", path, issues);
   if (input.query !== undefined) requireSourceQueryShape(input.query, `${path}.query`, issues);
+  if (input.parameters !== undefined) {
+    if (!Array.isArray(input.parameters)) {
+      issue(issues, `${path}.parameters`, "SPEC.TYPE_INVALID", "View parameters must be an array.");
+    } else {
+      input.parameters.forEach((parameter, index) => {
+        const parameterPath = `${path}.parameters.${index}`;
+        if (!isRecord(parameter))
+          return issue(
+            issues,
+            parameterPath,
+            "SPEC.TYPE_INVALID",
+            "View parameter must be an object.",
+          );
+        requireString(parameter, "key", parameterPath, issues);
+        optionalString(parameter, "label", parameterPath, issues);
+        requireSourcePath(parameter.path, `${parameterPath}.path`, issues);
+        optionalEnum(
+          parameter,
+          "operator",
+          ["eq", "neq", "contains", "empty", "notEmpty", "gt", "gte", "lt", "lte"],
+          parameterPath,
+          issues,
+        );
+        optionalBoolean(parameter, "required", parameterPath, issues);
+        optionalEnum(parameter, "source", ["input", "context"], parameterPath, issues);
+      });
+    }
+  }
   if (input.presentation !== undefined) {
     if (!isRecord(input.presentation)) {
       issue(
@@ -332,8 +404,97 @@ function requireSourceQueryShape(input: unknown, path: string, issues: Validatio
         optionalString(selection, "label", itemPath, issues);
       });
   }
+  if (input.aggregate !== undefined)
+    requireSourceAggregateShape(input.aggregate, `${path}.aggregate`, issues);
   requireNonNegativeInteger(input.offset, `${path}.offset`, issues, true);
   requireNonNegativeInteger(input.limit, `${path}.limit`, issues, false);
+}
+
+function requireSourceAggregateShape(
+  input: unknown,
+  path: string,
+  issues: ValidationIssue[],
+): void {
+  if (!isRecord(input))
+    return issue(issues, path, "SPEC.TYPE_INVALID", "Source aggregation must be an object.");
+  if (!isRecord(input.group)) {
+    issue(issues, `${path}.group`, "SPEC.TYPE_INVALID", "Aggregation group must be a selection.");
+  } else {
+    requireSourcePath(input.group.path, `${path}.group.path`, issues);
+    if (input.group.labelPath !== undefined)
+      requireSourcePath(input.group.labelPath, `${path}.group.labelPath`, issues);
+    requireString(input.group, "as", `${path}.group`, issues);
+    optionalString(input.group, "label", `${path}.group`, issues);
+  }
+  if (!Array.isArray(input.measures) || input.measures.length === 0) {
+    issue(
+      issues,
+      `${path}.measures`,
+      "SPEC.TYPE_INVALID",
+      "Aggregation needs at least one measure.",
+    );
+  } else {
+    input.measures.forEach((measure, index) => {
+      const measurePath = `${path}.measures.${index}`;
+      if (!isRecord(measure))
+        return issue(
+          issues,
+          measurePath,
+          "SPEC.TYPE_INVALID",
+          "Aggregate measure must be an object.",
+        );
+      requireString(measure, "as", measurePath, issues);
+      optionalString(measure, "label", measurePath, issues);
+      optionalEnum(
+        measure,
+        "operation",
+        ["count", "sum", "avg", "min", "max"],
+        measurePath,
+        issues,
+      );
+      if (measure.operation === undefined)
+        issue(
+          issues,
+          `${measurePath}.operation`,
+          "SPEC.TYPE_INVALID",
+          "Aggregate operation is required.",
+        );
+      if (measure.path !== undefined)
+        requireSourcePath(measure.path, `${measurePath}.path`, issues);
+      if (measure.paths !== undefined) {
+        if (!Array.isArray(measure.paths) || measure.paths.length === 0)
+          issue(
+            issues,
+            `${measurePath}.paths`,
+            "SPEC.TYPE_INVALID",
+            "Aggregate paths must be a non-empty array.",
+          );
+        else
+          measure.paths.forEach((fieldPath, fieldIndex) =>
+            requireSourcePath(fieldPath, `${measurePath}.paths.${fieldIndex}`, issues),
+          );
+      }
+    });
+  }
+  if (input.sort !== undefined) {
+    if (!Array.isArray(input.sort))
+      issue(issues, `${path}.sort`, "SPEC.TYPE_INVALID", "Aggregate sort must be an array.");
+    else
+      input.sort.forEach((sort, index) => {
+        const sortPath = `${path}.sort.${index}`;
+        if (!isRecord(sort))
+          return issue(issues, sortPath, "SPEC.TYPE_INVALID", "Aggregate sort must be an object.");
+        requireString(sort, "key", sortPath, issues);
+        optionalEnum(sort, "direction", ["asc", "desc"], sortPath, issues);
+        if (sort.direction === undefined)
+          issue(
+            issues,
+            `${sortPath}.direction`,
+            "SPEC.TYPE_INVALID",
+            "Aggregate sort direction is required.",
+          );
+      });
+  }
 }
 
 function requireSourceFilterShape(input: unknown, path: string, issues: ValidationIssue[]): void {
@@ -973,7 +1134,30 @@ function validateView(
     );
   }
   const query = view.query;
-  if (!query) return;
+  const parameterKeys = new Set<string>();
+  view.parameters?.forEach((parameter, parameterIndex) => {
+    const parameterPath = `${path}.parameters.${parameterIndex}`;
+    if (!semanticKeyPattern.test(parameter.key)) {
+      issue(
+        issues,
+        `${parameterPath}.key`,
+        "SPEC.KEY_INVALID",
+        "View parameter key must be semantic.",
+      );
+    } else if (parameterKeys.has(parameter.key)) {
+      issue(
+        issues,
+        `${parameterPath}.key`,
+        "SPEC.KEY_DUPLICATE",
+        "View parameter key is duplicated.",
+      );
+    }
+    parameterKeys.add(parameter.key);
+  });
+  if (!query) {
+    if (collection) validateViewParameterPaths(view, path, collection, spec, issues);
+    return;
+  }
   const aliases = new Set<string>();
   query.select?.forEach((selection, selectionIndex) => {
     const selectionPath = `${path}.query.select.${selectionIndex}`;
@@ -989,6 +1173,59 @@ function validateView(
     }
     aliases.add(selection.as);
   });
+  if (query.aggregate) {
+    if (query.select)
+      issue(
+        issues,
+        `${path}.query.select`,
+        "SPEC.PROPERTY_CONFLICT",
+        "Select and aggregate cannot be combined.",
+      );
+    const output = new Set([query.aggregate.group.as]);
+    if (!semanticKeyPattern.test(query.aggregate.group.as))
+      issue(
+        issues,
+        `${path}.query.aggregate.group.as`,
+        "SPEC.KEY_INVALID",
+        "Group alias must be semantic.",
+      );
+    query.aggregate.measures.forEach((measure, measureIndex) => {
+      const measurePath = `${path}.query.aggregate.measures.${measureIndex}`;
+      if (!semanticKeyPattern.test(measure.as))
+        issue(issues, `${measurePath}.as`, "SPEC.KEY_INVALID", "Measure alias must be semantic.");
+      else if (output.has(measure.as))
+        issue(
+          issues,
+          `${measurePath}.as`,
+          "SPEC.KEY_DUPLICATE",
+          "Aggregate output alias is duplicated.",
+        );
+      output.add(measure.as);
+      if (measure.operation !== "count" && !measure.path && !measure.paths?.length)
+        issue(
+          issues,
+          measurePath,
+          "SPEC.AGGREGATE_PATH_REQUIRED",
+          "Numeric aggregate measures need a path.",
+        );
+      if (measure.paths && measure.operation !== "avg")
+        issue(
+          issues,
+          `${measurePath}.paths`,
+          "SPEC.PROPERTY_UNSUPPORTED",
+          "Multiple paths are supported only by average measures.",
+        );
+    });
+    query.aggregate.sort?.forEach((sort, sortIndex) => {
+      if (!output.has(sort.key))
+        issue(
+          issues,
+          `${path}.query.aggregate.sort.${sortIndex}.key`,
+          "SPEC.REFERENCE_UNRESOLVED",
+          "Aggregate sort key must name a group or measure output.",
+        );
+    });
+  }
   // Bound Source schemas are instance data and are validated again when the View executes.
   if (!collection) return;
   const collections = new Map(spec.collections.map((item) => [item.id, item]));
@@ -996,6 +1233,28 @@ function validateView(
   for (const [fieldPath, fieldPathLabel] of queryPaths(query, `${path}.query`)) {
     validateSourcePath(collection, fieldPath, collections, boundSourceIds, fieldPathLabel, issues);
   }
+  validateViewParameterPaths(view, path, collection, spec, issues);
+}
+
+function validateViewParameterPaths(
+  view: ViewDefinition,
+  path: string,
+  collection: CollectionDefinition,
+  spec: Spec,
+  issues: ValidationIssue[],
+): void {
+  const collections = new Map(spec.collections.map((item) => [item.id, item]));
+  const boundSourceIds = new Set(spec.sources.map((source) => source.id));
+  view.parameters?.forEach((parameter, index) =>
+    validateSourcePath(
+      collection,
+      parameter.path,
+      collections,
+      boundSourceIds,
+      `${path}.parameters.${index}.path`,
+      issues,
+    ),
+  );
 }
 
 function queryPaths(
@@ -1008,6 +1267,17 @@ function queryPaths(
   query.select?.forEach((selection, index) =>
     paths.push([selection.path, `${base}.select.${index}.path`]),
   );
+  if (query.aggregate) {
+    paths.push([query.aggregate.group.path, `${base}.aggregate.group.path`]);
+    if (query.aggregate.group.labelPath)
+      paths.push([query.aggregate.group.labelPath, `${base}.aggregate.group.labelPath`]);
+    query.aggregate.measures.forEach((measure, index) => {
+      if (measure.path) paths.push([measure.path, `${base}.aggregate.measures.${index}.path`]);
+      measure.paths?.forEach((path, pathIndex) =>
+        paths.push([path, `${base}.aggregate.measures.${index}.paths.${pathIndex}`]),
+      );
+    });
+  }
   return paths;
 }
 

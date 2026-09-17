@@ -116,6 +116,48 @@ describe("portable Collection Spec", () => {
     ).toContainEqual(expect.objectContaining({ code: "SPEC.RELATION_INVALID" }));
   });
 
+  it("validates View parameters and aggregate output contracts", () => {
+    const spec = projectSpec();
+    const view = {
+      id: "view-project-summary",
+      key: "project_summary",
+      label: "Project summary",
+      source: "project",
+      parameters: [{ key: "status", path: ["field-status"] }],
+      query: {
+        aggregate: {
+          group: { path: ["field-status"], as: "status" },
+          measures: [{ as: "budget_total", operation: "sum" as const, path: ["field-budget"] }],
+          sort: [{ key: "budget_total", direction: "desc" as const }],
+        },
+      },
+    };
+    expect(validateSpec({ ...spec, views: [view] })).toEqual([]);
+    expect(
+      validateSpec({
+        ...spec,
+        views: [{ ...view, parameters: [...view.parameters, ...view.parameters] }],
+      }),
+    ).toContainEqual(expect.objectContaining({ code: "SPEC.KEY_DUPLICATE" }));
+    expect(
+      validateSpec({
+        ...spec,
+        views: [
+          {
+            ...view,
+            query: {
+              ...view.query,
+              aggregate: {
+                ...view.query.aggregate,
+                sort: [{ key: "missing", direction: "asc" as const }],
+              },
+            },
+          },
+        ],
+      }),
+    ).toContainEqual(expect.objectContaining({ code: "SPEC.REFERENCE_UNRESOLVED" }));
+  });
+
   it("rejects ambiguous and empty Source filter groups", () => {
     expect.hasAssertions();
     const spec = projectSpec();

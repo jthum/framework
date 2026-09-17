@@ -60,6 +60,7 @@ export async function executeSourceQuery(
   const filtered = query.filter
     ? records.filter((record) => evaluateFilter(query.filter!, (path) => valueAt(record, path)))
     : [...records];
+  if (query.aggregate) return aggregateResult(source, filtered, query, valueAt, relations);
   const sorted = stableSort(filtered, query, valueAt);
   const total = sorted.length;
   const offset = query.offset ?? 0;
@@ -206,6 +207,119 @@ function columnsFor(
   });
 }
 
+function aggregateResult(
+  source: SourceDescriptor,
+  records: readonly CollectionRecord[],
+  query: SourceQueryDefinition,
+  valueAt: (record: CollectionRecord, path: readonly string[]) => JsonValue | undefined,
+  relations?: RelationResolver,
+): SourceResult {
+  const aggregate = query.aggregate!;
+  const groups = new Map<
+    string,
+    { identity: JsonValue | undefined; label: JsonValue | undefined; records: CollectionRecord[] }
+  >();
+  for (const record of records) {
+    const identity = valueAt(record, aggregate.group.path);
+    const token = JSON.stringify([typeof identity, identity]);
+    const existing = groups.get(token);
+    if (existing) existing.records.push(record);
+    else
+      groups.set(token, {
+        identity,
+        label: aggregate.group.labelPath ? valueAt(record, aggregate.group.labelPath) : identity,
+        records: [record],
+      });
+  }
+  const rows = [...groups.values()].map((group) => {
+    const values: Record<string, JsonValue> = {
+      [aggregate.group.as]: group.label ?? null,
+    };
+    for (const measure of aggregate.measures)
+      values[measure.as] = aggregateValue(group.records, measure, valueAt);
+    return { id: aggregateId(group.identity), values };
+  });
+  if (aggregate.sort?.length) {
+    rows.sort((left, right) => {
+      for (const sort of aggregate.sort ?? []) {
+        const comparison = compareOrder(left.values[sort.key], right.values[sort.key]);
+        if (comparison) return sort.direction === "asc" ? comparison : -comparison;
+      }
+      return 0;
+    });
+  }
+  const total = rows.length;
+  const offset = query.offset ?? 0;
+  const paged = rows.slice(offset, query.limit === undefined ? undefined : offset + query.limit);
+  const groupField =
+    aggregate.group.path.length === 1
+      ? rootField(source.schema, aggregate.group.path)
+      : relations?.field(source.schema, aggregate.group.path);
+  if (!groupField) throw unsupported("This Source does not support relationship traversal.");
+  const labelField = aggregate.group.labelPath
+    ? aggregate.group.labelPath.length === 1
+      ? rootField(source.schema, aggregate.group.labelPath)
+      : relations?.field(source.schema, aggregate.group.labelPath)
+    : groupField;
+  if (!labelField) throw unsupported("This Source does not support relationship traversal.");
+  return {
+    source,
+    columns: [
+      {
+        key: aggregate.group.as,
+        label: aggregate.group.label ?? groupField.label,
+        fieldId: labelField.id,
+        path: [...(aggregate.group.labelPath ?? aggregate.group.path)],
+        type: labelField.type,
+        aggregate: "group",
+      },
+      ...aggregate.measures.map((measure) => ({
+        key: measure.as,
+        label: measure.label ?? measure.as,
+        type: "number" as const,
+        aggregate: measure.operation,
+      })),
+    ],
+    rows: paged,
+    total,
+  };
+}
+
+function aggregateValue(
+  records: readonly CollectionRecord[],
+  measure: NonNullable<SourceQueryDefinition["aggregate"]>["measures"][number],
+  valueAt: (record: CollectionRecord, path: readonly string[]) => JsonValue | undefined,
+): JsonValue {
+  if (measure.operation === "count") return records.length;
+  const numbers = records.flatMap((record) => {
+    if (measure.paths?.length) {
+      const row = measure.paths.map((path) => finiteNumber(valueAt(record, path)));
+      return row.some((value) => value === null)
+        ? []
+        : [row.reduce<number>((sum, value) => sum + (value ?? 0), 0) / row.length];
+    }
+    const value = measure.path ? finiteNumber(valueAt(record, measure.path)) : null;
+    return value === null ? [] : [value];
+  });
+  if (!numbers.length) return null;
+  if (measure.operation === "sum") return numbers.reduce((sum, value) => sum + value, 0);
+  if (measure.operation === "min") return Math.min(...numbers);
+  if (measure.operation === "max") return Math.max(...numbers);
+  return numbers.reduce((sum, value) => sum + value, 0) / numbers.length;
+}
+
+function finiteNumber(value: JsonValue | undefined): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value !== "string" || value.trim() === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function aggregateId(value: JsonValue | undefined): string {
+  if (typeof value === "string") return value;
+  return JSON.stringify(value ?? null);
+}
+
 function rootField(schema: SourceSchema, path: readonly string[]): FieldDefinition {
   const field = schema.fields.find((item) => item.id === path[0]);
   if (!field) throw invalidQuery("Field path contains an unknown Field.");
@@ -217,6 +331,16 @@ function uniquePaths(query: SourceQueryDefinition): readonly (readonly string[])
     ...filterPaths(query.filter),
     ...(query.sort?.map((item) => item.path) ?? []),
     ...(query.select?.map((item) => item.path) ?? []),
+    ...(query.aggregate
+      ? [
+          query.aggregate.group.path,
+          ...(query.aggregate.group.labelPath ? [query.aggregate.group.labelPath] : []),
+          ...query.aggregate.measures.flatMap((measure) => [
+            ...(measure.path ? [measure.path] : []),
+            ...(measure.paths ?? []),
+          ]),
+        ]
+      : []),
   ];
   return [...new Map(paths.map((path) => [pathKey(path), path])).values()];
 }
@@ -315,6 +439,8 @@ function validateCapabilities(
     throw unsupported("This Source does not support pagination.");
   if (uniquePaths(query).some((path) => path.length > 1) && !capabilities.relations)
     throw unsupported("This Source does not support relationship traversal.");
+  if (query.aggregate && !capabilities.aggregate)
+    throw unsupported("This Source does not support aggregation.");
 }
 
 function referenceIds(value: JsonValue | undefined): string[] {

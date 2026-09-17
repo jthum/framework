@@ -35,9 +35,10 @@ export interface SourceDescriptor {
 export interface SourceColumn {
   readonly key: string;
   readonly label: string;
-  readonly fieldId: string;
-  readonly path: readonly string[];
+  readonly fieldId?: string;
+  readonly path?: readonly string[];
   readonly type: FieldDefinition["type"];
+  readonly aggregate?: "group" | "count" | "sum" | "avg" | "min" | "max";
 }
 
 export interface SourceRow {
@@ -81,7 +82,7 @@ const localCapabilities: SourceCapabilities = Object.freeze({
   sort: true,
   pagination: true,
   relations: true,
-  aggregate: false,
+  aggregate: true,
   suggestions: false,
 });
 

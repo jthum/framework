@@ -11,6 +11,7 @@ import type {
   SourceQueryDefinition,
   Spec,
   ViewDefinition,
+  ViewQueryInput,
 } from "../spec/model.ts";
 
 /**
@@ -40,7 +41,7 @@ export interface WorkspaceClient {
 
   listViews(): Promise<readonly ViewDefinition[]>;
   getView(key: string): Promise<ViewDefinition | null>;
-  queryView(key: string): Promise<ViewQueryResult>;
+  queryView(key: string, input?: ViewQueryInput): Promise<ViewQueryResult>;
 
   listForms(): Promise<readonly FormDefinition[]>;
   getForm(key: string): Promise<FormDefinition | null>;
@@ -123,8 +124,8 @@ class LocalWorkspaceClient implements WorkspaceClient {
     return this.kernel.getView(this.context, key);
   }
 
-  queryView(key: string): Promise<ViewQueryResult> {
-    return this.kernel.queryView(this.context, key);
+  queryView(key: string, input?: ViewQueryInput): Promise<ViewQueryResult> {
+    return this.kernel.queryView(this.context, key, input);
   }
 
   listForms(): Promise<readonly FormDefinition[]> {

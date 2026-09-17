@@ -157,8 +157,12 @@ export class Kernel {
   getView(context: ExecutionContext, key: string) {
     return this.views.get(context, key);
   }
-  queryView(context: ExecutionContext, key: string) {
-    return this.views.query(context, key);
+  queryView(
+    context: ExecutionContext,
+    key: string,
+    input?: import("../spec/model.ts").ViewQueryInput,
+  ) {
+    return this.views.query(context, key, input);
   }
   listForms(context: ExecutionContext) {
     return this.forms.list(context);

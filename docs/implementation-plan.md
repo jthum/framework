@@ -185,9 +185,12 @@ Framework Svelte Studio. Builder.run supplies thin wrappers for routing, queries
 sharing labels, persistence and runtime compatibility. Standalone deterministic rendering
 tests prove there is no SvelteKit or host singleton requirement. These editors expose
 explicit authoring working models; see [Studio editors](studio-editors.md) for the boundary.
-Aggregate View and executable Rule authoring still need their complete canonical Kernel
-contracts. Extraction preserves the full feature surface without moving the old executor
-or a legacy Spec reader into Framework.
+View authoring now has a canonical adapter and complete Kernel query contract for ordinary
+projection, caller/context parameters, relation paths, grouped measures and aggregate sorting.
+The adapter preserves stable identities and metadata and rejects unrepresentable options rather
+than losing them. Executable Rule authoring still needs its complete canonical Kernel contract.
+Extraction preserves that remaining feature surface without moving the old executor or a legacy
+Spec reader into Framework.
 
 This does **not** close Phase 4: the main session still uses Host, draft-to-canonical runtime
 integration remains, and the old projection/storage path has not been deleted.

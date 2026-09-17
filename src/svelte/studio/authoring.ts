@@ -48,6 +48,7 @@ interface DraftIdentity {
   id: string;
   key: string;
   label: string;
+  description?: string;
   meta?: SpecMeta;
 }
 export interface FieldDraft extends DraftIdentity {
@@ -110,8 +111,11 @@ export interface ViewDraft extends DraftIdentity {
   limit?: number;
   order_by?: Record<string, SortDirection>;
   group_by?: string;
+  /** Canonical display path for a grouped relation; retained even when Studio does not edit it. */
+  group_label_path?: string;
   measures?: Record<string, ViewMeasure>;
   implicit?: boolean;
+  presentation?: { block: string; config?: SpecMeta };
 }
 export interface FormDraft extends DraftIdentity {
   type?: string;

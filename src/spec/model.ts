@@ -175,10 +175,41 @@ export interface SourceSelection {
   readonly label?: string;
 }
 
+export type SourceAggregateOperation = "count" | "sum" | "avg" | "min" | "max";
+
+export interface SourceAggregateMeasure {
+  /** Stable result key exposed to Blocks and consumers. */
+  readonly as: string;
+  readonly label?: string;
+  readonly operation: SourceAggregateOperation;
+  /** Required by numeric operations other than a multi-path average. */
+  readonly path?: readonly string[];
+  /** Average these fields per record, then average the resulting records. */
+  readonly paths?: readonly (readonly string[])[];
+}
+
+export interface SourceAggregateSort {
+  /** Group alias or measure alias. */
+  readonly key: string;
+  readonly direction: "asc" | "desc";
+}
+
+export interface SourceAggregateGroup extends SourceSelection {
+  /** Optional display path while the grouping identity continues to use path. */
+  readonly labelPath?: readonly string[];
+}
+
+export interface SourceAggregateDefinition {
+  readonly group: SourceAggregateGroup;
+  readonly measures: readonly SourceAggregateMeasure[];
+  readonly sort?: readonly SourceAggregateSort[];
+}
+
 export interface SourceQueryDefinition {
   readonly filter?: SourceFilter;
   readonly sort?: readonly SourceSort[];
   readonly select?: readonly SourceSelection[];
+  readonly aggregate?: SourceAggregateDefinition;
   readonly offset?: number;
   readonly limit?: number;
 }
@@ -188,10 +219,26 @@ export interface ViewPresentationDefinition {
   readonly config?: SpecMeta;
 }
 
+/** A caller-supplied filter exposed by a View without changing its stored query. */
+export interface ViewParameterDefinition {
+  readonly key: string;
+  readonly label?: string;
+  readonly path: readonly string[];
+  readonly operator?: FieldOperator;
+  readonly required?: boolean;
+  /** Context parameters are supplied by the embedding surface rather than shown as filters. */
+  readonly source?: "input" | "context";
+}
+
+export interface ViewQueryInput {
+  readonly parameters?: Readonly<Record<string, JsonValue>>;
+}
+
 export interface ViewDefinition extends DefinitionIdentity {
   /** Collection key or semantic Source-binding key in this Workspace. */
   readonly source: string;
   readonly query?: SourceQueryDefinition;
+  readonly parameters?: readonly ViewParameterDefinition[];
   readonly presentation?: ViewPresentationDefinition;
 }
 

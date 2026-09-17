@@ -12,6 +12,54 @@ import type { AuthorizationRequest } from "./authorization.ts";
 import { Kernel } from "./kernel.ts";
 
 describe("Source contract", () => {
+  it("groups, measures, sorts, and paginates through the portable query contract", async () => {
+    const kernel = await Kernel.open({ persistence: new MemoryPersistenceAdapter() });
+    const { workspace, user } = await kernel.createRootWorkspace({
+      name: "Reviews",
+      user: { name: "Jane" },
+    });
+    const context = { workspaceId: workspace.id, actorId: user.id };
+    await kernel.applySpec(context, {
+      ...workspace.spec,
+      collections: [
+        {
+          id: "collection-review",
+          key: "review",
+          label: "Review",
+          fields: [
+            { id: "field-team", key: "team", label: "Team", type: "text" },
+            { id: "field-quality", key: "quality", label: "Quality", type: "number" },
+            { id: "field-impact", key: "impact", label: "Impact", type: "number" },
+          ],
+        },
+      ],
+    });
+    await kernel.createRecord(context, "review", { team: "Design", quality: 8, impact: 6 });
+    await kernel.createRecord(context, "review", { team: "Design", quality: 10, impact: 8 });
+    await kernel.createRecord(context, "review", { team: "Sales", quality: 5, impact: 5 });
+    const result = await kernel.querySource(context, "review", {
+      aggregate: {
+        group: { path: ["field-team"], as: "team" },
+        measures: [
+          { as: "review_count", operation: "count" },
+          { as: "score", operation: "avg", paths: [["field-quality"], ["field-impact"]] },
+        ],
+        sort: [{ key: "score", direction: "desc" }],
+      },
+      limit: 1,
+    });
+    expect(result).toMatchObject({
+      total: 2,
+      columns: [
+        { key: "team", aggregate: "group", type: "text" },
+        { key: "review_count", aggregate: "count", type: "number" },
+        { key: "score", aggregate: "avg", type: "number" },
+      ],
+      rows: [{ id: "Design", values: { team: "Design", review_count: 2, score: 8 } }],
+    });
+    await kernel.close();
+  });
+
   it("queries a local Collection and batches declared relationship traversal", async () => {
     expect.hasAssertions();
     const records = new TrackingRecordStore();
@@ -61,6 +109,27 @@ describe("Source contract", () => {
       rows: [expect.objectContaining({ id: expect.any(String) })],
     });
     expect(records.getManyCalls).toBe(1);
+    const grouped = await kernel.querySource(context, "project", {
+      aggregate: {
+        group: {
+          path: ["field-client"],
+          labelPath: ["field-client", "field-client-name"],
+          as: "client",
+        },
+        measures: [{ as: "project_count", operation: "count" }],
+      },
+    });
+    expect(grouped.columns[0]).toMatchObject({
+      key: "client",
+      fieldId: "field-client-name",
+      path: ["field-client", "field-client-name"],
+      type: "text",
+      aggregate: "group",
+    });
+    expect(grouped.rows).toEqual([
+      { id: acme.id, values: { client: "Acme", project_count: 1 } },
+      { id: beta.id, values: { client: "Beta", project_count: 1 } },
+    ]);
     await kernel.close();
   });
 

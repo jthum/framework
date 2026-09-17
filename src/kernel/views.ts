@@ -1,6 +1,13 @@
 import { resourceNotFound } from "../errors/error.ts";
 import type { CatalogRepository } from "../persistence/catalog.ts";
-import type { ViewDefinition, ViewPresentationDefinition } from "../spec/model.ts";
+import type {
+  JsonValue,
+  SourceFilter,
+  ViewDefinition,
+  ViewPresentationDefinition,
+  ViewQueryInput,
+} from "../spec/model.ts";
+import { FrameworkError } from "../errors/error.ts";
 import type { AuthorizationRequest } from "./authorization.ts";
 import type { ExecutionContext } from "./model.ts";
 import type { SourceResult, SourceService } from "./sources.ts";
@@ -34,10 +41,18 @@ export class ViewService {
     return structuredClone(view);
   }
 
-  async query(context: ExecutionContext, key: string): Promise<ViewQueryResult> {
+  async query(
+    context: ExecutionContext,
+    key: string,
+    input: ViewQueryInput = {},
+  ): Promise<ViewQueryResult> {
     const view = await this.get(context, key);
     if (!view) throw resourceNotFound("View", key);
-    const data = await this.sources.query(context, view.source, view.query);
+    const data = await this.sources.query(
+      context,
+      view.source,
+      parameterizedQuery(view, input.parameters ?? {}),
+    );
     return {
       view,
       data,
@@ -69,4 +84,36 @@ export class ViewService {
       },
     });
   }
+}
+
+function parameterizedQuery(view: ViewDefinition, values: Readonly<Record<string, JsonValue>>) {
+  const declared = new Map((view.parameters ?? []).map((parameter) => [parameter.key, parameter]));
+  for (const key of Object.keys(values)) {
+    if (!declared.has(key)) throw invalidParameters(`View parameter "${key}" is not declared.`);
+  }
+  const filters: SourceFilter[] = [];
+  for (const parameter of view.parameters ?? []) {
+    if (!(parameter.key in values)) {
+      if (parameter.required)
+        throw invalidParameters(`View parameter "${parameter.key}" is required.`);
+      continue;
+    }
+    filters.push({
+      path: parameter.path,
+      operator: parameter.operator ?? "eq",
+      ...(values[parameter.key] === undefined ? {} : { value: values[parameter.key] }),
+    });
+  }
+  if (!filters.length) return view.query;
+  const stored = view.query?.filter;
+  const filter: SourceFilter = stored
+    ? { all: [stored, ...filters] }
+    : filters.length === 1
+      ? filters[0]!
+      : { all: filters };
+  return { ...view.query, filter };
+}
+
+function invalidParameters(message: string): FrameworkError {
+  return new FrameworkError({ code: "VALIDATION.INVALID_INPUT", message });
 }
