@@ -70,6 +70,7 @@ export interface WorkspaceClient extends RuleExecutionClient {
   listViews(): Promise<readonly ViewDefinition[]>;
   getView(key: string): Promise<ViewDefinition | null>;
   queryView(key: string, input?: ViewQueryInput): Promise<ViewQueryResult>;
+  previewView(view: ViewDefinition, input?: ViewQueryInput): Promise<ViewQueryResult>;
 
   listForms(): Promise<readonly FormDefinition[]>;
   getForm(key: string): Promise<FormDefinition | null>;
@@ -197,6 +198,10 @@ class LocalWorkspaceClient implements WorkspaceClient {
 
   queryView(key: string, input?: ViewQueryInput): Promise<ViewQueryResult> {
     return this.kernel.queryView(this.context, key, input);
+  }
+
+  previewView(view: ViewDefinition, input?: ViewQueryInput): Promise<ViewQueryResult> {
+    return this.kernel.previewView(this.context, view, input);
   }
 
   listForms(): Promise<readonly FormDefinition[]> {

@@ -48,6 +48,16 @@ export class ViewService {
   ): Promise<ViewQueryResult> {
     const view = await this.get(context, key);
     if (!view) throw resourceNotFound("View", key);
+    return this.preview(context, view, input);
+  }
+
+  async preview(
+    context: ExecutionContext,
+    view: ViewDefinition,
+    input: ViewQueryInput = {},
+  ): Promise<ViewQueryResult> {
+    await this.workspace(context);
+    await this.authorizeRead(context, "views.preview");
     const data = await this.sources.query(
       context,
       view.source,

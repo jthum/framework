@@ -59,6 +59,7 @@ export {
   type CollectionAuthoringOptions,
   type NewCollectionDraft,
 } from "./collection-authoring.js";
+export { createViewActions, type ViewAuthoringOptions } from "./view-authoring.js";
 export { default as BlockPicker } from "./block-picker.svelte";
 export { default as BlockSettings } from "./block-settings.svelte";
 export { default as PageEditor } from "./page-editor.svelte";

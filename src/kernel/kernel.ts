@@ -316,6 +316,13 @@ export class Kernel {
   ) {
     return this.views.query(context, key, input);
   }
+  previewView(
+    context: ExecutionContext,
+    view: import("../spec/model.ts").ViewDefinition,
+    input?: import("../spec/model.ts").ViewQueryInput,
+  ) {
+    return this.views.preview(context, view, input);
+  }
   listForms(context: ExecutionContext) {
     return this.forms.list(context);
   }
