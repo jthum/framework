@@ -24,6 +24,48 @@ export interface CollectionAuthoringOptions extends EditorContextOptions {
   readonly onChange?: (spec: Spec) => void | Promise<void>;
 }
 
+export type NewCollectionDraft = Omit<CollectionDraft, "id"> & { readonly id?: string };
+
+/** Create one canonical Collection from the same friendly model used by Studio. */
+export async function createCollection(
+  client: WorkspaceClient,
+  input: NewCollectionDraft,
+  options: CollectionAuthoringOptions = {},
+): Promise<CollectionDefinition> {
+  const workspace = await client.getWorkspace();
+  if (workspace.spec.collections.some((collection) => collection.key === input.key))
+    throw new Error(`Collection key ${input.key} is already in use.`);
+  const identity: CollectionDraft = {
+    ...input,
+    id: input.id ?? nanoid(),
+    fields: input.fields.map((field) => ({ ...field, id: field.id || nanoid() })),
+  };
+  const existing = editorContextFromSpec(workspace.spec, options).collections;
+  const sources = [...existing, { ...identity, fields: [] }];
+  const fields = identity.fields.map((field) =>
+    fieldDefinitionFromDraft(field, identity.fields, sources),
+  );
+  const base: CollectionDefinition = {
+    id: identity.id,
+    key: identity.key,
+    label: identity.label,
+    ...(identity.collection_label ? { collectionLabel: identity.collection_label } : {}),
+    ...(identity.description ? { description: identity.description } : {}),
+    ...(identity.meta ? { meta: structuredClone(identity.meta) } : {}),
+    fields,
+  };
+  const collection: CollectionDefinition = {
+    ...base,
+    ...(identity.lifecycle ? { lifecycle: lifecycleDefinition(identity.lifecycle, base) } : {}),
+  };
+  const updated = await client.applySpec({
+    ...workspace.spec,
+    collections: [...workspace.spec.collections, collection],
+  });
+  await options.onChange?.(updated.spec);
+  return collection;
+}
+
 /**
  * Bind the reusable Collection editor to one context-bound Workspace client.
  *

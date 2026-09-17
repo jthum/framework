@@ -184,7 +184,11 @@ export function fieldDefinitionFromDraft(
     label: draft.label,
     ...(draft.description ? { description: draft.description } : {}),
     ...(draft.required !== undefined ? { required: draft.required } : {}),
-    ...(sameType && previous.default !== undefined ? { default: previous.default } : {}),
+    ...(draft.default !== undefined && (!previous || sameType)
+      ? { default: draft.default as JsonValue }
+      : sameType && previous.default !== undefined
+        ? { default: previous.default }
+        : {}),
     ...(Object.keys(meta).length ? { meta } : {}),
     ...(Object.keys(behavior).length ? { behavior } : {}),
   };
@@ -226,12 +230,12 @@ export function fieldDefinitionFromDraft(
       ...(draft.format === "email" || draft.format === "url" || draft.format === "phone"
         ? { format: draft.format }
         : {}),
-      validation: {
+      ...definedValidation({
         minLength: draft.validation?.min_length,
         maxLength: draft.validation?.max_length,
         pattern: draft.validation?.pattern,
         message: draft.validation?.message,
-      },
+      }),
     };
   if (type === "number")
     return {
@@ -241,14 +245,14 @@ export function fieldDefinitionFromDraft(
         ? { format: draft.format }
         : {}),
       ...(draft.currency ? { currency: draft.currency } : {}),
-      validation: {
+      ...definedValidation({
         min: draft.validation?.min,
         max: draft.validation?.max,
         message: draft.validation?.message,
         ...(sameType && previous.type === "number" && previous.validation?.integer !== undefined
           ? { integer: previous.validation.integer }
           : {}),
-      },
+      }),
     };
   if (type === "date" || type === "datetime")
     return {
@@ -261,4 +265,13 @@ export function fieldDefinitionFromDraft(
         : {}),
     };
   return { ...base, type };
+}
+
+function definedValidation(
+  input: Readonly<Record<string, string | number | boolean | undefined>>,
+): { validation?: Readonly<Record<string, string | number | boolean>> } {
+  const validation = Object.fromEntries(
+    Object.entries(input).filter(([, value]) => value !== undefined),
+  ) as Record<string, string | number | boolean>;
+  return Object.keys(validation).length ? { validation } : {};
 }

@@ -2,9 +2,45 @@ import { describe, expect, it } from "vite-plus/test";
 import { createWorkspaceClient } from "@jthum/framework/client";
 import { Kernel } from "@jthum/framework/kernel";
 import { MemoryPersistenceAdapter } from "@jthum/framework/persistence";
-import { createCollectionActions } from "./collection-authoring.js";
+import { createCollection, createCollectionActions } from "./collection-authoring.js";
 
 describe("Collection authoring", () => {
+  it("creates a canonical Collection from a friendly draft", async () => {
+    const kernel = await Kernel.open({ persistence: new MemoryPersistenceAdapter() });
+    const root = await kernel.createRootWorkspace({ name: "Space", user: { name: "Jane" } });
+    const context = { workspaceId: root.workspace.id, actorId: root.user.id };
+    const client = await createWorkspaceClient(kernel, context);
+
+    const collection = await createCollection(client, {
+      key: "project",
+      label: "Project",
+      collection_label: "Projects",
+      fields: [
+        { id: "", key: "title", label: "Title", type: "text", required: true },
+        {
+          id: "",
+          key: "status",
+          label: "Status",
+          type: "enum",
+          values: ["draft", "active"],
+          default: "draft",
+        },
+      ],
+    });
+
+    expect(collection).toMatchObject({
+      key: "project",
+      collectionLabel: "Projects",
+      fields: [
+        { key: "title", type: "text", required: true },
+        { key: "status", type: "choice", default: "draft" },
+      ],
+    });
+    expect(collection.id).toHaveLength(21);
+    expect(collection.fields.every((field) => field.id.length === 21)).toBe(true);
+    await kernel.close();
+  });
+
   it("applies focused canonical mutations while preserving stable references", async () => {
     const kernel = await Kernel.open({ persistence: new MemoryPersistenceAdapter() });
     const root = await kernel.createRootWorkspace({ name: "Space", user: { name: "Jane" } });
