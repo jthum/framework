@@ -31,6 +31,12 @@ Laravel does not import the TypeScript Kernel. It reads the Spec and implements 
 
 Workspace grouping uses `is_root`, `parent_id`, and `root_id` (TypeScript: `isRoot`, `parentId`, `rootId`). A root has `is_root = true`, `parent_id = null`, and `root_id = id`. Bootstrap creates one root, issues the first User and System there, and persists their Memberships. Host vocabulary may be Space, Organisation, or Account; those labels do not create new Kernel types.
 
+Workspace lifecycle is deliberately non-recursive. A host may rename a Workspace through the
+Kernel. Deletion removes one non-root leaf plus its records, executions, Memberships, and incoming
+Attachments atomically. It is rejected when the Workspace has children, issued Actors, exposed
+Collections, or acts as an intermediary for re-shared Attachments. Recursive tenant deletion and
+identity transfer are separate product operations, not hidden cascade semantics.
+
 `createWorkspace` spawns beneath the active Workspace, not the creator's birthplace: `is_root = false`, `parent_id = context.workspaceId`, inherited `root_id`, and `createdBy` for provenance. Spawned Workspaces cannot become roots. Grouping is immutable in v1. These columns support children, siblings, and root-universe queries; they are never walked in authorization and imply no inherited access.
 
 Actors have `origin_id` and `root_id` (`originId`, `rootId`). Origin is the issuing Workspace: login/invite realm and “people spawned here.” Root is copied from that Workspace for cheap privileged universe listings. Login integration remains host-owned. Jane issued in a Space has `origin_id = root_id`; a candidate issued in Recruiting has `origin_id = recruiting`, `root_id = space`. Keep one physical actors table. Normal rosters list by issuance or Membership, never by root. Root-wide listings require explicit privileged authorization.

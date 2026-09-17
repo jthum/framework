@@ -72,6 +72,15 @@ function canonicalJson(value: unknown): string | undefined {
 export class MemoryExecutionStore implements ExecutionStore {
   private readonly executions = new Map<string, RuleExecution>();
 
+  snapshot(): ReadonlyMap<string, RuleExecution> {
+    return structuredClone(this.executions);
+  }
+
+  restore(snapshot: ReadonlyMap<string, RuleExecution>): void {
+    this.executions.clear();
+    for (const [id, execution] of snapshot) this.executions.set(id, structuredClone(execution));
+  }
+
   async list(
     workspaceId: string,
     actorId: string,
@@ -115,5 +124,10 @@ export class MemoryExecutionStore implements ExecutionStore {
     const current = this.executions.get(execution.id);
     assertExecutionUpdate(current, execution, expectedRevision);
     this.executions.set(execution.id, structuredClone(execution));
+  }
+
+  deleteWorkspace(workspaceId: string): void {
+    for (const [id, execution] of this.executions)
+      if (execution.context.workspaceId === workspaceId) this.executions.delete(id);
   }
 }

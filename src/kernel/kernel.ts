@@ -133,6 +133,10 @@ export interface UpdateWorkspaceAccessInput {
 
 export type UpdateWorkspacePolicyInput = WorkspacePolicy;
 
+export interface RenameWorkspaceInput {
+  readonly name: string;
+}
+
 export class Kernel {
   private readonly attachments: AttachmentService;
   private readonly sources: SourceService;
@@ -666,6 +670,51 @@ export class Kernel {
     };
     await this.catalog.transaction((transaction) => transaction.updateWorkspace(workspace));
     return workspace;
+  }
+
+  async renameWorkspace(
+    context: ExecutionContext,
+    input: RenameWorkspaceInput,
+  ): Promise<Workspace> {
+    await this.assertContext(context);
+    const current = await this.requireWorkspace(context.workspaceId);
+    await this.assertAuthorized({
+      context,
+      operation: "workspace.update",
+      resource: { kind: "workspace", id: current.id, workspaceId: current.id },
+    });
+    const workspace: Workspace = {
+      ...current,
+      name: requiredName(input.name, "Workspace"),
+      updatedAt: this.clock.now(),
+    };
+    await this.catalog.transaction((transaction) => transaction.updateWorkspace(workspace));
+    return workspace;
+  }
+
+  /** Remove one leaf Workspace after proving it owns no identity or delegated descendants. */
+  async deleteWorkspace(context: ExecutionContext): Promise<void> {
+    await this.assertContext(context);
+    const workspace = await this.requireWorkspace(context.workspaceId);
+    await this.assertAuthorized({
+      context,
+      operation: "workspace.delete",
+      resource: { kind: "workspace", id: workspace.id, workspaceId: workspace.id },
+    });
+    if (workspace.isRoot) throw resourceConflict("A root Workspace cannot be deleted.");
+    if ((await this.catalog.listChildWorkspaces(workspace.id)).length)
+      throw resourceConflict("A Workspace with child Workspaces cannot be deleted.");
+    if ((await this.catalog.listActorsByOrigin(workspace.id)).length)
+      throw resourceConflict("A Workspace that issued Actors cannot be deleted.");
+    if ((await this.catalog.listAttachmentsFrom(workspace.id)).length)
+      throw resourceConflict("A Workspace exposing Collections cannot be deleted.");
+    const incoming = await this.catalog.listAttachmentsTo(workspace.id);
+    const incomingIds = new Set(incoming.map((attachment) => attachment.id));
+    for (const candidate of await this.catalog.listWorkspacesByRoot(workspace.rootId))
+      for (const attachment of await this.catalog.listAttachmentsTo(candidate.id))
+        if (attachment.parentId && incomingIds.has(attachment.parentId))
+          throw resourceConflict("A Workspace with re-shared Attachments cannot be deleted.");
+    await this.persistence.deleteWorkspace(workspace.id);
   }
 
   async applySpec(context: ExecutionContext, input: unknown): Promise<Workspace> {

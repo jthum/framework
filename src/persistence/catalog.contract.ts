@@ -95,6 +95,58 @@ export function catalogAdapterContract(
       await persistence.close();
     });
 
+    it("removes Workspace catalog and record state as one persistence operation", async () => {
+      expect.hasAssertions();
+      const persistence = await createAdapter().open();
+      const { workspace: root, actor, membership } = catalogFixture();
+      const collection = {
+        id: "collection-task",
+        key: "task",
+        label: "Task",
+        fields: [{ id: "field-title", key: "title", label: "Title", type: "text" as const }],
+      };
+      const child: Workspace = {
+        ...root,
+        id: "workspace-app",
+        isRoot: false,
+        parentId: root.id,
+        rootId: root.id,
+        name: "App",
+        spec: { ...root.spec, id: "spec-app", key: "app", collections: [collection] },
+      };
+      await persistence.catalog.transaction(async (transaction) => {
+        await transaction.insertWorkspace(root);
+        await transaction.insertActor(actor);
+        await transaction.insertMembership(membership);
+        await transaction.insertWorkspace(child);
+        await transaction.insertMembership({
+          ...membership,
+          id: "membership-app",
+          workspaceId: child.id,
+        });
+      });
+      await persistence.applyWorkspaceSpec(child);
+      await persistence.records.create(child.id, collection, {
+        id: "record-task",
+        collectionId: collection.id,
+        values: { title: "Delete me" },
+        createdAt: child.createdAt,
+        updatedAt: child.updatedAt,
+        createdBy: actor.id,
+        updatedBy: actor.id,
+      });
+
+      await persistence.deleteWorkspace(child.id);
+
+      expect(await persistence.catalog.getWorkspace(child.id)).toBeNull();
+      expect(await persistence.catalog.getMembership(actor.id, child.id)).toBeNull();
+      await expect(persistence.records.list(child.id, collection)).rejects.toMatchObject({
+        code: ERROR_CODES.resourceNotFound,
+      });
+      expect(await persistence.catalog.getWorkspace(root.id)).toEqual(root);
+      await persistence.close();
+    });
+
     it("rolls back schema changes and records when the catalog update fails", async () => {
       expect.hasAssertions();
       const persistence = await createAdapter().open();

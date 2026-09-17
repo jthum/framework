@@ -365,6 +365,10 @@ function memoryAdapter(records: MemoryRecordStore): PersistenceAdapter {
             throw error;
           }
         },
+        async deleteWorkspace(workspaceId) {
+          records.deleteWorkspace(workspaceId);
+          catalog.deleteWorkspace(workspaceId);
+        },
         async close() {},
       };
     },

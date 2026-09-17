@@ -52,5 +52,7 @@ export interface PersistenceSession {
   readonly records: RecordStore;
   /** Atomically applies schema/catalog changes and optional initial records. */
   applyWorkspaceSpec(workspace: Workspace, seeds?: readonly CollectionSeed[]): Promise<void>;
+  /** Atomically removes one already-validated Workspace and all instance state it owns. */
+  deleteWorkspace(workspaceId: string): Promise<void>;
   close(): Promise<void>;
 }

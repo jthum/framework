@@ -52,6 +52,21 @@ export class MemoryPersistenceAdapter implements PersistenceAdapter {
           throw error;
         }
       },
+      deleteWorkspace: async (workspaceId) => {
+        const catalog = this.repository.snapshot();
+        const records = this.records.snapshot();
+        const executions = this.executions.snapshot();
+        try {
+          this.records.deleteWorkspace(workspaceId);
+          this.executions.deleteWorkspace(workspaceId);
+          this.repository.deleteWorkspace(workspaceId);
+        } catch (error) {
+          this.repository.restore(catalog);
+          this.records.restore(records);
+          this.executions.restore(executions);
+          throw error;
+        }
+      },
       close: async () => {},
     };
   }
@@ -60,6 +75,25 @@ export class MemoryPersistenceAdapter implements PersistenceAdapter {
 export class MemoryCatalogRepository implements CatalogRepository, CatalogTransaction {
   private state = emptyState();
   private queue: Promise<unknown> = Promise.resolve();
+
+  snapshot(): MemoryState {
+    return cloneState(this.state);
+  }
+
+  restore(state: MemoryState): void {
+    this.state = cloneState(state);
+  }
+
+  deleteWorkspace(id: string): void {
+    if (!this.state.workspaces.delete(id)) throw resourceNotFound("Workspace", id);
+    for (const [key, membership] of this.state.memberships)
+      if (membership.workspaceId === id) this.state.memberships.delete(key);
+    for (const [key, attachment] of this.state.attachments)
+      if (attachment.originId === id || attachment.targetId === id)
+        this.state.attachments.delete(key);
+    for (const [key, actor] of this.state.actors)
+      if (actor.originId === id) this.state.actors.delete(key);
+  }
 
   async getWorkspace(id: string): Promise<Workspace | null> {
     return cloneOptional(this.state.workspaces.get(id));
@@ -216,6 +250,14 @@ export class MemoryRecordStore implements RecordStore {
     this.records.clear();
     for (const [key, collection] of state.collections) this.collections.set(key, collection);
     for (const [key, records] of state.records) this.records.set(key, records);
+  }
+
+  deleteWorkspace(workspaceId: string): void {
+    for (const key of this.collections.keys()) {
+      if (!key.startsWith(`${workspaceId}\0`)) continue;
+      this.collections.delete(key);
+      this.records.delete(key);
+    }
   }
 
   async applySchema(

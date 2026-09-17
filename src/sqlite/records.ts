@@ -67,6 +67,18 @@ export class SqliteRecordStore implements RecordStore {
     }
   }
 
+  async deleteWorkspaceWith(connection: SqliteConnection, workspaceId: string): Promise<void> {
+    const rows = await connection.all<SchemaRow>(
+      "SELECT * FROM framework_record_schemas WHERE workspace_id = ?",
+      [workspaceId],
+    );
+    for (const row of rows)
+      await connection.execute(`DROP TABLE ${quoteIdentifier(row.table_name)}`);
+    await connection.run("DELETE FROM framework_record_schemas WHERE workspace_id = ?", [
+      workspaceId,
+    ]);
+  }
+
   async create(
     workspaceId: string,
     collection: CollectionDefinition,

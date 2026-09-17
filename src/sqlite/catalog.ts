@@ -63,6 +63,13 @@ export class SqlitePersistenceAdapter implements PersistenceAdapter {
               await records.createWith(connection, workspace.id, seed.collection, record);
           await updateWorkspace(connection, workspace);
         }),
+      deleteWorkspace: (workspaceId) =>
+        database.transaction(async (connection) => {
+          if (!(await connection.get("SELECT id FROM workspaces WHERE id = ?", [workspaceId])))
+            throw resourceNotFound("Workspace", workspaceId);
+          await records.deleteWorkspaceWith(connection, workspaceId);
+          await connection.run("DELETE FROM workspaces WHERE id = ?", [workspaceId]);
+        }),
       close: () => database.close(),
     };
   }

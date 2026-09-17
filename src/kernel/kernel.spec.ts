@@ -264,6 +264,42 @@ describe("Kernel catalog skeleton", () => {
     expect(second.membership.actorId).toBe(user.id);
   });
 
+  it("renames and removes one leaf Workspace without treating deletion as recursive", async () => {
+    expect.hasAssertions();
+    const kernel = await Kernel.open({
+      persistence: new MemoryPersistenceAdapter(),
+      ids: sequenceIds(),
+      clock: fixedClock,
+    });
+    const { workspace: root, user } = await kernel.createRootWorkspace({
+      name: "Space",
+      user: { name: "Jane" },
+    });
+    const rootContext = { workspaceId: root.id, actorId: user.id };
+    const { workspace: app } = await kernel.createWorkspace(rootContext, { name: "Draft" });
+    const appContext = { workspaceId: app.id, actorId: user.id };
+
+    await expect(kernel.renameWorkspace(appContext, { name: "Projects" })).resolves.toMatchObject({
+      id: app.id,
+      name: "Projects",
+    });
+    await kernel.applySpec(appContext, {
+      ...app.spec,
+      collections: [{ id: "collection-task", key: "task", label: "Task", fields: [] }],
+    });
+    await kernel.createRecord(appContext, "task", {});
+    await expect(kernel.deleteWorkspace(rootContext)).rejects.toThrow(
+      "root Workspace cannot be deleted",
+    );
+
+    await kernel.deleteWorkspace(appContext);
+
+    await expect(kernel.listChildWorkspaces(rootContext)).resolves.toEqual([]);
+    await expect(kernel.resolveContext(appContext)).rejects.toMatchObject({
+      code: ERROR_CODES.resourceNotFound,
+    });
+  });
+
   it("persists explicit Memberships for additional Actors", async () => {
     expect.hasAssertions();
     const kernel = await Kernel.open({
