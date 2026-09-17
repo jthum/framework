@@ -101,7 +101,9 @@ customize placement and empty-state copy.
 
 Reusable editors must:
 
-- accept canonical Framework definitions and explicit client or mutation callbacks;
+- accept canonical Framework definitions, or explicit authoring working models where
+  editing needs more information than the persisted definition, and explicit client or
+  mutation callbacks;
 - avoid SvelteKit navigation, Builder.run session globals, and concrete persistence adapters;
 - expose focused controls when a host may reasonably need a different composition;
 - provide a complete default experience with no required customization ceremony;
@@ -109,3 +111,8 @@ Reusable editors must:
 
 This keeps the common case as a direct import while allowing a host to replace presentation without
 forking the Spec, Kernel, or persistence implementation.
+
+The full Collection, View, Form and Rule editor surfaces are exported from Studio.
+See [Studio editors](studio-editors.md) for their injection contracts and the remaining
+canonical runtime integration work. Working models are not another supported persisted
+Spec version.

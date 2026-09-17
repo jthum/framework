@@ -33,8 +33,9 @@
 	import { flip } from "svelte/animate";
 	import { toast } from "svelte-sonner";
 
-	let { form, context: spec, actions, onDeleted, onCreateRule, ruleHref, describeRule, relatedRules = [], previewContent }: {
+	let { form, context: spec, actions, onDeleted, onCreateRule, ruleHref, describeRule, relatedRules = [], previewContent, class: className }: {
 		form: FormDraft; context: EditorContext; actions: FormActions;
+		class?: string;
 		onDeleted: () => void | Promise<void>;
 		onCreateRule: (form: FormDraft) => void | Promise<void>;
 		ruleHref: (rule: RuleDraft) => string;
@@ -238,7 +239,7 @@
 
 	async function save() {
 		try {
-			await actions.save(draft);
+			await actions.save(cloneData(draft));
 			toast.success("Form saved");
 		} catch (error) {
 			toast.error(error instanceof Error ? error.message : "Could not save form");
@@ -247,7 +248,7 @@
 
 	async function addAutomation() {
 		try {
-			if (dirty) await actions.save(draft);
+			if (dirty) await actions.save(cloneData(draft));
 			await onCreateRule(cloneData(draft));
 		} catch (error) {
 			toast.error(error instanceof Error ? error.message : "Could not add automation");
@@ -261,7 +262,7 @@
 	}
 </script>
 
-<div class="flex flex-col gap-8">
+<div class={cn("flex flex-col gap-8", className)}>
 	<PageHeader
 		title={label || form.label}
 		description="Choose what this form collects, arrange its inputs, and preview the result as you work."

@@ -179,8 +179,18 @@ content. Page authoring receives explicit callbacks and renderer snippets, witho
 registry, session, persistence, or SvelteKit imports. Builder's Page components now supply
 host routing, lazy renderers, and data queries. A temporary host adapter maps the existing
 Page storage shape to canonical definitions; it is not a supported legacy import format.
-This does **not** close Phase 4: the main session still uses Host, other editors still need
-canonical contracts, and the old projection/storage path has not been deleted.
+**Collection/View/Form/Rule extraction checkpoint:** all four full editor interfaces and
+their field, lifecycle, predicate, value-binding and nested-step controls now live in
+Framework Svelte Studio. Builder.run supplies thin wrappers for routing, queries, previews,
+sharing labels, persistence and runtime compatibility. Standalone deterministic rendering
+tests prove there is no SvelteKit or host singleton requirement. These editors expose
+explicit authoring working models; see [Studio editors](studio-editors.md) for the boundary.
+Aggregate View and executable Rule authoring still need their complete canonical Kernel
+contracts. Extraction preserves the full feature surface without moving the old executor
+or a legacy Spec reader into Framework.
+
+This does **not** close Phase 4: the main session still uses Host, draft-to-canonical runtime
+integration remains, and the old projection/storage path has not been deleted.
 
 **Sequencing decision before deleting Host:** the current app has working automation
 definitions and execution, while canonical `RuleDefinition` currently contains identity

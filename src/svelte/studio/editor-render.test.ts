@@ -3,6 +3,7 @@ import { render } from "svelte/server";
 import CollectionEditor from "./collection-editor.svelte";
 import ViewFixture from "./view-fixture.svelte";
 import FormFixture from "./form-fixture.svelte";
+import RuleFixture from "./rule-fixture.svelte";
 import type { CollectionActions, CollectionDraft, EditorContext } from "./authoring.js";
 const collection: CollectionDraft = {
   id: "contact",
@@ -24,6 +25,35 @@ const actions: CollectionActions = {
   remove: untouched,
 };
 describe("Standalone Studio editors", () => {
+  it("renders Rule authoring and host compatibility diagnostics", () => {
+    const rule = { id: "follow_up", key: "follow_up", label: "Follow up", steps: [] };
+    const body = render(RuleFixture, { props: { context, rule } }).body;
+    expect(body).toContain("Follow up");
+    expect(body).toContain("Workflow details");
+    expect(body).toContain("Host-provided diagnostic");
+    expect(body).not.toContain("browser host");
+    expect(body).not.toContain("/build/");
+  });
+  it("keeps custom effect metadata available inside nested Rule branches", () => {
+    const rule = { id: "follow_up", key: "follow_up", label: "Follow up", steps: [] };
+    const body = render(RuleFixture, {
+      props: {
+        context,
+        rule,
+        steps: [
+          {
+            gate: {
+              predicate: { all: [{ op: "always" }] },
+              pass: [{ effect: { key: "mail.send", params: { subject: "Welcome" } } }],
+            },
+          },
+        ],
+      },
+    }).body;
+    expect(body).toContain("Send a message");
+    expect(body).toContain("Welcome");
+    expect(body).not.toContain("/build/");
+  });
   it("renders Form authoring without importing a host form runtime", () => {
     const form = {
       id: "inquiry",

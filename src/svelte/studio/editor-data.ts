@@ -1,9 +1,4 @@
-import { customAlphabet } from "nanoid";
 import type { FieldCondition } from "./authoring.js";
-export const createDraftId = customAlphabet(
-  "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
-  16,
-);
 export function labelFromKey(key: string): string {
   return key
     .split(/[_-]+/)

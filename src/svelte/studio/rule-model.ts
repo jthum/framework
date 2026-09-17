@@ -1,4 +1,19 @@
 import type { SpecMeta } from "@jthum/framework/spec";
+/** Descriptive registry metadata only; Studio never calls an effect. */
+export interface RuleEffect {
+  key: string;
+  label: string;
+  description?: string;
+  input?: Record<string, unknown>;
+  output?: Record<string, unknown>;
+}
+export interface RuleCompatibility {
+  diagnostics: Array<{ capability: string; support: string; message: string }>;
+}
+export interface RuleActions {
+  save: (draft: RuleDraft) => Promise<unknown>;
+  remove: (key: string) => Promise<unknown>;
+}
 interface SpecNode {
   id: string;
   meta?: SpecMeta;

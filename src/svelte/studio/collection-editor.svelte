@@ -54,8 +54,9 @@
 	import { flip } from "svelte/animate";
 	import { toast } from "svelte-sonner";
 
-	let { collection: type, context: spec, actions, onOpen, onDeleted, defaultCollectionLabel, description = "Define the record shape and its fields.", canDelete = true, referenceLabel = (item: CollectionDraft) => item.label }: {
+	let { collection: type, context: spec, actions, onOpen, onDeleted, defaultCollectionLabel, description = "Define the record shape and its fields.", canDelete = true, referenceLabel = (item: CollectionDraft) => item.label, class: className }: {
 		collection: CollectionDraft;
+		class?: string;
 		context: EditorContext;
 		actions: CollectionActions;
 		onOpen: (key: string) => void | Promise<void>;
@@ -414,7 +415,7 @@
 				required_when: fieldRequiredWhen,
 				hidden_value: fieldVisibleWhen && fieldHiddenValue === "clear" ? "clear" : undefined,
 			};
-			await actions.saveField(type.key, fieldDraft);
+			await actions.saveField(type.key, cloneData(fieldDraft));
 			sheetOpen = false;
 			toast.success(editing ? "Field saved" : "Field added");
 		} catch (error) {
@@ -506,7 +507,7 @@
 	);
 </script>
 
-<div class="flex flex-col gap-8">
+<div class={cn("flex flex-col gap-8", className)}>
 	<PageHeader
 		title={type.label}
 		{description}

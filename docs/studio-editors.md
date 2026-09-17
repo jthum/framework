@@ -8,6 +8,8 @@ Studio owns the editor interfaces, draft interactions and reusable controls. A h
 
 `FormEditor` owns field selection/order, standalone inputs, conditional editing, success hints and the related Rule UI. `FormInputSheet` and `FieldConditionControl` are also independently available. A host supplies field preparation/validation, related Rules and their links/descriptions, Rule creation and a live form preview snippet. Business logic remains in Rules; Studio does not execute form submissions.
 
+`RuleEditor` owns the complete structured workflow authoring UI. `RuleSteps`, `RuleConditions`, `RuleValueInput` and `RuleValueMap` can be composed independently. Hosts supply save/delete actions, optional effect metadata and optional compatibility diagnostics. Custom effect metadata propagates through every nested branch; it contains no implementation functions. No supplied diagnostics means Studio makes no claim about runtime support. The executor, authorization and durable scheduling/wait implementation are outside Studio.
+
 ## Working models versus the portable Spec
 
 `CollectionDraft`, `FieldDraft`, `ViewDraft`, `FormDraft` and `RuleDraft` are UI working models, not a second accepted Spec version. They use editable keys for picker choices. Hosts resolve those keys to portable definition identities when persisting. Arbitrary `meta` survives draft edits unchanged. Studio does not perform schema migrations or authorize sharing based on presentation hints.
@@ -15,3 +17,5 @@ Studio owns the editor interfaces, draft interactions and reusable controls. A h
 Some existing authoring features are ahead of the Kernel contracts: aggregate View authoring and the executable structured Rule model in particular. Extraction preserves them rather than deleting functionality or copying an executor into Studio. Completing their portable Spec/Kernel mapping remains core work. Builder.run currently supplies adapters to its existing runtime at this boundary; this is not old-spec compatibility inside Framework.
 
 Studio consumers can style the semantic tokens and compose host preview snippets. Runtime-specific compatibility diagnostics and registries must come from the host, never an assumed browser runtime.
+
+All four full editors accept `class` for outer layout adjustments. Their controls use the shared chrome Card and semantic tokens, so the implementing app retains its theme rather than adopting a hard-coded Studio theme. The shadcn-Svelte extraction keeps the existing chrome/header/body/footer composition intact.

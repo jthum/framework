@@ -148,7 +148,9 @@ export interface FormActions {
   prepareField: (key: string, draft: Partial<FieldDraft>, existing?: FieldDraft) => FieldDraft;
 }
 export interface FormPreview {
-  form: FormDraft; collection?: CollectionDraft; fields?: string[];
+  form: FormDraft;
+  collection?: CollectionDraft;
+  fields?: string[];
 }
 export interface CollectionActions {
   save: (draft: {

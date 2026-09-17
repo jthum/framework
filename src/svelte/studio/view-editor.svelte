@@ -57,8 +57,9 @@
 	import { flip } from "svelte/animate";
 	import { toast } from "svelte-sonner";
 
-	let { view, context, actions, onOpen, onDeleted, previewContent, revision = 0 }: {
+	let { view, context, actions, onOpen, onDeleted, previewContent, revision = 0, class: className }: {
 		view: ViewDraft;
+		class?: string;
 		context: EditorContext;
 		actions: ViewActions;
 		onOpen: (key: string) => void | Promise<void>;
@@ -631,7 +632,7 @@
 
 </script>
 
-<div class="flex flex-col gap-8">
+<div class={cn("flex flex-col gap-8", className)}>
 	<PageHeader
 		title={label || view.label}
 		description="A saved list. Change filters and columns here — the preview updates as you go."
