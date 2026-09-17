@@ -183,20 +183,26 @@ export class Kernel {
       {
         create: async (context, collectionKey, values) => {
           const collection = await this.requireCollection(context, collectionKey);
-          return this.createActionRecord(
-            context,
-            { sourceId: collection.id, values },
-            async (event) => {
-              await this.rules.dispatch(context, event);
-            },
-          );
+          return (
+            await this.createActionRecord(
+              context,
+              { sourceId: collection.id, values: stableActionValues(collection, values) },
+              async (event) => {
+                await this.rules.dispatch(context, event);
+              },
+            )
+          ).record;
         },
         update: async (context, collectionKey, recordId, values) => {
           const collection = await this.requireCollection(context, collectionKey);
           return (
             await this.updateActionRecord(
               context,
-              { sourceId: collection.id, recordId, values },
+              {
+                sourceId: collection.id,
+                recordId,
+                values: stableActionValues(collection, values),
+              },
               async (event) => {
                 await this.rules.dispatch(context, event);
               },
@@ -318,7 +324,17 @@ export class Kernel {
   }
   async submitForm(context: ExecutionContext, key: string, input: SubmitFormInput) {
     const submission = await this.forms.submit(context, key, input);
-    const record = submission.mode === "standalone" ? undefined : recordValue(submission.record);
+    const workspace = await this.requireWorkspace(context.workspaceId);
+    const collection =
+      submission.mode === "standalone"
+        ? undefined
+        : workspace.spec.collections.find(
+            (candidate) => candidate.id === submission.form.collectionId,
+          );
+    const record =
+      submission.mode === "standalone" || !collection
+        ? undefined
+        : recordValue(submission.record, collection);
     await this.rules.dispatch(context, {
       event: "form.submitted",
       formId: submission.form.id,
@@ -938,15 +954,19 @@ export class Kernel {
     return [
       {
         key: "records.create",
-        run: async ({ context, input, publish }) =>
-          recordValue(await this.createActionRecord(context, input, publish)),
+        run: async ({ context, input, publish }) => {
+          const result = await this.createActionRecord(context, input, publish);
+          return recordValue(result.record, result.collection);
+        },
       },
       {
         key: "records.get",
         run: async ({ context, input, runtime }) => {
           const target = await this.actionRecordTarget(context, input);
           const record = await runtime.getSourceRecord(context, target.source.key, target.recordId);
-          return record ? sourceRecordValue(record.id, target.source.id, record.values) : null;
+          return record
+            ? sourceRecordValue(record.id, target.source.id, target.source.schema, record.values)
+            : null;
         },
       },
       {
@@ -957,7 +977,7 @@ export class Kernel {
             | SourceQueryDefinition
             | undefined;
           return (await this.sources.query(context, source.key, query)).rows.map((record) =>
-            sourceRecordValue(record.id, source.id, record.values),
+            sourceRecordValue(record.id, source.id, source.schema, record.values),
           );
         },
       },
@@ -965,7 +985,7 @@ export class Kernel {
         key: "records.update",
         run: async ({ context, input, publish }) => {
           const result = await this.updateActionRecord(context, input, publish);
-          return recordValue(result.record, result.sourceId);
+          return recordValue(result.record, result.schema, result.sourceId);
         },
       },
       {
@@ -979,7 +999,12 @@ export class Kernel {
             event: "record.deleted",
             sourceId: target.source.id,
             payload: {
-              record: sourceRecordValue(record.id, target.source.id, record.values),
+              record: sourceRecordValue(
+                record.id,
+                target.source.id,
+                target.source.schema,
+                record.values,
+              ),
               recordId: record.id,
             },
           });
@@ -1003,8 +1028,10 @@ export class Kernel {
             (candidate) => candidate.key === view.source,
           );
           if (!source) throw resourceNotFound("Source", view.source);
+          const descriptor = await this.sources.describe(context, source.key);
+          if (!descriptor) throw resourceNotFound("Source", view.source);
           return result.data.rows.map((record) =>
-            sourceRecordValue(record.id, source.id, record.values),
+            sourceRecordValue(record.id, source.id, descriptor.schema, record.values),
           );
         },
       },
@@ -1092,28 +1119,32 @@ export class Kernel {
     context: ExecutionContext,
     input: Readonly<Record<string, JsonValue>>,
     publish: (event: RuleEvent) => Promise<void>,
-  ): Promise<CollectionRecord> {
+  ): Promise<{ record: CollectionRecord; collection: CollectionDefinition }> {
     const collection = await this.actionCollection(context, input);
     const record = await this.createRecord(
       context,
       collection.key,
-      actionValues(input.values, "values"),
+      actionValues(input.values, "values", collection),
     );
     await publish({
       event: "record.created",
       sourceId: collection.id,
-      payload: { record: recordValue(record), recordId: record.id },
+      payload: { record: recordValue(record, collection), recordId: record.id },
     });
-    return record;
+    return { record, collection };
   }
 
   private async updateActionRecord(
     context: ExecutionContext,
     input: Readonly<Record<string, JsonValue>>,
     publish: (event: RuleEvent) => Promise<void>,
-  ): Promise<{ record: CollectionRecord; sourceId: string }> {
+  ): Promise<{
+    record: CollectionRecord;
+    sourceId: string;
+    schema: CollectionDefinition;
+  }> {
     const target = await this.actionRecordTarget(context, input);
-    const values = actionValues(input.values, "values");
+    const values = actionValues(input.values, "values", target.source.schema);
     const previous = await this.getSourceRecord(context, target.source.key, target.recordId);
     if (!previous) throw resourceNotFound("Record", target.recordId);
     const record = await this.updateSourceRecord(
@@ -1122,14 +1153,19 @@ export class Kernel {
       target.recordId,
       values,
     );
-    const output = recordValue(record, target.source.id);
+    const output = recordValue(record, target.source.schema, target.source.id);
     await publish({
       event: "record.updated",
       sourceId: target.source.id,
       payload: {
         record: output,
         recordId: record.id,
-        previous: sourceRecordValue(previous.id, target.source.id, previous.values),
+        previous: sourceRecordValue(
+          previous.id,
+          target.source.id,
+          target.source.schema,
+          previous.values,
+        ),
       },
     });
     for (const field of target.source.schema.fields)
@@ -1145,7 +1181,7 @@ export class Kernel {
             value: record.values[field.key] ?? null,
           },
         });
-    return { record, sourceId: target.source.id };
+    return { record, sourceId: target.source.id, schema: target.source.schema };
   }
 
   private async actionCollection(
@@ -1197,18 +1233,19 @@ export class Kernel {
     sourceId: string,
     value: JsonValue,
   ): Promise<JsonValue> {
-    if (value && typeof value === "object" && !Array.isArray(value)) {
-      const record = actionRecord(value);
-      if (record?.id && record.sourceId === sourceId) return structuredClone(value);
-    }
-    if (typeof value !== "string")
+    const supplied =
+      value && typeof value === "object" && !Array.isArray(value) ? actionRecord(value) : undefined;
+    const recordId = typeof value === "string" ? value : supplied?.id;
+    if (!recordId || (supplied && supplied.sourceId !== sourceId))
       throw actionInputError("A Source Rule input must be a record ID or resolved record value.");
     const workspace = await this.requireWorkspace(context.workspaceId);
     const source = sourceDefinition(workspace.spec, sourceId);
     if (!source) throw resourceNotFound("Source", sourceId);
-    const record = await this.sources.get(context, source.key, value);
-    if (!record) throw resourceNotFound("Record", value);
-    return { ...record.values, id: record.id, sourceId, values: { ...record.values } };
+    const descriptor = await this.sources.describe(context, source.key);
+    if (!descriptor) throw resourceNotFound("Source", sourceId);
+    const record = await this.sources.get(context, source.key, recordId);
+    if (!record) throw resourceNotFound("Record", recordId);
+    return sourceRecordValue(record.id, sourceId, descriptor.schema, record.values);
   }
 
   private async resolveRuleActor(request: ActorBindingRequest): Promise<string> {
@@ -1479,18 +1516,34 @@ function actionRecord(
   };
 }
 
-function actionValues(value: JsonValue | undefined, name: string): RecordValues {
+function actionValues(
+  value: JsonValue | undefined,
+  name: string,
+  collection: CollectionDefinition,
+): RecordValues {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw actionInputError(`A record Action requires an object at ${name}.`);
-  return value;
+  const fields = new Map(collection.fields.map((field) => [field.id, field.key]));
+  return Object.fromEntries(
+    Object.entries(value).map(([fieldId, fieldValue]) => {
+      const key = fields.get(fieldId);
+      if (!key) throw actionInputError(`Record Action Field ${fieldId} is unavailable.`);
+      return [key, fieldValue];
+    }),
+  );
 }
 
-function recordValue(record: CollectionRecord, sourceId = record.collectionId): JsonValue {
+function recordValue(
+  record: CollectionRecord,
+  collection: CollectionDefinition,
+  sourceId = record.collectionId,
+): JsonValue {
   return {
     id: record.id,
     sourceId,
     values: { ...record.values },
     ...record.values,
+    $fields: stableFieldValues(collection, record.values),
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
     createdBy: record.createdBy,
@@ -1498,8 +1551,41 @@ function recordValue(record: CollectionRecord, sourceId = record.collectionId): 
   };
 }
 
-function sourceRecordValue(id: string, sourceId: string, values: RecordValues): JsonValue {
-  return { ...values, id, sourceId, values: { ...values } };
+function sourceRecordValue(
+  id: string,
+  sourceId: string,
+  collection: CollectionDefinition,
+  values: RecordValues,
+): JsonValue {
+  return {
+    ...values,
+    id,
+    sourceId,
+    values: { ...values },
+    $fields: stableFieldValues(collection, values),
+  };
+}
+
+function stableFieldValues(
+  collection: CollectionDefinition,
+  values: RecordValues,
+): Record<string, JsonValue> {
+  return Object.fromEntries(
+    collection.fields.map((field) => [field.id, values[field.key] ?? null]),
+  );
+}
+
+function stableActionValues(
+  collection: CollectionDefinition,
+  values: RecordValues,
+): Record<string, JsonValue> {
+  return Object.fromEntries(
+    Object.entries(values).map(([key, value]) => {
+      const field = collection.fields.find((candidate) => candidate.key === key);
+      if (!field) throw actionInputError(`Record Field ${key} is unavailable.`);
+      return [field.id, value];
+    }),
+  );
 }
 
 function actionInputError(message: string): FrameworkError {

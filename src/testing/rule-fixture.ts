@@ -27,7 +27,13 @@ export function ruleSpec(): Spec {
         id: "step-gate",
         gate: {
           predicate: {
-            all: [{ op: "context.equals", path: "vars.project.status", value: "approved" }],
+            all: [
+              {
+                op: "context.equals",
+                left: { $ref: "vars.project", fieldId: "field-status" },
+                value: "approved",
+              },
+            ],
           },
           pass: [
             {
@@ -36,7 +42,7 @@ export function ruleSpec(): Spec {
                 key: "records.update",
                 input: {
                   record: { $ref: "vars.project" },
-                  values: { status: "active" },
+                  values: { "field-status": "active" },
                 },
                 runAs: "trigger",
                 retry: { max: 2, backoff: [1] },

@@ -197,6 +197,13 @@ predicates, retries, compensation, waits, loops, parallel branches and run-as in
 Runtime compatibility is a separate preflight over installed Event/Action contracts and extensible
 capabilities. Action execution and Event dispatch remain Phase 5 work.
 
+**Identity-safe Rule authoring checkpoint:** persisted built-in record Actions now key their value
+maps by stable Field ID, and typed record predicates use stable field bindings. Studio continues to
+present ordinary Source and Field keys and resolves concrete schemas for attached Sources through
+the authorized editor context. Renaming a local or attached Collection Field therefore changes the
+friendly projection without rewriting consuming Rule Specs. Custom Action inputs remain opaque to
+the framework, while direct record and Form APIs remain key-oriented.
+
 This does **not** close Phase 4: the main session still uses Host, draft-to-canonical runtime
 integration remains, and the old projection/storage path has not been deleted.
 

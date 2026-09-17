@@ -87,7 +87,11 @@ function readPath(
   input: Readonly<Record<string, JsonValue>>,
   read: (path: string) => JsonValue | undefined,
 ): JsonValue | undefined {
-  return typeof input.path === "string" ? read(input.path) : undefined;
+  return "left" in input
+    ? input.left
+    : typeof input.path === "string"
+      ? read(input.path)
+      : undefined;
 }
 
 function same(left: JsonValue | undefined, right: JsonValue | undefined): boolean {

@@ -26,7 +26,8 @@ Execution remains a Kernel responsibility rather than being copied into Studio.
 
 Friendly Studio record steps translate to executable canonical inputs: “Update current record”
 becomes `records.update`; “Create a record” resolves the selected key to stable `sourceId` and
-maps its fields to Action `values`. “Query records” becomes `records.list` with an identity-based
+maps its fields to identity-keyed Action `values`. Typed predicate fields become stable `fieldId`
+bindings while Studio continues to show their editable keys. “Query records” becomes `records.list` with an identity-based
 Source filter or `views.query` with declared View parameters. The Kernel supplies both query
 Actions through its ordinary authorized Source and View services. The same translation applies
 to compensation. Reading a canonical Rule restores the friendly working controls without changing

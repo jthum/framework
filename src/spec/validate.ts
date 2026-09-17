@@ -546,13 +546,22 @@ function requireRuleValueShape(input: unknown, path: string, issues: ValidationI
 }
 
 function requireRuleBindingShape(input: unknown, path: string, issues: ValidationIssue[]): void {
+  const keys = isRecord(input) ? Object.keys(input) : [];
   if (
     !isRecord(input) ||
-    Object.keys(input).length !== 1 ||
+    keys.some((key) => key !== "$ref" && key !== "fieldId") ||
+    keys.length < 1 ||
     typeof input.$ref !== "string" ||
-    !/^(?:trigger|actor|vars|meta)(?:\.[A-Za-z0-9_-]+)+$/.test(input.$ref)
+    !/^(?:trigger|actor|vars|meta)(?:\.[A-Za-z0-9_-]+)+$/.test(input.$ref) ||
+    (input.fieldId !== undefined &&
+      (typeof input.fieldId !== "string" || input.fieldId.length === 0))
   )
-    issue(issues, path, "SPEC.TYPE_INVALID", "Rule binding must contain only a non-empty $ref.");
+    issue(
+      issues,
+      path,
+      "SPEC.TYPE_INVALID",
+      "Rule binding requires a non-empty $ref and may contain one stable fieldId.",
+    );
 }
 
 function requireLoopShape(

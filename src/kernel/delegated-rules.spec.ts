@@ -127,7 +127,10 @@ function recruitingSpec(): Spec {
         id: `${id}-update`,
         action: {
           key: "records.update",
-          input: { record: { $ref: "vars.opening" }, values: { status: "closed" } },
+          input: {
+            record: { $ref: "vars.opening" },
+            values: { "field-status": "closed" },
+          },
           ...(runAs === undefined ? {} : { runAs }),
         },
       },

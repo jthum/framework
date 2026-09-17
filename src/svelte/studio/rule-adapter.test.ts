@@ -4,6 +4,69 @@ import { ruleSpec } from "../../testing/rule-fixture.js";
 import { ruleDefinitionFromDraft, ruleDraftFromDefinition } from "./rule-adapter.js";
 
 describe("Rule Studio adapter", () => {
+  it("projects attached Rule Fields through stable identities after their keys change", () => {
+    const base = ruleSpec();
+    const spec = {
+      ...base,
+      collections: [],
+      sources: [{ id: "source-contact", key: "contact", label: "Contact" }],
+      rules: [
+        {
+          id: "rule-contact",
+          key: "route_contact",
+          label: "Route contact",
+          input: { contact: { sourceId: "source-contact" } },
+          trigger: {
+            event: "record.field_changed",
+            sourceId: "source-contact",
+            fieldId: "field-status",
+          },
+          steps: [
+            {
+              id: "gate-contact",
+              gate: {
+                predicate: {
+                  op: "context.equals",
+                  left: { $ref: "vars.contact", fieldId: "field-status" },
+                  value: "new",
+                },
+                pass: [
+                  {
+                    id: "update-contact",
+                    action: {
+                      key: "records.update",
+                      input: {
+                        record: { $ref: "vars.contact" },
+                        values: { "field-status": "qualified" },
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    } satisfies typeof base;
+    const schema = {
+      id: "collection-contact",
+      key: "contact",
+      label: "Contact",
+      fields: [{ id: "field-status", key: "stage", label: "Stage", type: "text" as const }],
+    };
+
+    const draft = ruleDraftFromDefinition(spec.rules[0]!, spec, { contact: schema });
+
+    expect(draft.steps[0]).toMatchObject({
+      gate: {
+        predicate: { path: "vars.contact.stage" },
+        pass: [{ effect: { params: { values: { stage: "qualified" } } } }],
+      },
+    });
+    expect(draft.trigger).toEqual({ key: "contact.stage.changed" });
+    expect(ruleDefinitionFromDraft(draft, spec, { contact: schema })).toEqual(spec.rules[0]);
+  });
+
   it("translates friendly create/update steps and compensation to executable canonical Actions", () => {
     const spec = ruleSpec();
     const draft = ruleDraftFromDefinition(spec.rules[1]!, spec);
@@ -25,7 +88,7 @@ describe("Rule Studio adapter", () => {
     expect(canonical.steps[0]).toMatchObject({
       action: {
         key: "records.create",
-        input: { sourceId: "collection-project", values: { status: "draft" } },
+        input: { sourceId: "collection-project", values: { "field-status": "draft" } },
         as: "created",
         retry: { max: 2 },
         compensate: { key: "records.update" },

@@ -7,6 +7,35 @@ import type { Clock, IdGenerator, IdKind } from "./defaults.ts";
 import { Kernel } from "./kernel.ts";
 
 describe("Kernel Rules", () => {
+  it("keeps authored predicates and Action values valid across Field key renames", async () => {
+    const { kernel, context, spec } = await bootstrap();
+    await kernel.applySpec(context, specWithRules(spec, [activateRule()]));
+    const project = await kernel.createRecord(context, "project", {
+      name: "Website",
+      status: "draft",
+    });
+    const current = await kernel.getWorkspace(context);
+    if (!current) throw new Error("Workspace unavailable");
+    const projectCollection = current.spec.collections[0]!;
+    await kernel.applySpec(context, {
+      ...current.spec,
+      collections: [
+        {
+          ...projectCollection,
+          fields: projectCollection.fields.map((field) =>
+            field.id === "field-status" ? { ...field, key: "state", label: "State" } : field,
+          ),
+        },
+      ],
+    });
+
+    await kernel.runRule(context, "activate_project", { input: { project: project.id } });
+
+    await expect(kernel.getRecord(context, "project", project.id)).resolves.toMatchObject({
+      values: { state: "active" },
+    });
+  });
+
   it("executes gates and built-in record Actions through the authorized CRUD spine", async () => {
     expect.hasAssertions();
     const requests: AuthorizationRequest[] = [];
@@ -241,7 +270,7 @@ describe("Kernel Rules", () => {
     await kernel.createRecord(context, "project", { name: "Quiet low-level write" });
     await kernel.executeAction(context, "records.create", {
       sourceId: "collection-project",
-      values: { name: "Published write" },
+      values: { "field-name": "Published write" },
     });
     await kernel.submitForm(context, "intake", { values: { email: "jane@example.com" } });
 
@@ -473,7 +502,11 @@ function activateRule(): RuleDefinition {
       {
         id: "step-gate",
         gate: {
-          predicate: { op: "context.equals", path: "vars.project.status", value: "draft" },
+          predicate: {
+            op: "context.equals",
+            left: { $ref: "vars.project", fieldId: "field-status" },
+            value: "draft",
+          },
           pass: [
             {
               id: "step-update",
@@ -481,7 +514,7 @@ function activateRule(): RuleDefinition {
                 key: "records.update",
                 input: {
                   record: { $ref: "vars.project" },
-                  values: { status: "active" },
+                  values: { "field-status": "active" },
                 },
                 as: "updated",
               },

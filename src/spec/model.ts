@@ -298,6 +298,8 @@ export interface PageDefinition extends DefinitionIdentity {
 
 export interface RuleBinding {
   readonly $ref: string;
+  /** Resolve one stable Field from a record binding without persisting its editable key. */
+  readonly fieldId?: string;
 }
 
 export type RuleValue =

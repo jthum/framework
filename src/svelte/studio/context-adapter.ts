@@ -61,7 +61,7 @@ export function editorContextFromSpec(
     collections,
     views: spec.views.map((view) => viewDraftFromDefinition(view, schemas)),
     forms: spec.forms.map((form) => formDraft(form, spec, identities)),
-    rules: spec.rules.map((rule) => ruleDraftFromDefinition(rule, spec)),
+    rules: spec.rules.map((rule) => ruleDraftFromDefinition(rule, spec, schemas)),
   };
 }
 

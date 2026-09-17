@@ -45,6 +45,7 @@ export {
   RuleAuthoringError,
   ruleDefinitionFromDraft,
   ruleDraftFromDefinition,
+  type RuleAuthoringSchemas,
 } from "./rule-adapter.js";
 export {
   editorContextFromSpec,

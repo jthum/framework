@@ -688,6 +688,15 @@ function resolveValue(value: RuleValue, scope: RuleScope): JsonValue {
         throw invalidExecution(`Rule binding ${value.$ref} could not be resolved.`, {
           binding: value.$ref,
         });
+      if ("fieldId" in value && typeof value.fieldId === "string") {
+        const fields = recordFields(resolved);
+        if (!fields || !(value.fieldId in fields))
+          throw invalidExecution(`Rule binding ${value.$ref} has no Field ${value.fieldId}.`, {
+            binding: value.$ref,
+            fieldId: value.fieldId,
+          });
+        return structuredClone(fields[value.fieldId]!);
+      }
       return structuredClone(resolved);
     }
     return Object.fromEntries(
@@ -695,6 +704,12 @@ function resolveValue(value: RuleValue, scope: RuleScope): JsonValue {
     );
   }
   return value;
+}
+
+function recordFields(value: JsonValue): Readonly<Record<string, JsonValue>> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const fields = value.$fields;
+  return fields && typeof fields === "object" && !Array.isArray(fields) ? fields : undefined;
 }
 
 function resolveReference(path: string, scope: RuleScope): JsonValue | undefined {

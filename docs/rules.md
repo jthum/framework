@@ -15,7 +15,7 @@ its adapter never persists those terms as a second Spec format.
     id: "…",
     action: {
       key: "records.update",
-      input: { record: { $ref: "vars.expense" }, values: { status: "approved" } }
+      input: { record: { $ref: "vars.expense" }, values: { "field_…": "approved" } }
     }
   }]
 }
@@ -23,7 +23,8 @@ its adapter never persists those terms as a second Spec format.
 
 The primitives are gate, compute, action, nested Rule invocation, delay, wait, foreach, repeat,
 and parallel branches. Predicates compose with `all`, `any`, and `not`. Values are JSON plus a
-sole-key `{ $ref }` binding rooted at `trigger`, `actor`, `vars`, or `meta`.
+`{ $ref }` binding rooted at `trigger`, `actor`, `vars`, or `meta`. A record binding may add one
+stable `fieldId`; Studio projects that to an ordinary friendly field selector.
 
 Every step and parallel branch has a stable ID. Studio assigns one automatically when an author
 adds an item, so trace and idempotency identity adds no authoring ceremony. Rule inputs, built-in
@@ -50,8 +51,11 @@ authorization therefore cannot drift. Custom Actions and Conditions are installe
 opens, and every Action receives a coarse `actions.execute` policy check before its own
 resource-level checks.
 
-Record Actions identify their target with a stable `sourceId`; resolved record values carry the
-same ID. Reads therefore work uniformly across local Collections and attached Sources. Update and
+Record Actions identify their target with a stable `sourceId`; their authored `values` maps use
+stable Field IDs, and resolved record values carry both the Source ID and an internal stable Field
+map. Studio and direct Form/record APIs remain key-oriented. This keeps simple authoring readable
+while persisted Rules survive Collection and Field key renames—including Rules over attached
+Sources—without rewriting consumer Specs. Reads therefore work uniformly across local Collections and attached Sources. Update and
 delete may cross an Attachment only when its permission, target-side policy, resolved Actor membership,
 and origin resource policy all permit the operation. `runAs` changes only the Actor—it never
 bypasses those checks. Creating through an attached Source is deliberately unsupported until the
