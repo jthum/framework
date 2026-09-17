@@ -9,6 +9,8 @@ import {
   type JsonValue,
   type PageDefinition,
   type PageLayoutNode,
+  type RuleDefinition,
+  type RuleStep,
   type SourceFilter,
   type SourceQueryDefinition,
   type Spec,
@@ -37,6 +39,7 @@ export function validateSpec(input: unknown): ValidationIssue[] {
   spec.views.forEach((view, index) => validateView(view, index, spec, issues));
   spec.forms.forEach((form, index) => validateForm(form, index, spec, sourceIds, issues));
   spec.pages.forEach((page, index) => validatePage(page, index, issues));
+  spec.rules.forEach((rule, index) => validateRule(rule, index, spec, issues));
   for (const [property, definitions] of otherDefinitions(spec)) {
     unique(definitions, property, issues);
     definitions.forEach((definition, index) =>
@@ -192,10 +195,355 @@ function hasSpecStructure(input: unknown, issues: ValidationIssue[]): input is S
         if (property === "views") requireViewShape(definition, `${property}.${index}`, issues);
         if (property === "forms") requireFormShape(definition, `${property}.${index}`, issues);
         if (property === "pages") requirePageShape(definition, `${property}.${index}`, issues);
+        if (property === "rules") requireRuleShape(definition, `${property}.${index}`, issues);
       });
     }
   }
   return valid && issues.length === 0;
+}
+
+function requireRuleShape(
+  input: Readonly<Record<string, unknown>>,
+  path: string,
+  issues: ValidationIssue[],
+): void {
+  optionalBoolean(input, "enabled", path, issues);
+  if (input.priority !== undefined && !Number.isInteger(input.priority))
+    issue(issues, `${path}.priority`, "SPEC.TYPE_INVALID", "Rule priority must be an integer.");
+  if (input.expose !== undefined) {
+    if (
+      !Array.isArray(input.expose) ||
+      input.expose.some((item) => item !== "ui" && item !== "agent")
+    )
+      issue(
+        issues,
+        `${path}.expose`,
+        "SPEC.TYPE_INVALID",
+        "Rule exposure must contain ui or agent.",
+      );
+  }
+  if (input.input !== undefined) {
+    if (!isRecord(input.input))
+      issue(issues, `${path}.input`, "SPEC.TYPE_INVALID", "Rule input must be an object.");
+    else
+      for (const [key, definition] of Object.entries(input.input))
+        requireRuleInputShape(definition, `${path}.input.${key}`, issues);
+  }
+  if (input.trigger !== undefined)
+    requireRuleTriggerShape(input.trigger, `${path}.trigger`, issues);
+  if (!Array.isArray(input.steps))
+    issue(issues, `${path}.steps`, "SPEC.TYPE_INVALID", "Rule steps must be an array.");
+  else requireRuleStepsShape(input.steps, `${path}.steps`, issues, new Set());
+}
+
+function requireRuleInputShape(input: unknown, path: string, issues: ValidationIssue[]): void {
+  if (!isRecord(input))
+    return issue(issues, path, "SPEC.TYPE_INVALID", "Rule input definition must be an object.");
+  optionalBoolean(input, "required", path, issues);
+  const kinds = ["sourceId", "value"].filter((key) => input[key] !== undefined);
+  if (kinds.length !== 1)
+    issue(
+      issues,
+      path,
+      "SPEC.PROPERTY_CONFLICT",
+      "Rule input must declare one sourceId or value kind.",
+    );
+  if (input.sourceId !== undefined) requireString(input, "sourceId", path, issues);
+  if (
+    input.value !== undefined &&
+    (typeof input.value !== "string" ||
+      !["text", "number", "boolean", "date", "object", "array"].includes(input.value))
+  )
+    issue(issues, `${path}.value`, "SPEC.TYPE_INVALID", "Rule value input kind is invalid.");
+  if (input.default !== undefined) requireRuleValueShape(input.default, `${path}.default`, issues);
+}
+
+function requireRuleTriggerShape(input: unknown, path: string, issues: ValidationIssue[]): void {
+  if (!isRecord(input))
+    return issue(issues, path, "SPEC.TYPE_INVALID", "Rule trigger must be an object.");
+  requireString(input, "event", path, issues);
+  optionalString(input, "sourceId", path, issues);
+  optionalString(input, "fieldId", path, issues);
+  optionalString(input, "formId", path, issues);
+  if (input.config !== undefined) {
+    if (!isRecord(input.config))
+      issue(issues, `${path}.config`, "SPEC.TYPE_INVALID", "Trigger config must be an object.");
+    else
+      for (const [key, value] of Object.entries(input.config))
+        requireRuleValueShape(value, `${path}.config.${key}`, issues);
+  }
+}
+
+function requireRuleStepsShape(
+  steps: readonly unknown[],
+  path: string,
+  issues: ValidationIssue[],
+  ids: Set<string>,
+): void {
+  steps.forEach((step, index) => {
+    const stepPath = `${path}.${index}`;
+    if (!isRecord(step))
+      return issue(issues, stepPath, "SPEC.TYPE_INVALID", "Rule step must be an object.");
+    requireString(step, "id", stepPath, issues);
+    if (typeof step.id === "string") {
+      if (ids.has(step.id))
+        issue(issues, `${stepPath}.id`, "SPEC.ID_DUPLICATE", "Rule step ID is duplicated.");
+      ids.add(step.id);
+    }
+    const kinds = [
+      "gate",
+      "compute",
+      "action",
+      "invoke",
+      "delay",
+      "wait",
+      "foreach",
+      "repeat",
+      "parallel",
+    ].filter((key) => step[key] !== undefined);
+    if (kinds.length !== 1)
+      return issue(
+        issues,
+        stepPath,
+        "SPEC.PROPERTY_CONFLICT",
+        "Rule step must contain exactly one primitive.",
+      );
+    const kind = kinds[0]!;
+    const config = step[kind];
+    if (!isRecord(config))
+      return issue(
+        issues,
+        `${stepPath}.${kind}`,
+        "SPEC.TYPE_INVALID",
+        "Rule step configuration must be an object.",
+      );
+    const at = `${stepPath}.${kind}`;
+    if (kind === "gate") {
+      requireRulePredicateShape(config.predicate, `${at}.predicate`, issues);
+      requireOptionalRuleSteps(config.pass, `${at}.pass`, issues, ids);
+      requireOptionalRuleSteps(config.fail, `${at}.fail`, issues, ids);
+    } else if (kind === "compute") {
+      requireRuleValueMap(config.assign, `${at}.assign`, issues);
+    } else if (kind === "action") {
+      requireRuleActionShape(config, at, issues);
+    } else if (kind === "invoke") {
+      requireString(config, "ruleId", at, issues);
+      if (config.input !== undefined) requireRuleValueMap(config.input, `${at}.input`, issues);
+      optionalString(config, "as", at, issues);
+    } else if (kind === "delay") {
+      requireDurationShape(config.duration, `${at}.duration`, issues);
+    } else if (kind === "wait") {
+      optionalString(config, "signal", at, issues);
+      if (config.timeout !== undefined)
+        requireDurationShape(config.timeout, `${at}.timeout`, issues);
+      if (config.signal === undefined && config.timeout === undefined)
+        issue(issues, at, "SPEC.VALUE_REQUIRED", "Wait needs a signal or timeout.");
+      optionalString(config, "as", at, issues);
+      requireOptionalRuleSteps(config.onSignal, `${at}.onSignal`, issues, ids);
+      requireOptionalRuleSteps(config.onTimeout, `${at}.onTimeout`, issues, ids);
+    } else if (kind === "foreach") {
+      requireRuleBindingShape(config.source, `${at}.source`, issues);
+      requireLoopShape(config, at, issues);
+      if (!Array.isArray(config.steps))
+        issue(issues, `${at}.steps`, "SPEC.TYPE_INVALID", "Loop steps must be an array.");
+      else requireRuleStepsShape(config.steps, `${at}.steps`, issues, ids);
+    } else if (kind === "repeat") {
+      if (
+        !(
+          typeof config.times === "number" &&
+          Number.isSafeInteger(config.times) &&
+          config.times >= 0
+        )
+      )
+        requireRuleBindingShape(config.times, `${at}.times`, issues);
+      requireLoopShape(config, at, issues);
+      if (!Array.isArray(config.steps))
+        issue(issues, `${at}.steps`, "SPEC.TYPE_INVALID", "Loop steps must be an array.");
+      else requireRuleStepsShape(config.steps, `${at}.steps`, issues, ids);
+    } else {
+      optionalEnum(config, "join", ["all", "any"], at, issues);
+      if (!Array.isArray(config.branches) || config.branches.length === 0)
+        issue(issues, `${at}.branches`, "SPEC.TYPE_INVALID", "Parallel needs at least one branch.");
+      else
+        config.branches.forEach((branch, branchIndex) => {
+          const branchPath = `${at}.branches.${branchIndex}`;
+          if (!isRecord(branch))
+            return issue(
+              issues,
+              branchPath,
+              "SPEC.TYPE_INVALID",
+              "Parallel branch must be an object.",
+            );
+          requireString(branch, "id", branchPath, issues);
+          if (typeof branch.id === "string") {
+            if (ids.has(branch.id))
+              issue(
+                issues,
+                `${branchPath}.id`,
+                "SPEC.ID_DUPLICATE",
+                "Rule step or branch ID is duplicated.",
+              );
+            ids.add(branch.id);
+          }
+          optionalString(branch, "key", branchPath, issues);
+          if (!Array.isArray(branch.steps))
+            issue(
+              issues,
+              `${branchPath}.steps`,
+              "SPEC.TYPE_INVALID",
+              "Branch steps must be an array.",
+            );
+          else requireRuleStepsShape(branch.steps, `${branchPath}.steps`, issues, ids);
+        });
+    }
+  });
+}
+
+function requireOptionalRuleSteps(
+  input: unknown,
+  path: string,
+  issues: ValidationIssue[],
+  ids: Set<string>,
+): void {
+  if (input === undefined) return;
+  if (!Array.isArray(input))
+    issue(issues, path, "SPEC.TYPE_INVALID", "Nested Rule steps must be an array.");
+  else requireRuleStepsShape(input, path, issues, ids);
+}
+
+function requireRuleActionShape(
+  input: Readonly<Record<string, unknown>>,
+  path: string,
+  issues: ValidationIssue[],
+): void {
+  requireString(input, "key", path, issues);
+  optionalString(input, "as", path, issues);
+  optionalString(input, "runAs", path, issues);
+  if (input.input !== undefined) requireRuleValueMap(input.input, `${path}.input`, issues);
+  if (input.retry !== undefined) {
+    if (!isRecord(input.retry))
+      issue(issues, `${path}.retry`, "SPEC.TYPE_INVALID", "Retry must be an object.");
+    else {
+      if (!Number.isInteger(input.retry.max) || Number(input.retry.max) < 1)
+        issue(
+          issues,
+          `${path}.retry.max`,
+          "SPEC.TYPE_INVALID",
+          "Retry max must be a positive integer.",
+        );
+      if (
+        input.retry.backoff !== undefined &&
+        (!Array.isArray(input.retry.backoff) ||
+          input.retry.backoff.some(
+            (value) => typeof value !== "number" || !Number.isFinite(value) || value < 0,
+          ))
+      )
+        issue(
+          issues,
+          `${path}.retry.backoff`,
+          "SPEC.TYPE_INVALID",
+          "Retry backoff must contain non-negative seconds.",
+        );
+    }
+  }
+  if (input.compensate !== undefined) {
+    if (!isRecord(input.compensate))
+      issue(
+        issues,
+        `${path}.compensate`,
+        "SPEC.TYPE_INVALID",
+        "Compensation must be an Action call.",
+      );
+    else {
+      requireString(input.compensate, "key", `${path}.compensate`, issues);
+      optionalString(input.compensate, "runAs", `${path}.compensate`, issues);
+      if (input.compensate.input !== undefined)
+        requireRuleValueMap(input.compensate.input, `${path}.compensate.input`, issues);
+    }
+  }
+}
+
+function requireRulePredicateShape(input: unknown, path: string, issues: ValidationIssue[]): void {
+  if (!isRecord(input))
+    return issue(issues, path, "SPEC.TYPE_INVALID", "Rule predicate must be an object.");
+  const kinds = ["all", "any", "not", "op"].filter((key) => input[key] !== undefined);
+  if (kinds.length !== 1)
+    return issue(
+      issues,
+      path,
+      "SPEC.PROPERTY_CONFLICT",
+      "Predicate must contain exactly one combinator or op.",
+    );
+  if (input.all !== undefined || input.any !== undefined) {
+    const children = input.all ?? input.any;
+    if (!Array.isArray(children))
+      issue(issues, path, "SPEC.TYPE_INVALID", "Predicate children must be an array.");
+    else
+      children.forEach((child, index) =>
+        requireRulePredicateShape(child, `${path}.${index}`, issues),
+      );
+  } else if (input.not !== undefined) requireRulePredicateShape(input.not, `${path}.not`, issues);
+  else {
+    requireString(input, "op", path, issues);
+    for (const [key, value] of Object.entries(input))
+      if (key !== "op") requireRuleValueShape(value, `${path}.${key}`, issues);
+  }
+}
+
+function requireRuleValueMap(input: unknown, path: string, issues: ValidationIssue[]): void {
+  if (!isRecord(input))
+    return issue(issues, path, "SPEC.TYPE_INVALID", "Rule values must be an object.");
+  for (const [key, value] of Object.entries(input))
+    requireRuleValueShape(value, `${path}.${key}`, issues);
+}
+
+function requireRuleValueShape(input: unknown, path: string, issues: ValidationIssue[]): void {
+  if (input === null || typeof input === "string" || typeof input === "boolean") return;
+  if (typeof input === "number") {
+    if (!Number.isFinite(input))
+      issue(issues, path, "SPEC.TYPE_INVALID", "Rule number must be finite.");
+    return;
+  }
+  if (Array.isArray(input)) {
+    input.forEach((value, index) => requireRuleValueShape(value, `${path}.${index}`, issues));
+    return;
+  }
+  if (!isRecord(input))
+    return issue(issues, path, "SPEC.TYPE_INVALID", "Rule value must be JSON-compatible.");
+  if ("$ref" in input) return requireRuleBindingShape(input, path, issues);
+  for (const [key, value] of Object.entries(input))
+    requireRuleValueShape(value, `${path}.${key}`, issues);
+}
+
+function requireRuleBindingShape(input: unknown, path: string, issues: ValidationIssue[]): void {
+  if (
+    !isRecord(input) ||
+    Object.keys(input).length !== 1 ||
+    typeof input.$ref !== "string" ||
+    !/^(?:trigger|actor|vars|meta)(?:\.[A-Za-z0-9_-]+)+$/.test(input.$ref)
+  )
+    issue(issues, path, "SPEC.TYPE_INVALID", "Rule binding must contain only a non-empty $ref.");
+}
+
+function requireLoopShape(
+  input: Readonly<Record<string, unknown>>,
+  path: string,
+  issues: ValidationIssue[],
+): void {
+  optionalString(input, "as", path, issues);
+  if (input.max !== undefined && (!Number.isInteger(input.max) || Number(input.max) < 1))
+    issue(issues, `${path}.max`, "SPEC.TYPE_INVALID", "Loop max must be a positive integer.");
+  optionalEnum(input, "onItemFailure", ["stop", "continue"], path, issues);
+}
+
+function requireDurationShape(input: unknown, path: string, issues: ValidationIssue[]): void {
+  if (
+    !(
+      (typeof input === "number" && Number.isFinite(input) && input >= 0) ||
+      (typeof input === "string" && input.trim().length > 0)
+    )
+  )
+    issue(issues, path, "SPEC.TYPE_INVALID", "Duration must be a non-negative number or string.");
 }
 
 function requireFormShape(
@@ -1077,6 +1425,135 @@ function validatePage(page: PageDefinition, index: number, issues: ValidationIss
   page.layout.forEach((node, nodeIndex) =>
     validatePageNode(node, `pages.${index}.layout.${nodeIndex}`, issues),
   );
+}
+
+function validateRule(
+  rule: RuleDefinition,
+  index: number,
+  spec: Spec,
+  issues: ValidationIssue[],
+): void {
+  const path = `rules.${index}`;
+  const sourceIds = new Set([
+    ...spec.collections.map((collection) => collection.id),
+    ...spec.sources.map((source) => source.id),
+  ]);
+  for (const [key, input] of Object.entries(rule.input ?? {})) {
+    const inputPath = `${path}.input.${key}`;
+    if (!semanticKeyPattern.test(key))
+      issue(issues, inputPath, "SPEC.KEY_INVALID", "Rule input key must be semantic.");
+    if ("sourceId" in input && !sourceIds.has(input.sourceId))
+      issue(
+        issues,
+        `${inputPath}.sourceId`,
+        "SPEC.REFERENCE_UNRESOLVED",
+        "Rule input Source does not exist.",
+      );
+  }
+  const trigger = rule.trigger;
+  if (trigger?.event.startsWith("record.") && !trigger.sourceId)
+    issue(
+      issues,
+      `${path}.trigger.sourceId`,
+      "SPEC.VALUE_REQUIRED",
+      "Record Events need a Source.",
+    );
+  if (trigger?.event === "record.field_changed" && !trigger.fieldId)
+    issue(
+      issues,
+      `${path}.trigger.fieldId`,
+      "SPEC.VALUE_REQUIRED",
+      "Field-change Events need a Field.",
+    );
+  if (trigger?.event === "form.submitted" && !trigger.formId)
+    issue(
+      issues,
+      `${path}.trigger.formId`,
+      "SPEC.VALUE_REQUIRED",
+      "Form submission Events need a Form.",
+    );
+  if (trigger?.sourceId && !sourceIds.has(trigger.sourceId))
+    issue(
+      issues,
+      `${path}.trigger.sourceId`,
+      "SPEC.REFERENCE_UNRESOLVED",
+      "Trigger Source does not exist.",
+    );
+  if (trigger?.formId && !spec.forms.some((form) => form.id === trigger.formId))
+    issue(
+      issues,
+      `${path}.trigger.formId`,
+      "SPEC.REFERENCE_UNRESOLVED",
+      "Trigger Form does not exist.",
+    );
+  if (trigger?.fieldId) {
+    const collection = spec.collections.find((item) => item.id === trigger.sourceId);
+    if (collection && !collection.fields.some((field) => field.id === trigger.fieldId))
+      issue(
+        issues,
+        `${path}.trigger.fieldId`,
+        "SPEC.REFERENCE_UNRESOLVED",
+        "Trigger Field does not exist on its Source.",
+      );
+  }
+  const ruleIds = new Set(spec.rules.map((item) => item.id));
+  validateRuleStepReferences(rule.steps, `${path}.steps`, ruleIds, issues);
+}
+
+function validateRuleStepReferences(
+  steps: readonly RuleStep[],
+  path: string,
+  ruleIds: ReadonlySet<string>,
+  issues: ValidationIssue[],
+): void {
+  steps.forEach((step, index) => {
+    const stepPath = `${path}.${index}`;
+    if ("invoke" in step && !ruleIds.has(step.invoke.ruleId))
+      issue(
+        issues,
+        `${stepPath}.invoke.ruleId`,
+        "SPEC.REFERENCE_UNRESOLVED",
+        "Invoked Rule does not exist.",
+      );
+    if ("action" in step) {
+      for (const [runAs, runAsPath] of [
+        [step.action.runAs, `${stepPath}.action.runAs`],
+        [step.action.compensate?.runAs, `${stepPath}.action.compensate.runAs`],
+      ] as const)
+        if (runAs && runAs !== "trigger" && runAs !== "system" && !semanticKeyPattern.test(runAs))
+          issue(issues, runAsPath, "SPEC.KEY_INVALID", "Run-as binding must be semantic.");
+    }
+    if ("gate" in step) {
+      validateRuleStepReferences(step.gate.pass ?? [], `${stepPath}.gate.pass`, ruleIds, issues);
+      validateRuleStepReferences(step.gate.fail ?? [], `${stepPath}.gate.fail`, ruleIds, issues);
+    } else if ("wait" in step) {
+      validateRuleStepReferences(
+        step.wait.onSignal ?? [],
+        `${stepPath}.wait.onSignal`,
+        ruleIds,
+        issues,
+      );
+      validateRuleStepReferences(
+        step.wait.onTimeout ?? [],
+        `${stepPath}.wait.onTimeout`,
+        ruleIds,
+        issues,
+      );
+    } else if ("foreach" in step) {
+      validateRuleStepReferences(step.foreach.steps, `${stepPath}.foreach.steps`, ruleIds, issues);
+    } else if ("repeat" in step) {
+      validateRuleStepReferences(step.repeat.steps, `${stepPath}.repeat.steps`, ruleIds, issues);
+    } else if ("parallel" in step) {
+      step.parallel.branches.forEach((branch, branchIndex) =>
+        validateRuleStepReferences(
+          branch.steps,
+          `${stepPath}.parallel.branches.${branchIndex}.steps`,
+          ruleIds,
+          issues,
+        ),
+      );
+    }
+  });
 }
 
 function validatePageNode(node: PageLayoutNode, path: string, issues: ValidationIssue[]): void {

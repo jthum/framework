@@ -19,8 +19,10 @@ sorting, grouped measures, presentation, identity, and metadata to the canonical
 It rejects canonical options that the current editor cannot preserve—such as custom output aliases,
 nested boolean filters, and query offsets—instead of silently rewriting them. Aggregate View
 authoring therefore has a complete portable Spec and Kernel path. The executable structured Rule
-model remains ahead of the Kernel contract; extraction preserves that surface rather than deleting
-functionality or copying an executor into Studio.
+model maps through a canonical Rule adapter. Portable Rules use Actions, stable Source/Form/Rule
+references, stable step identities, nested control flow, and optional run-as bindings. Studio keeps
+its key-oriented working vocabulary private and automatically assigns missing step identities.
+Execution remains a Kernel responsibility rather than being copied into Studio.
 
 Studio consumers can style the semantic tokens and compose host preview snippets. Runtime-specific compatibility diagnostics and registries must come from the host, never an assumed browser runtime.
 

@@ -188,20 +188,19 @@ explicit authoring working models; see [Studio editors](studio-editors.md) for t
 View authoring now has a canonical adapter and complete Kernel query contract for ordinary
 projection, caller/context parameters, relation paths, grouped measures and aggregate sorting.
 The adapter preserves stable identities and metadata and rejects unrepresentable options rather
-than losing them. Executable Rule authoring still needs its complete canonical Kernel contract.
-Extraction preserves that remaining feature surface without moving the old executor or a legacy
-Spec reader into Framework.
+than losing them. Rule authoring maps losslessly into the canonical nested Rule
+contract: stable step/branch IDs, stable Source/Form/Rule references, Actions, triggers, bindings,
+predicates, retries, compensation, waits, loops, parallel branches and run-as intent are validated.
+Runtime compatibility is a separate preflight over installed Event/Action contracts and extensible
+capabilities. Action execution and Event dispatch remain Phase 5 work.
 
 This does **not** close Phase 4: the main session still uses Host, draft-to-canonical runtime
 integration remains, and the old projection/storage path has not been deleted.
 
-**Sequencing decision before deleting Host:** the current app has working automation
-definitions and execution, while canonical `RuleDefinition` currently contains identity
-only. Replacing that path without feature loss requires bringing the necessary Phase 5
-Rule/Action contracts and execution forward, or explicitly keeping Rules on the old path
-until Phase 5 (which means Phase 4 cannot yet claim complete old-runtime deletion).
-Do not silently discard automations or store executable legacy definitions in `meta` as a
-substitute for the planned canonical Rule contract.
+**Sequencing decision before deleting Host:** canonical Rule definitions and Studio translation
+are now complete, but Builder's current executor remains authoritative until the Phase 5
+Action/Event execution spine lands. Do not duplicate execution or silently skip unsupported
+Actions during the cutover.
 
 ### Phase 5 — Primitive Actions, Rules, and snapshots
 

@@ -294,7 +294,132 @@ export interface PageDefinition extends DefinitionIdentity {
   readonly layout: readonly PageLayoutNode[];
 }
 
-export interface RuleDefinition extends DefinitionIdentity {}
+export interface RuleBinding {
+  readonly $ref: string;
+}
+
+export type RuleValue =
+  | JsonPrimitive
+  | RuleBinding
+  | readonly RuleValue[]
+  | { readonly [key: string]: RuleValue };
+
+export type RulePredicate =
+  | { readonly all: readonly RulePredicate[] }
+  | { readonly any: readonly RulePredicate[] }
+  | { readonly not: RulePredicate }
+  | ({ readonly op: string } & { readonly [key: string]: RuleValue });
+
+export type RuleInputDefinition =
+  | { readonly sourceId: string; readonly required?: boolean }
+  | {
+      readonly value: "text" | "number" | "boolean" | "date" | "object" | "array";
+      readonly required?: boolean;
+      readonly default?: RuleValue;
+    };
+
+export interface RuleTriggerDefinition {
+  /** Stable Event contract key, for example `record.created` or `form.submitted`. */
+  readonly event: string;
+  readonly sourceId?: string;
+  readonly fieldId?: string;
+  readonly formId?: string;
+  readonly config?: Readonly<Record<string, RuleValue>>;
+}
+
+export interface RuleRetryDefinition {
+  /** Total attempts, including the initial attempt. */
+  readonly max: number;
+  /** Non-negative seconds before subsequent attempts. */
+  readonly backoff?: readonly number[];
+}
+
+export interface RuleActionCall {
+  /** Immutable semantic contract key registered by the runtime. */
+  readonly key: string;
+  readonly input?: Readonly<Record<string, RuleValue>>;
+  /** Defaults to the execution Actor; `system` or a semantic Actor binding may override it. */
+  readonly runAs?: string;
+}
+
+export interface RuleAction extends RuleActionCall {
+  readonly as?: string;
+  readonly retry?: RuleRetryDefinition;
+  readonly compensate?: RuleActionCall;
+}
+
+interface RuleStepIdentity {
+  /** Stable within this Rule; used by traces, retries, waits, and idempotency. */
+  readonly id: string;
+}
+
+export type RuleStep =
+  | (RuleStepIdentity & {
+      readonly gate: {
+        readonly predicate: RulePredicate;
+        readonly pass?: readonly RuleStep[];
+        readonly fail?: readonly RuleStep[];
+      };
+    })
+  | (RuleStepIdentity & {
+      readonly compute: { readonly assign: Readonly<Record<string, RuleValue>> };
+    })
+  | (RuleStepIdentity & { readonly action: RuleAction })
+  | (RuleStepIdentity & {
+      readonly invoke: {
+        /** Stable ID of another Rule in this Spec. */
+        readonly ruleId: string;
+        readonly input?: Readonly<Record<string, RuleValue>>;
+        readonly as?: string;
+      };
+    })
+  | (RuleStepIdentity & { readonly delay: { readonly duration: number | string } })
+  | (RuleStepIdentity & {
+      readonly wait: {
+        readonly signal?: string;
+        readonly timeout?: number | string;
+        readonly as?: string;
+        readonly onSignal?: readonly RuleStep[];
+        readonly onTimeout?: readonly RuleStep[];
+      };
+    })
+  | (RuleStepIdentity & {
+      readonly foreach: {
+        readonly source: RuleBinding;
+        readonly as?: string;
+        readonly max?: number;
+        readonly onItemFailure?: "stop" | "continue";
+        readonly steps: readonly RuleStep[];
+      };
+    })
+  | (RuleStepIdentity & {
+      readonly repeat: {
+        readonly times: number | RuleBinding;
+        readonly as?: string;
+        readonly max?: number;
+        readonly onItemFailure?: "stop" | "continue";
+        readonly steps: readonly RuleStep[];
+      };
+    })
+  | (RuleStepIdentity & {
+      readonly parallel: {
+        readonly branches: readonly {
+          readonly id: string;
+          readonly key?: string;
+          readonly steps: readonly RuleStep[];
+        }[];
+        readonly join?: "all" | "any";
+      };
+    });
+
+export interface RuleDefinition extends DefinitionIdentity {
+  readonly enabled?: boolean;
+  readonly priority?: number;
+  readonly input?: Readonly<Record<string, RuleInputDefinition>>;
+  readonly trigger?: RuleTriggerDefinition;
+  readonly expose?: readonly ("ui" | "agent")[];
+  readonly steps: readonly RuleStep[];
+}
 
 export interface Spec extends DefinitionIdentity {
   readonly version: typeof SPEC_VERSION;

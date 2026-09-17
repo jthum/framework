@@ -7,5 +7,6 @@ export * from "./kernel.ts";
 export * from "./model.ts";
 export * from "./pages.ts";
 export * from "./record-values.ts";
+export * from "./rule-compatibility.ts";
 export * from "./sources.ts";
 export * from "./views.ts";

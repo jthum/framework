@@ -64,6 +64,8 @@ export interface AutomationRetry {
 export interface AutomationEffectCall {
   key: string;
   params?: Record<string, AutomationValue>;
+  /** Retained by Studio; execution and Actor binding are runtime concerns. */
+  runAs?: string;
 }
 
 export interface AutomationEffect extends AutomationEffectCall {
@@ -120,7 +122,7 @@ export type RuleStep =
     })
   | (StepIdentity & {
       parallel: {
-        branches: Array<{ key?: string; steps: RuleStep[] }>;
+        branches: Array<{ id?: string; key?: string; steps: RuleStep[] }>;
         join?: "all" | "any";
       };
     });

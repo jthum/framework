@@ -6,6 +6,7 @@ These documents define the engineering conventions for the shared framework and 
 - [Implementation plan](implementation-plan.md)
 - [Live Attachments](attachments.md)
 - [Sources, Views, and Blocks](sources-views-blocks.md)
+- [Rules and Actions](rules.md)
 - [Forms and Pages](forms-pages.md)
 - [Workspace client](workspace-client.md)
 - [Svelte UI and Studio](svelte.md)

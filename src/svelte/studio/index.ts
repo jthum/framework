@@ -29,6 +29,11 @@ export type {
   FormDraft,
 } from "./authoring.js";
 export type { RuleDraft, RuleStep } from "./rule-model.js";
+export {
+  RuleAuthoringError,
+  ruleDefinitionFromDraft,
+  ruleDraftFromDefinition,
+} from "./rule-adapter.js";
 export { default as BlockPicker } from "./block-picker.svelte";
 export { default as BlockSettings } from "./block-settings.svelte";
 export { default as PageEditor } from "./page-editor.svelte";

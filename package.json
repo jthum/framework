@@ -62,6 +62,10 @@
       "svelte": "./src/svelte/studio/index.ts",
       "import": "./src/svelte/studio/index.ts"
     },
+    "./svelte/studio/adapters": {
+      "types": "./src/svelte/studio/adapters.ts",
+      "import": "./src/svelte/studio/adapters.ts"
+    },
     "./svelte/ui/*": {
       "types": "./src/svelte/ui/*/index.ts",
       "svelte": "./src/svelte/ui/*/index.ts",
