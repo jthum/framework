@@ -189,6 +189,31 @@ export class Kernel {
   getSourceRecord(context: ExecutionContext, key: string, id: string) {
     return this.sources.get(context, key, id);
   }
+  async updateSourceRecord(
+    context: ExecutionContext,
+    key: string,
+    id: string,
+    patch: RecordValues,
+  ): Promise<CollectionRecord> {
+    const workspace = await this.requireWorkspace(context.workspaceId);
+    const local = workspace.spec.collections.find((collection) => collection.key === key);
+    if (local) return this.updateRecord(context, key, id, patch);
+    if (!workspace.spec.sources.some((source) => source.key === key))
+      throw resourceNotFound("Source", key);
+    const target = await this.attachments.resolveMutation(context, key, "update", id);
+    const originContext = { ...context, workspaceId: target.attachment.originId };
+    return this.updateRecord(originContext, target.collection.key, id, patch);
+  }
+  async deleteSourceRecord(context: ExecutionContext, key: string, id: string): Promise<void> {
+    const workspace = await this.requireWorkspace(context.workspaceId);
+    const local = workspace.spec.collections.find((collection) => collection.key === key);
+    if (local) return this.deleteRecord(context, key, id);
+    if (!workspace.spec.sources.some((source) => source.key === key))
+      throw resourceNotFound("Source", key);
+    const target = await this.attachments.resolveMutation(context, key, "delete", id);
+    const originContext = { ...context, workspaceId: target.attachment.originId };
+    return this.deleteRecord(originContext, target.collection.key, id);
+  }
   listViews(context: ExecutionContext) {
     return this.views.list(context);
   }
@@ -239,7 +264,7 @@ export class Kernel {
     key: string,
     input?: Readonly<Record<string, JsonValue>>,
   ) {
-    return this.rules.callAction(context, key, input);
+    return this.rules.executeAction(context, key, input);
   }
   dispatchEvent(context: ExecutionContext, event: RuleEvent) {
     return this.rules.dispatch(context, event);
@@ -669,15 +694,17 @@ export class Kernel {
         key: "records.get",
         run: async ({ context, input, runtime }) => {
           const target = await this.actionRecordTarget(context, input);
-          const record = await runtime.getRecord(context, target.collectionKey, target.recordId);
-          return record ? recordValue(record) : null;
+          const record = await runtime.getSourceRecord(context, target.source.key, target.recordId);
+          return record ? sourceRecordValue(record.id, target.source.id, record.values) : null;
         },
       },
       {
         key: "records.list",
-        run: async ({ context, input, runtime }) => {
-          const collectionKey = await this.actionCollectionKey(context, input);
-          return (await runtime.listRecords(context, collectionKey)).map(recordValue);
+        run: async ({ context, input }) => {
+          const source = await this.actionSource(context, input);
+          return (await this.sources.query(context, source.key)).rows.map((record) =>
+            sourceRecordValue(record.id, source.id, record.values),
+          );
         },
       },
       {
@@ -685,21 +712,29 @@ export class Kernel {
         run: async ({ context, input, runtime, publish }) => {
           const target = await this.actionRecordTarget(context, input);
           const values = actionValues(input.values, "values");
-          const previous = await runtime.getRecord(context, target.collectionKey, target.recordId);
-          if (!previous) throw resourceNotFound("Record", target.recordId);
-          const record = await runtime.updateRecord(
+          const previous = await runtime.getSourceRecord(
             context,
-            target.collectionKey,
+            target.source.key,
+            target.recordId,
+          );
+          if (!previous) throw resourceNotFound("Record", target.recordId);
+          const record = await runtime.updateSourceRecord(
+            context,
+            target.source.key,
             target.recordId,
             values,
           );
-          const output = recordValue(record);
+          const output = recordValue(record, target.source.id);
           await publish({
             event: "record.updated",
-            sourceId: target.collection.id,
-            payload: { record: output, recordId: record.id, previous: recordValue(previous) },
+            sourceId: target.source.id,
+            payload: {
+              record: output,
+              recordId: record.id,
+              previous: sourceRecordValue(previous.id, target.source.id, previous.values),
+            },
           });
-          for (const field of target.collection.fields)
+          for (const field of target.source.schema.fields)
             if (
               field.key in values &&
               JSON.stringify(previous.values[field.key]) !==
@@ -707,7 +742,7 @@ export class Kernel {
             )
               await publish({
                 event: "record.field_changed",
-                sourceId: target.collection.id,
+                sourceId: target.source.id,
                 fieldId: field.id,
                 payload: {
                   record: output,
@@ -723,13 +758,16 @@ export class Kernel {
         key: "records.delete",
         run: async ({ context, input, runtime, publish }) => {
           const target = await this.actionRecordTarget(context, input);
-          const record = await runtime.getRecord(context, target.collectionKey, target.recordId);
+          const record = await runtime.getSourceRecord(context, target.source.key, target.recordId);
           if (!record) throw resourceNotFound("Record", target.recordId);
-          await runtime.deleteRecord(context, target.collectionKey, target.recordId);
+          await runtime.deleteSourceRecord(context, target.source.key, target.recordId);
           await publish({
             event: "record.deleted",
-            sourceId: target.collection.id,
-            payload: { record: recordValue(record), recordId: record.id },
+            sourceId: target.source.id,
+            payload: {
+              record: sourceRecordValue(record.id, target.source.id, record.values),
+              recordId: record.id,
+            },
           });
           return { id: target.recordId };
         },
@@ -813,40 +851,48 @@ export class Kernel {
     ];
   }
 
-  private async actionCollectionKey(
-    context: ExecutionContext,
-    input: Readonly<Record<string, JsonValue>>,
-  ): Promise<string> {
-    return (await this.actionCollection(context, input)).key;
-  }
-
   private async actionCollection(
     context: ExecutionContext,
     input: Readonly<Record<string, JsonValue>>,
   ): Promise<CollectionDefinition> {
-    const collectionId =
-      typeof input.collectionId === "string"
-        ? input.collectionId
-        : actionRecord(input.record)?.sourceId;
-    if (!collectionId)
-      throw actionInputError("A record Action requires collectionId or a record sourceId.");
+    const source = await this.actionSource(context, input);
     const workspace = await this.requireWorkspace(context.workspaceId);
-    const collection = workspace.spec.collections.find(
-      (candidate) => candidate.id === collectionId,
-    );
-    if (!collection) throw resourceNotFound("Collection", collectionId);
+    const collection = workspace.spec.collections.find((candidate) => candidate.id === source.id);
+    if (!collection)
+      throw new FrameworkError({
+        code: ERROR_CODES.persistenceUnsupported,
+        message: "Creating records through an attached Source is not supported yet.",
+        details: { sourceId: source.id },
+      });
     return collection;
+  }
+
+  private async actionSource(
+    context: ExecutionContext,
+    input: Readonly<Record<string, JsonValue>>,
+  ): Promise<{ id: string; key: string; schema: CollectionDefinition }> {
+    const sourceId =
+      typeof input.sourceId === "string" ? input.sourceId : actionRecord(input.record)?.sourceId;
+    if (!sourceId) throw actionInputError("A record Action requires sourceId or a record value.");
+    const workspace = await this.requireWorkspace(context.workspaceId);
+    const definition = sourceDefinition(workspace.spec, sourceId);
+    if (!definition) throw resourceNotFound("Source", sourceId);
+    const descriptor = await this.sources.describe(context, definition.key);
+    if (!descriptor) throw resourceNotFound("Source", sourceId);
+    return { id: sourceId, key: definition.key, schema: descriptor.schema };
   }
 
   private async actionRecordTarget(
     context: ExecutionContext,
     input: Readonly<Record<string, JsonValue>>,
-  ): Promise<{ collectionKey: string; collection: CollectionDefinition; recordId: string }> {
+  ): Promise<{
+    source: { id: string; key: string; schema: CollectionDefinition };
+    recordId: string;
+  }> {
     const record = actionRecord(input.record);
     const recordId = typeof input.recordId === "string" ? input.recordId : record?.id;
     if (!recordId) throw actionInputError("A record Action requires recordId or a record value.");
-    const collection = await this.actionCollection(context, input);
-    return { collectionKey: collection.key, collection, recordId };
+    return { source: await this.actionSource(context, input), recordId };
   }
 
   private async resolveRuleSourceInput(
@@ -1123,10 +1169,10 @@ function actionValues(value: JsonValue | undefined, name: string): RecordValues 
   return value;
 }
 
-function recordValue(record: CollectionRecord): JsonValue {
+function recordValue(record: CollectionRecord, sourceId = record.collectionId): JsonValue {
   return {
     id: record.id,
-    sourceId: record.collectionId,
+    sourceId,
     values: { ...record.values },
     ...record.values,
     createdAt: record.createdAt,
@@ -1134,6 +1180,10 @@ function recordValue(record: CollectionRecord): JsonValue {
     createdBy: record.createdBy,
     updatedBy: record.updatedBy,
   };
+}
+
+function sourceRecordValue(id: string, sourceId: string, values: RecordValues): JsonValue {
+  return { ...values, id, sourceId, values: { ...values } };
 }
 
 function actionInputError(message: string): FrameworkError {

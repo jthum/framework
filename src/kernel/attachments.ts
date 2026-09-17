@@ -22,6 +22,12 @@ export interface CreateAttachmentInput {
   readonly allowReshare?: boolean;
 }
 
+export interface AttachmentMutationTarget {
+  readonly attachment: Attachment;
+  readonly collection: CollectionDefinition;
+  readonly record: CollectionRecord;
+}
+
 /** Mechanical live binding. Full origin/member/others policy is supplied by the Authorizer. */
 export class AttachmentService {
   constructor(
@@ -159,11 +165,32 @@ export class AttachmentService {
     );
   }
 
+  async resolveMutation(
+    context: ExecutionContext,
+    key: string,
+    right: "update" | "delete",
+    recordId: string,
+  ): Promise<AttachmentMutationTarget> {
+    const { attachment, collection } = await this.resolve(
+      context,
+      key,
+      `records.${right}`,
+      recordId,
+      right,
+    );
+    const record = await this.records.get(attachment.originId, collection, recordId);
+    await this.assertLive(attachment.id);
+    if (!record || !evaluateCondition(attachment.filter, collection, record.values, true))
+      throw resourceNotFound("Record", recordId);
+    return { attachment, collection, record };
+  }
+
   private async resolve(
     context: ExecutionContext,
     key: string,
     operation: string,
     recordId?: string,
+    right: AttachmentRight = "read",
   ): Promise<{ attachment: Attachment; collection: CollectionDefinition }> {
     await this.assertContext(context);
     const target = await this.catalog.getWorkspace(context.workspaceId);
@@ -173,7 +200,7 @@ export class AttachmentService {
     if (!attachment) throw resourceNotFound("Source binding", key);
     await this.authorize({
       context,
-      operation: "attachments.read",
+      operation: `attachments.${right}`,
       resource: {
         kind: "attachment",
         id: attachment.id,
@@ -182,8 +209,8 @@ export class AttachmentService {
         collectionId: attachment.collectionId,
       },
     });
-    if (!attachment.rights.includes("read"))
-      throw denied("This Attachment does not permit reading.");
+    if (!attachment.rights.includes(right))
+      throw denied(`This Attachment does not permit ${right} operations.`);
     const origin = await this.catalog.getWorkspace(attachment.originId);
     const collection = origin?.spec.collections.find((item) => item.id === attachment.collectionId);
     if (!collection) throw resourceNotFound("Collection", attachment.collectionId);

@@ -50,11 +50,20 @@ authorization therefore cannot drift. Custom Actions and Conditions are installe
 opens, and every Action receives a coarse `actions.execute` policy check before its own
 resource-level checks.
 
+Record Actions identify their target with a stable `sourceId`; resolved record values carry the
+same ID. Reads therefore work uniformly across local Collections and attached Sources. Update and
+delete may cross an Attachment only when its right, target-side policy, resolved Actor membership,
+and origin resource policy all permit the operation. `runAs` changes only the Actor—it never
+bypasses those checks. Creating through an attached Source is deliberately unsupported until the
+Phase 6 write/filter policy is complete.
+
 Record mutation Actions publish `record.created`, `record.updated`, `record.field_changed`, and
 `record.deleted`; Form submission publishes `form.submitted`. Event-triggered source inputs are
 filled from the published record when their stable Source ID matches. Cascaded Rules share the
 same step and nesting budgets. Direct CRUD remains a deliberately quiet lower-level primitive for
 imports, migrations, and hosts that explicitly control Event publication.
+Custom/module Actions receive the same scoped `publish` callback, so contracts such as
+`message.posted` stay string-key extensions rather than new Kernel schema nodes.
 
 The execution Actor is inherited by Actions and nested Rules. The built-in `system` binding uses a
 System Actor that is actually a member of the active Workspace; a host may install a resolver for

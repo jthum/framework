@@ -143,6 +143,49 @@ describe("Kernel Rules", () => {
     expect(runs.map((run) => run.ruleId)).toEqual(["rule-high", "rule-low"]);
   });
 
+  it("lets a module Action publish a string-key Event without entering the Kernel schema", async () => {
+    expect.hasAssertions();
+    const messages: JsonValue[] = [];
+    const { kernel, context, spec } = await bootstrap(undefined, [
+      {
+        key: "messages.post",
+        async run({ input, publish }) {
+          await publish({ event: "message.posted", payload: { text: input.text ?? null } });
+        },
+      },
+      {
+        key: "tests.capture",
+        run({ input }) {
+          messages.push(input.value ?? null);
+        },
+      },
+    ]);
+    await kernel.applySpec(
+      context,
+      specWithRules(spec, [
+        {
+          id: "rule-message",
+          key: "message_received",
+          label: "Message received",
+          trigger: { event: "message.posted" },
+          steps: [
+            {
+              id: "step-capture-message",
+              action: {
+                key: "tests.capture",
+                input: { value: { $ref: "trigger.payload.text" } },
+              },
+            },
+          ],
+        },
+      ]),
+    );
+
+    await kernel.executeAction(context, "messages.post", { text: "Hello" });
+
+    expect(messages).toEqual(["Hello"]);
+  });
+
   it("publishes record and Form Events from their high-level execution paths", async () => {
     expect.hasAssertions();
     const observed: JsonValue[] = [];
@@ -197,7 +240,7 @@ describe("Kernel Rules", () => {
 
     await kernel.createRecord(context, "project", { name: "Quiet low-level write" });
     await kernel.executeAction(context, "records.create", {
-      collectionId: "collection-project",
+      sourceId: "collection-project",
       values: { name: "Published write" },
     });
     await kernel.submitForm(context, "intake", { values: { email: "jane@example.com" } });

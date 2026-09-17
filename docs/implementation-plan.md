@@ -218,8 +218,11 @@ context, semantic Actor resolution, retries, and compensation now live in the Ke
 record Actions reuse authorized CRUD and publish record Events; Form submission publishes its
 Event. Direct Action calls and custom Action authorization use the same registry path as Rules.
 The `views.snapshot` Action now creates an independent Collection and atomically seeds its records.
-The delegated-workspace authorization proof and S2 Event fixture remain in this phase; durable
-delay/signal execution stays in Phase 7.
+An attached record update now proves that the triggering candidate is denied at the origin while
+an explicit semantic Actor binding succeeds only through Jane's current origin authority. A stub
+module Action publishes `message.posted` through the same bounded cascade. This closes the planned
+Phase 5 execution slice; durable delay/signal execution stays in Phase 7 and full Attachment policy
+semantics continue in Phase 6.
 
 ### Phase 6 — ACL, `others`, spawn policy, and narrow S3 proof
 

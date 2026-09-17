@@ -3,6 +3,7 @@ import type { CollectionRecord, RecordValues } from "../persistence/records.ts";
 import type { JsonValue } from "../spec/model.ts";
 import type { ExecutionContext } from "./model.ts";
 import type { RuleEvent } from "./rules.ts";
+import type { SourceRow } from "./sources.ts";
 
 export type ActionOrigin =
   | { readonly kind: "call" }
@@ -27,6 +28,18 @@ export interface ActionRuntime {
     values: RecordValues,
   ): Promise<CollectionRecord>;
   deleteRecord(context: ExecutionContext, collectionKey: string, recordId: string): Promise<void>;
+  getSourceRecord(
+    context: ExecutionContext,
+    sourceKey: string,
+    recordId: string,
+  ): Promise<SourceRow | null>;
+  updateSourceRecord(
+    context: ExecutionContext,
+    sourceKey: string,
+    recordId: string,
+    values: RecordValues,
+  ): Promise<CollectionRecord>;
+  deleteSourceRecord(context: ExecutionContext, sourceKey: string, recordId: string): Promise<void>;
 }
 
 export interface ActionExecution {

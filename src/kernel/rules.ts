@@ -167,14 +167,14 @@ export class RuleService {
     return this.execute(context, rule, input, state);
   }
 
-  async callAction(
+  async executeAction(
     context: ExecutionContext,
     key: string,
     input: Readonly<Record<string, JsonValue>> = {},
   ): Promise<JsonValue> {
     await this.assertContext(context);
     const state = this.createState();
-    return this.executeAction(key, input, context, { kind: "call" }, state);
+    return this.invokeAction(key, input, context, { kind: "call" }, state);
   }
 
   async dispatch(context: ExecutionContext, event: RuleEvent): Promise<readonly RuleRun[]> {
@@ -445,7 +445,7 @@ export class RuleService {
         if (seconds > 0) await new Promise((resolve) => setTimeout(resolve, seconds * 1_000));
       }
       try {
-        return await this.executeAction(
+        return await this.invokeAction(
           action.key,
           input,
           context,
@@ -508,7 +508,7 @@ export class RuleService {
   private async compensate(state: RunState, start: number): Promise<void> {
     const pending = state.compensations.splice(start);
     for (const item of pending.reverse())
-      await this.executeAction(
+      await this.invokeAction(
         item.action.key,
         item.input,
         item.context,
@@ -562,7 +562,7 @@ export class RuleService {
     });
   }
 
-  private async executeAction(
+  private async invokeAction(
     key: string,
     input: Readonly<Record<string, JsonValue>>,
     context: ExecutionContext,
