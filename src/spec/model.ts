@@ -144,6 +144,8 @@ export interface CollectionLifecycleDefinition {
 }
 
 export interface CollectionDefinition extends DefinitionIdentity {
+  /** Optional plural/display label for a set of records. */
+  readonly collectionLabel?: string;
   readonly fields: readonly FieldDefinition[];
   readonly titleFieldId?: string;
   readonly lifecycle?: CollectionLifecycleDefinition;

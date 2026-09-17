@@ -70,6 +70,7 @@ function collectionIdentity(collection: CollectionDefinition): CollectionDraft {
     id: collection.id,
     key: collection.key,
     label: collection.label,
+    ...(collection.collectionLabel ? { collection_label: collection.collectionLabel } : {}),
     fields: [],
   };
 }
@@ -98,6 +99,7 @@ function collectionDraft(
     id: collection.id,
     key: collection.key,
     label: collection.label,
+    ...(collection.collectionLabel ? { collection_label: collection.collectionLabel } : {}),
     ...(collection.description ? { description: collection.description } : {}),
     ...(collection.meta ? { meta: structuredClone(collection.meta) } : {}),
     fields,

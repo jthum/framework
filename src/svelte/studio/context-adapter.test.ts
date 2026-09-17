@@ -14,6 +14,7 @@ function fixture(): Spec {
         id: "collection-task",
         key: "task",
         label: "Task",
+        collectionLabel: "Tasks",
         fields: [
           { id: "field-title", key: "title", label: "Title", type: "text" },
           {
@@ -130,6 +131,7 @@ describe("Studio context adapter", () => {
     expect(context.collections).toHaveLength(2);
     expect(context.collections[0]).toMatchObject({
       id: "collection-task",
+      collection_label: "Tasks",
       fields: expect.arrayContaining([
         expect.objectContaining({ key: "title" }),
         expect.objectContaining({ key: "client", target: "client" }),

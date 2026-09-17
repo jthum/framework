@@ -1378,6 +1378,13 @@ function validateCollection(
   issues: ValidationIssue[],
 ): void {
   validateIdentity(collection, path, issues);
+  if (collection.collectionLabel !== undefined && typeof collection.collectionLabel !== "string")
+    issue(
+      issues,
+      `${path}.collectionLabel`,
+      "SPEC.TYPE_INVALID",
+      "collectionLabel must be a string.",
+    );
   unique(collection.fields, `${path}.fields`, issues);
   const fieldsById = new Map(collection.fields.map((field) => [field.id, field]));
   collection.fields.forEach((field, index) =>
