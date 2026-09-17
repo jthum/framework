@@ -33,6 +33,12 @@ export { default as RuleConditions } from "./automation-predicate-editor.svelte"
 export { default as RuleValueInput } from "./automation-value-input.svelte";
 export { default as RuleValueMap } from "./automation-value-map-editor.svelte";
 export type { RuleActions, RuleEffect, RuleCompatibility } from "./rule-model.js";
+export {
+  createRule,
+  createRuleActions,
+  type NewRuleDraft,
+  type RuleAuthoringOptions,
+} from "./rule-authoring.js";
 export { default as FormInputSheet } from "./form-input-sheet.svelte";
 export { default as FieldConditionControl } from "./field-condition-control.svelte";
 export type { FormActions, FormPreview } from "./authoring.js";
