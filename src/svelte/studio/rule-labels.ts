@@ -51,7 +51,8 @@ export function humanStep(step: RuleStep, spec?: EditorContext): string {
   if ("repeat" in step) return "Repeat steps";
   if ("parallel" in step) return "Run branches together";
   if ("delay" in step) return "Wait for a duration";
-  if ("wait" in step) return "Wait for a signal";
+  if ("wait" in step)
+    return step.wait.request ? `Ask a user: ${step.wait.request.label}` : "Wait for a signal";
   return "Do something";
 }
 

@@ -53,6 +53,14 @@ Reference controls default to record-ID entry. A host can supply the `referenceI
 changing the execution interface. The same snippet is available through the launcher, inspector
 and standalone request card. Rule input defaults are applied by the runtime when left blank.
 
-Studio's Rule adapter preserves ActorRequest definitions and Fields when round-tripping a Rule.
-Task-field authoring and a global assigned-task inbox are subsequent authoring/discovery slices;
-this interface consumes actual persisted requests, not an invented local task runtime.
+Hosts opt into `actorRequests` on `RuleEditor` or `RuleSteps` when their runtime supports durable
+User requests. This adds “Ask a user” using the existing wait primitive: title, shared response-field
+sheet (including validation and conditionals), optional actor binding, result name, timeout and
+response/timeout branches. Response fields appear in later value pickers. Empty actor binding uses
+the initiating Actor; the Kernel requires a User assignee. No actor directory is invented by Studio.
+The field bridge retains stable option IDs, custom option labels, defaults, date constraints,
+integer constraints, multiplicity and custom metadata. Existing JSON fields remain preserved and
+are explicitly read-only in this sheet; the runtime response controls already support JSON.
+Builder.run's independent approval example offers canonical authoring in its run preview. The
+current Host editor does not opt into User requests until its Kernel cutover. Global assigned-task
+discovery remains a subsequent slice; this interface consumes actual persisted requests.

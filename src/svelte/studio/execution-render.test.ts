@@ -6,6 +6,7 @@ import ExecutionInspector from "./execution-inspector.svelte";
 import ActorRequestCard from "./actor-request.svelte";
 import ExecutionList from "./execution-list.svelte";
 import RuleLauncher from "./rule-launcher.svelte";
+import RuleSteps from "./automation-step-list.svelte";
 const untouched = async () => {
   throw new Error("Rendering must not call the runtime");
 };
@@ -38,6 +39,30 @@ const request: ActorRequest = {
   fields: [{ id: "answer", key: "approved", label: "Approve?", type: "boolean", required: true }],
 };
 describe("Execution Studio rendering", () => {
+  it("renders user request authoring with shared fields and no runtime reads", () => {
+    const body = render(RuleSteps, {
+      props: {
+        steps: [
+          {
+            id: "ask",
+            wait: { request: { label: "Review expense", fields: request.fields }, as: "review" },
+          },
+        ],
+        onStepsChange: () => {},
+        inputName: "values",
+        inputType: "",
+        types: [],
+        workflows: [],
+        actorRequests: true,
+        recordInput: false,
+      },
+    }).body;
+    expect(body).toContain("Request title");
+    expect(body).toContain("Response fields");
+    expect(body).toContain("Approve?");
+    expect(body).toContain("Assigned actor binding");
+    expect(body).not.toContain("Optional signal key");
+  });
   it("renders progress and an assigned task without reading or mutating the runtime", () => {
     const body = render(ExecutionInspector, {
       props: { execution, requests: [request], client, actorName: "Jane", onChange: untouched },

@@ -27,11 +27,12 @@
 	import FilterIcon from "@lucide/svelte/icons/list-filter";
 	import { toast } from "svelte-sonner";
 
-	let { rule: workflow, context: spec, actions, onDeleted, effects = [], checkCompatibility, class: className }: {
+	let { rule: workflow, context: spec, actions, onDeleted, effects = [], actorRequests = false, checkCompatibility, class: className }: {
 		rule: RuleDraft; context: EditorContext; actions: RuleActions;
 		class?: string;
 		onDeleted: () => void | Promise<void>;
 		effects?: RuleEffect[];
+		actorRequests?: boolean;
 		checkCompatibility?: (rule: RuleDraft) => RuleCompatibility;
 	} = $props();
 	const types = $derived(spec?.collections ?? []);
@@ -389,7 +390,7 @@
 				<div class="relative hidden size-10 items-center justify-center rounded-full border border-primary bg-primary text-sm font-semibold text-primary-foreground sm:flex">3</div>
 			<Card.Root>
 				<Card.Header class="gap-0"><Card.Title>Then</Card.Title><Card.Description>Actions run from top to bottom. Conditions can branch into more steps.</Card.Description></Card.Header>
-				<Card.Content><AutomationStepList {effects} {steps} onStepsChange={(next) => (steps = next)} inputName={contextInputName} {inputType} inputFields={contextFields} inputLabel={submittedForm?.label} recordInput={!formTrigger} {types} workflows={workflows.filter((item) => item.key !== workflow.key)} {spec} /></Card.Content>
+				<Card.Content><AutomationStepList {actorRequests} {effects} {steps} onStepsChange={(next) => (steps = next)} inputName={contextInputName} {inputType} inputFields={contextFields} inputLabel={submittedForm?.label} recordInput={!formTrigger && Boolean(inputTypeDef)} {types} workflows={workflows.filter((item) => item.key !== workflow.key)} {spec} /></Card.Content>
 				</Card.Root>
 			</section>
 		</div>

@@ -269,7 +269,14 @@ Builder.run exposes `/build/automations/runs` against its canonical Framework ca
 explicit, independent approval example. Deterministic tests cover submit, SQLite reopen, User
 response, preserved execution Actor, and approval/decline results. This is explicitly a Framework
 runtime preview: current Host editor/data changes are not synchronized. Full Host-to-Kernel
-adoption, request-field authoring and global assigned-task discovery are not silently implied.
+adoption and global assigned-task discovery are not silently implied.
+
+**Authoring checkpoint:** Studio opts into “Ask a user” through `actorRequests`, reusing the
+canonical wait request, shared field sheet and conditional/validation controls. Response fields
+are selectable by later steps. Canonical field IDs/options/defaults and constraints not exposed
+by the sheet are retained. Existing JSON fields are preserved read-only, not silently converted.
+Builder.run can edit its independent approval example in the Framework run preview; its Host
+business-record editor remains outside this cutover. No new workflow format or task store added.
 
 ### Phase 8 — AgentRuntime
 

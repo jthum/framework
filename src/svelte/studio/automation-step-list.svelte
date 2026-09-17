@@ -3,6 +3,7 @@
 	import AutomationStepList from "./automation-step-list.svelte";
 	import AutomationValueInput, { type AutomationReferenceOption } from "./automation-value-input.svelte";
 	import AutomationValueMapEditor from "./automation-value-map-editor.svelte";
+	import RequestFields from "./request-fields.svelte";
 	import OptionSelect from "./option-select.svelte";
 	import { reorderAtVerticalTarget, startVerticalDrag, type VerticalDragSession, type VerticalDropTarget } from "./vertical-drag.js";
 	import * as Collapsible from "@jthum/framework/svelte/ui/collapsible";
@@ -38,6 +39,7 @@
 		depth = 0,
 		references = [],
 		effects = [],
+		actorRequests = false,
 	}: {
 		steps: RuleStep[];
 		onStepsChange: (steps: RuleStep[]) => void;
@@ -52,6 +54,7 @@
 		depth?: number;
 		references?: AutomationReferenceOption[];
 		effects?: RuleEffect[];
+		actorRequests?: boolean;
 	} = $props();
 
 	const inputTypeDef = $derived(types.find((type) => type.key === inputType));
@@ -70,6 +73,7 @@
 		{ kind: "parallel", label: "Parallel branches", description: "Run independent branches together.", category: "conditions" },
 		{ kind: "delay", label: "Wait for a duration", description: "Pause for a fixed amount of time.", category: "wait" },
 		{ kind: "wait", label: "Wait for signal", description: "Resume after a signal or timeout.", category: "wait" },
+		...(actorRequests ? [{ kind: "request", label: "Ask a user", description: "Collect a response before continuing.", category: "wait" as const }] : []),
 		{ kind: "foreach", label: "For each item", description: "Run steps for every item in a list.", category: "loops" },
 		{ kind: "repeat", label: "Repeat steps", description: "Run steps a fixed number of times.", category: "loops" },
 		...registeredEffects
@@ -105,7 +109,10 @@
 			if ("compute" in step) {
 				for (const name of Object.keys(step.compute.assign)) options.push({ value: `vars.${name}`, label: labelFromKey(name), group: "Previous steps" });
 			}
-			if ("wait" in step && step.wait.as) options.push({ value: `vars.${step.wait.as}`, label: labelFromKey(step.wait.as), group: "Previous steps" });
+			if ("wait" in step && step.wait.as) {
+				options.push({ value: `vars.${step.wait.as}`, label: labelFromKey(step.wait.as), group: "Previous steps" });
+				for (const field of step.wait.request?.fields ?? []) options.push({ value: `vars.${step.wait.as}.${field.key}`, label: field.label, group: "Response fields" });
+			}
 		}
 		return uniqueReferences(options);
 	}
@@ -202,7 +209,7 @@
 		} else if (kind === "invoke") {
 			step = { invoke: { workflow: workflows[0]?.key ?? "" } };
 		} else if (kind === "delay") {
-			step = { delay: { duration: "5 minutes" } };
+			step = { delay: { duration: "5m" } };
 		} else if (kind === "query") {
 			step = { effect: { key: "records.query", params: { type: types[0]?.key ?? "" }, as: "records" } };
 		} else if (kind === "compute") {
@@ -214,7 +221,9 @@
 		} else if (kind === "parallel") {
 			step = { parallel: { join: "all", branches: [{ key: "branch_1", steps: [] }, { key: "branch_2", steps: [] }] } };
 		} else if (kind === "wait") {
-			step = { wait: { timeout: "5 minutes", on_timeout: [] } };
+			step = { wait: { signal: "continue", timeout: "5m", on_timeout: [] } };
+		} else if (kind === "request") {
+			step = { wait: { request: { label: "Review the request", fields: [] }, as: "response" } };
 		} else if (kind === "effect") {
 			step = { effect: { key: effectKey ?? registeredEffects[0]?.key ?? "null", params: {} } };
 		} else {
@@ -582,7 +591,7 @@
 							<span class="size-2 rounded-full bg-primary" aria-hidden="true"></span>
 							<p class="text-xs font-semibold">Yes · condition matches</p>
 						</div>
-						<AutomationStepList {effects}
+						<AutomationStepList {actorRequests} {effects}
 							steps={step.gate.pass ?? []}
 							onStepsChange={(pass) => replace(index, { ...step, gate: { ...step.gate, pass } })}
 							{inputName}
@@ -603,7 +612,7 @@
 								<span class="size-2 rounded-full bg-muted-foreground/50" aria-hidden="true"></span>
 								<p class="text-xs font-semibold">No · condition does not match</p>
 							</div>
-							<AutomationStepList {effects}
+							<AutomationStepList {actorRequests} {effects}
 								steps={step.gate.fail}
 								onStepsChange={(fail) => replace(index, { ...step, gate: { ...step.gate, fail } })}
 								{inputName}
@@ -639,7 +648,7 @@
 					</Field.Group>
 					<div class="flex min-w-0 flex-col gap-3 rounded-xl bg-chart-2/5 p-3 ring-1 ring-chart-2/12">
 						<p class="text-xs font-semibold">For each item, run</p>
-						<AutomationStepList {effects} steps={step.foreach.steps} onStepsChange={(childSteps) => replace(index, { ...step, foreach: { ...step.foreach, steps: childSteps } })} {inputName} {inputType} {inputFields} {inputLabel} {recordInput} {types} {workflows} {spec} references={[...referencesBefore(index), { value: `vars.${step.foreach.as ?? "item"}`, label: labelFromKey(step.foreach.as ?? "item"), group: "Loop" }]} depth={depth + 1} />
+						<AutomationStepList {actorRequests} {effects} steps={step.foreach.steps} onStepsChange={(childSteps) => replace(index, { ...step, foreach: { ...step.foreach, steps: childSteps } })} {inputName} {inputType} {inputFields} {inputLabel} {recordInput} {types} {workflows} {spec} references={[...referencesBefore(index), { value: `vars.${step.foreach.as ?? "item"}`, label: labelFromKey(step.foreach.as ?? "item"), group: "Loop" }]} depth={depth + 1} />
 					</div>
 				</div>
 			{:else if "repeat" in step}
@@ -652,7 +661,7 @@
 					</Field.Group>
 					<div class="flex min-w-0 flex-col gap-3 rounded-xl bg-chart-2/5 p-3 ring-1 ring-chart-2/12">
 						<p class="text-xs font-semibold">On every repetition, run</p>
-						<AutomationStepList {effects} steps={step.repeat.steps} onStepsChange={(childSteps) => replace(index, { ...step, repeat: { ...step.repeat, steps: childSteps } })} {inputName} {inputType} {inputFields} {inputLabel} {recordInput} {types} {workflows} {spec} references={[...referencesBefore(index), { value: `vars.${step.repeat.as ?? "index"}`, label: labelFromKey(step.repeat.as ?? "index"), group: "Loop" }]} depth={depth + 1} />
+						<AutomationStepList {actorRequests} {effects} steps={step.repeat.steps} onStepsChange={(childSteps) => replace(index, { ...step, repeat: { ...step.repeat, steps: childSteps } })} {inputName} {inputType} {inputFields} {inputLabel} {recordInput} {types} {workflows} {spec} references={[...referencesBefore(index), { value: `vars.${step.repeat.as ?? "index"}`, label: labelFromKey(step.repeat.as ?? "index"), group: "Loop" }]} depth={depth + 1} />
 					</div>
 				</div>
 			{:else if "parallel" in step}
@@ -664,7 +673,7 @@
 								<Input class="max-w-52" value={branch.key ?? `branch_${branchIndex + 1}`} oninput={(event) => replace(index, { ...step, parallel: { ...step.parallel, branches: step.parallel.branches.map((item, itemIndex) => itemIndex === branchIndex ? { ...item, key: event.currentTarget.value || undefined } : item) } })} aria-label="Branch name" />
 								<Button class="ml-auto" size="icon-xs" variant="ghost" aria-label="Remove branch" disabled={step.parallel.branches.length === 1} onclick={() => replace(index, { ...step, parallel: { ...step.parallel, branches: step.parallel.branches.filter((_, itemIndex) => itemIndex !== branchIndex) } })}><Trash2Icon /></Button>
 							</div>
-							<AutomationStepList {effects} steps={branch.steps} onStepsChange={(childSteps) => replace(index, { ...step, parallel: { ...step.parallel, branches: step.parallel.branches.map((item, itemIndex) => itemIndex === branchIndex ? { ...item, steps: childSteps } : item) } })} {inputName} {inputType} {inputFields} {inputLabel} {recordInput} {types} {workflows} {spec} references={referencesBefore(index)} depth={depth + 1} />
+							<AutomationStepList {actorRequests} {effects} steps={branch.steps} onStepsChange={(childSteps) => replace(index, { ...step, parallel: { ...step.parallel, branches: step.parallel.branches.map((item, itemIndex) => itemIndex === branchIndex ? { ...item, steps: childSteps } : item) } })} {inputName} {inputType} {inputFields} {inputLabel} {recordInput} {types} {workflows} {spec} references={referencesBefore(index)} depth={depth + 1} />
 						</div>
 					{/each}
 					<Button variant="ghost" size="sm" class="w-fit" onclick={() => replace(index, { ...step, parallel: { ...step.parallel, branches: [...step.parallel.branches, { key: `branch_${step.parallel.branches.length + 1}`, steps: [] }] } })}><PlusIcon data-icon="inline-start" /> Add branch</Button>
@@ -672,15 +681,24 @@
 			{:else if "wait" in step}
 				<div class="flex min-w-0 flex-col gap-4">
 					<Field.Group class="grid gap-3 sm:grid-cols-3">
-						<Field.Field><Field.Label>Signal</Field.Label><Input value={step.wait.signal ?? ""} oninput={(event) => replace(index, { ...step, wait: { ...step.wait, signal: event.currentTarget.value || undefined } })} placeholder="Optional signal key" /></Field.Field>
-						<Field.Field><Field.Label>Timeout</Field.Label><Input value={String(step.wait.timeout ?? "")} oninput={(event) => replace(index, { ...step, wait: { ...step.wait, timeout: event.currentTarget.value || undefined } })} placeholder="5 minutes" /></Field.Field>
+						{#if !step.wait.request}<Field.Field><Field.Label>Signal</Field.Label><Input value={step.wait.signal ?? ""} oninput={(event) => replace(index, { ...step, wait: { ...step.wait, signal: event.currentTarget.value || undefined } })} placeholder="Signal key" /></Field.Field>{/if}
+						<Field.Field><Field.Label>Timeout</Field.Label><Input value={String(step.wait.timeout ?? "")} oninput={(event) => replace(index, { ...step, wait: { ...step.wait, timeout: event.currentTarget.value || undefined } })} placeholder="Optional, e.g. 5m or 1d" /></Field.Field>
 						<Field.Field><Field.Label>Result name</Field.Label><Input value={step.wait.as ?? ""} oninput={(event) => replace(index, { ...step, wait: { ...step.wait, as: event.currentTarget.value || undefined } })} placeholder="Optional" /></Field.Field>
 					</Field.Group>
-					{#if step.wait.signal}
-						<div class="flex min-w-0 flex-col gap-3 rounded-xl bg-muted/45 p-3 ring-1 ring-foreground/8"><p class="text-xs font-semibold">When the signal arrives</p><AutomationStepList {effects} steps={step.wait.on_signal ?? []} onStepsChange={(childSteps) => replace(index, { ...step, wait: { ...step.wait, on_signal: childSteps } })} {inputName} {inputType} {inputFields} {inputLabel} {recordInput} {types} {workflows} {spec} references={referencesBefore(index)} depth={depth + 1} /></div>
+					{#if step.wait.request}
+						{@const request = step.wait.request}
+						<Field.Group>
+							<Field.Field><Field.Label>Request title</Field.Label><Input value={request.label} oninput={(event) => replace(index, { ...step, wait: { ...step.wait, request: { ...request, label: event.currentTarget.value } } })} /></Field.Field>
+							<Field.Field><Field.Label>Assigned actor binding</Field.Label><Input value={request.actor ?? ""} oninput={(event) => replace(index, { ...step, wait: { ...step.wait, request: { ...request, actor: event.currentTarget.value.trim() || undefined } } })} placeholder="Current actor" /><Field.Description>Leave empty for the actor who started the workflow. An override names a runtime actor binding; the assignee must be a User.</Field.Description></Field.Field>
+						</Field.Group>
+						<RequestFields fields={request.fields} {types} onChange={(fields) => replace(index, { ...step, wait: { ...step.wait, request: { ...request, fields } } })} />
+						{#if step.wait.as}<p class="text-xs text-muted-foreground">Use vars.{step.wait.as}.&lt;field key&gt; in later conditions or actions.</p>{/if}
+					{/if}
+					{#if step.wait.signal || step.wait.request}
+						<div class="flex min-w-0 flex-col gap-3 rounded-xl bg-muted/45 p-3 ring-1 ring-foreground/8"><p class="text-xs font-semibold">{step.wait.request ? "When the response arrives" : "When the signal arrives"}</p><AutomationStepList {actorRequests} {effects} steps={step.wait.on_signal ?? []} onStepsChange={(childSteps) => replace(index, { ...step, wait: { ...step.wait, on_signal: childSteps } })} {inputName} {inputType} {inputFields} {inputLabel} {recordInput} {types} {workflows} {spec} references={referencesBefore(index + 1)} depth={depth + 1} /></div>
 					{/if}
 					{#if step.wait.timeout !== undefined}
-						<div class="flex min-w-0 flex-col gap-3 rounded-xl bg-muted/45 p-3 ring-1 ring-foreground/8"><p class="text-xs font-semibold">If the wait times out</p><AutomationStepList {effects} steps={step.wait.on_timeout ?? []} onStepsChange={(childSteps) => replace(index, { ...step, wait: { ...step.wait, on_timeout: childSteps } })} {inputName} {inputType} {inputFields} {inputLabel} {recordInput} {types} {workflows} {spec} references={referencesBefore(index)} depth={depth + 1} /></div>
+						<div class="flex min-w-0 flex-col gap-3 rounded-xl bg-muted/45 p-3 ring-1 ring-foreground/8"><p class="text-xs font-semibold">If the wait times out</p><AutomationStepList {actorRequests} {effects} steps={step.wait.on_timeout ?? []} onStepsChange={(childSteps) => replace(index, { ...step, wait: { ...step.wait, on_timeout: childSteps } })} {inputName} {inputType} {inputFields} {inputLabel} {recordInput} {types} {workflows} {spec} references={referencesBefore(index)} depth={depth + 1} /></div>
 					{/if}
 				</div>
 			{:else if "effect" in step && step.effect.key === "records.delete"}

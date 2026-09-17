@@ -163,6 +163,11 @@
 		}
 		choice = "";
 	}
+	function remove() {
+		if (!input) return;
+		try { onRemove(input); open = false; }
+		catch (error) { toast.error(error instanceof Error ? error.message : "Unable to remove field."); }
+	}
 	function save() {
 		if (!canSave) return;
 		const resolvedKey = input
@@ -348,7 +353,7 @@
 			</Collapsible.Root>
 		</div>
 		<Sheet.Footer class="flex-row justify-end">
-			{#if input}<Button variant="ghost" onclick={() => (onRemove(input), (open = false))}>Remove</Button>{/if}
+			{#if input}<Button variant="ghost" onclick={remove}>Remove</Button>{/if}
 			<Button onclick={save} disabled={!canSave}>{input ? "Save input" : "Add input"}</Button>
 		</Sheet.Footer>
 	</Sheet.Content>
