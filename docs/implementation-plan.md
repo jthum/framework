@@ -173,7 +173,13 @@ Builder now has an explicit old-Spec-to-framework projection whose unsupported s
 
 The context-bound `WorkspaceClient` contract and in-process adapter now provide the injectable interface boundary for Spec, records, Sources, Views, Forms, and Pages. Builder exposes separate Space and App clients and its executable S1 integration consumes them. Builder's composition layer also creates and lists selectable Apps using child Workspaces, current Actor Memberships, projected Specs, and explicit Attachments—without adding an App concept to the Kernel. The adapter does not own Kernel lifetime or cache permissions; every operation retains the Kernel authorization spine. Server hosts may implement the same client contract over their transport with Actor identity derived from authentication. See [Workspace client](./workspace-client.md).
 
-The remaining Phase 4 work is replacing Builder's old Host-facing editor/runtime seams with the public client contract while retaining its frontend, followed by deleting the temporary projection and old persisted shape. The current application shell and editors still use the old Host; the integration seam is not yet a migrated user-facing UI. `form.submitted` publication lands with the Phase 5 Event/Action spine rather than introducing a Phase 4-only event mechanism.
+Builder's Collection, View, Form, Rule, and Page authoring surfaces now load canonical editor
+contexts and persist exclusively through context-bound Framework clients. Their old Host mutation
+fallbacks have been removed. Page View queries also use the canonical client. Builder still uses
+its old Host for the operational record/form surface, app lifecycle, block-rendering projection,
+spec inspector, and WebMCP projection; those are the remaining cutover boundary before the old
+projection and persisted shape can be deleted. `form.submitted` publication uses the Phase 5
+Event/Action spine rather than a Phase 4-only event mechanism.
 
 **Phase 4 Studio extraction checkpoint:** Framework owns the semantic Svelte theme,
 shadcn-Svelte primitives, editor actions, form-purpose choices, vertical drag interaction,
@@ -204,8 +210,9 @@ the authorized editor context. Renaming a local or attached Collection Field the
 friendly projection without rewriting consuming Rule Specs. Custom Action inputs remain opaque to
 the framework, while direct record and Form APIs remain key-oriented.
 
-This does **not** close Phase 4: the main session still uses Host, draft-to-canonical runtime
-integration remains, and the old projection/storage path has not been deleted.
+This does **not** close Phase 4: the main session still opens Host alongside Framework for
+operational records and product lifecycle concerns, and the old projection/storage path has not
+been deleted. Studio authoring itself is no longer dual-write or fallback-based.
 
 **Sequencing decision before deleting Host:** canonical Rule definitions and Studio translation
 are now complete, but Builder's current executor remains authoritative until the Phase 5

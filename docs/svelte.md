@@ -112,7 +112,8 @@ Reusable editors must:
 This keeps the common case as a direct import while allowing a host to replace presentation without
 forking the Spec, Kernel, or persistence implementation.
 
-The full Collection, View, Form and Rule editor surfaces are exported from Studio.
-See [Studio editors](studio-editors.md) for their injection contracts and the remaining
-canonical runtime integration work. Working models are not another supported persisted
-Spec version.
+The full Collection, View, Form, Rule, and Page editor surfaces are exported from Studio.
+Builder.run consumes their canonical authoring actions directly; remaining host migration is in
+the operational runtime and product composition rather than inside these editors. See
+[Studio editors](studio-editors.md) for their injection contracts. Working models are not another
+supported persisted Spec version.
