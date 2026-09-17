@@ -8,6 +8,7 @@ import type {
 } from "@jthum/framework/spec";
 import type { FilterClause, FilterOp, ViewDraft, ViewMeasure } from "./authoring.js";
 import { labelFromKey, slugify } from "./editor-data.js";
+import { isStudioManaged, withStudioManaged } from "./studio-meta.js";
 
 export class ViewAuthoringError extends Error {
   constructor(message: string) {
@@ -123,6 +124,7 @@ export function viewDraftFromDefinition(
     label: view.label,
     ...(view.description ? { description: view.description } : {}),
     ...(view.meta ? { meta: structuredClone(view.meta) } : {}),
+    ...(isStudioManaged(view.meta) ? { implicit: true } : {}),
     source: view.source,
     fields: aggregate ? [groupBy!, ...Object.keys(measures ?? {})] : fields,
     ...(Object.keys(aliases).length ? { aliases } : {}),
@@ -229,7 +231,9 @@ export function viewDefinitionFromDraft(
     key: draft.key,
     label: draft.label,
     ...(draft.description ? { description: draft.description } : {}),
-    ...(draft.meta ? { meta: structuredClone(draft.meta) } : {}),
+    ...(withStudioManaged(draft.meta, draft.implicit)
+      ? { meta: withStudioManaged(draft.meta, draft.implicit) }
+      : {}),
     source: draft.source,
     query: {
       ...(filters.length === 1

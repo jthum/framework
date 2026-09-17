@@ -3,6 +3,7 @@ import type { FormDefinition, Spec } from "@jthum/framework/spec";
 import type { CollectionDraft, FieldDraft, FormDraft } from "./authoring.js";
 import { labelFromKey } from "./editor-data.js";
 import { fieldDefinitionFromDraft, fieldDraftFromDefinition } from "./field-adapter.js";
+import { isStudioManaged, withStudioManaged } from "./studio-meta.js";
 
 /** Convert one canonical Form into Studio's key-oriented working model. */
 export function formDraftFromDefinition(
@@ -16,6 +17,7 @@ export function formDraftFromDefinition(
     label: form.label,
     ...(form.description ? { description: form.description } : {}),
     ...(form.meta ? { meta: structuredClone(form.meta) } : {}),
+    ...(isStudioManaged(form.meta) ? { implicit: true } : {}),
     ...(form.submit ? { submit: structuredClone(form.submit) } : {}),
   };
   if (form.mode === "standalone")
@@ -50,7 +52,9 @@ export function formDefinitionFromDraft(
     key: draft.key,
     label: draft.label,
     ...(draft.description ? { description: draft.description } : {}),
-    ...(draft.meta ? { meta: structuredClone(draft.meta) } : {}),
+    ...(withStudioManaged(draft.meta, draft.implicit)
+      ? { meta: withStudioManaged(draft.meta, draft.implicit) }
+      : {}),
     ...(draft.submit ? { submit: structuredClone(draft.submit) } : {}),
   };
   if (draft.mode === "standalone") {
