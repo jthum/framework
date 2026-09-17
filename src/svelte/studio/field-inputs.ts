@@ -1,10 +1,10 @@
-import type { FieldDefinition, JsonValue } from "@jthum/framework/spec";
+import type { FieldDefinition, JsonValue, ReferenceFieldDefinition } from "@jthum/framework/spec";
 import { evaluateCondition } from "../../kernel/record-values.js";
 import type { Snippet } from "svelte";
 
 export type ReferenceInput = Snippet<
   [
-    FieldDefinition,
+    ReferenceFieldDefinition,
     string,
     JsonValue | undefined,
     (value: string | string[]) => void,
@@ -70,7 +70,9 @@ export function parseFieldInputs(
     const raw = input[field.key];
     if (raw === undefined || raw === "") continue;
     try {
-      if (field.type === "json" || (field.type === "reference" && field.multiple))
+      if (field.type === "reference" && field.multiple && Array.isArray(raw))
+        values[field.key] = raw;
+      else if (field.type === "json" || (field.type === "reference" && field.multiple))
         values[field.key] = JSON.parse(String(raw)) as JsonValue;
       else if (field.type === "number") {
         const value = Number(raw);

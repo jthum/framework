@@ -30,6 +30,9 @@ describe("Canonical Field inputs", () => {
       tags: ["first"],
       people: ["record-one"],
     });
+    expect(parseFieldInputs(definitions, { people: ["record-two"] })).toEqual({
+      people: ["record-two"],
+    });
   });
   it("round-trips false, zero and structured defaults without inventing answers", () => {
     const defaults = fieldInputDefaults(fields);
