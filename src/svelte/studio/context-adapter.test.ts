@@ -119,6 +119,7 @@ describe("Studio context adapter", () => {
     const loaded = await loadEditorContext(client);
 
     expect(loaded.spec).toBe(spec);
+    expect(loaded.schemas).toEqual({ client: clients });
     expect(loaded.context.collections).toEqual(
       expect.arrayContaining([expect.objectContaining({ id: "source-client", key: "client" })]),
     );

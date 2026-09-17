@@ -22,6 +22,8 @@ export interface EditorContextOptions {
 export interface LoadedEditorContext {
   readonly spec: Spec;
   readonly context: EditorContext;
+  /** Concrete local and attached schemas keyed by the Source key visible to this client. */
+  readonly schemas: ViewAuthoringSchemas;
 }
 
 /** Load the current authorized Workspace and every Source schema visible to Studio. */
@@ -31,6 +33,7 @@ export async function loadEditorContext(client: WorkspaceClient): Promise<Loaded
   return {
     spec: workspace.spec,
     context: editorContextFromSpec(workspace.spec, { schemas }),
+    schemas,
   };
 }
 
