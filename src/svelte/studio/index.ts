@@ -83,6 +83,7 @@ export {
   type PageAuthoringOptions,
 } from "./page-authoring.js";
 export { isStudioManaged, withStudioManaged } from "./studio-meta.js";
+export { ruleSummary } from "./rule-summary.js";
 export { default as OptionSelect } from "./option-select.svelte";
 export { default as FormPurposePicker } from "./form-purpose-picker.svelte";
 export { default as NameDialog } from "./name-dialog.svelte";
