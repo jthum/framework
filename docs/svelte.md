@@ -63,6 +63,14 @@ Studio exports or replace the relevant editor.
 
 ## Editor contract
 
+`BlockPicker` accepts catalog metadata through `blocks` and optional category labels through
+`categories`. It never imports a host registry or loads renderer code. Hosts may provide
+`onPreview(key)` to preload renderers and `getIcon(block)` to customize catalog icons. Selection
+always comes from the currently visible results, so filtering cannot submit a hidden Block.
+
+`OptionSelect` is the shared single-choice control used by Studio. It accepts readonly option
+lists, a bound value, and an optional change callback; it has no app or session dependency.
+
 Reusable editors must:
 
 - accept canonical Framework definitions and explicit client or mutation callbacks;
