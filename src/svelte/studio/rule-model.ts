@@ -1,4 +1,4 @@
-import type { SpecMeta } from "@jthum/framework/spec";
+import type { FieldDefinition, SpecMeta } from "@jthum/framework/spec";
 /** Descriptive registry metadata only; Studio never calls an effect. */
 export interface RuleEffect {
   key: string;
@@ -95,6 +95,7 @@ export type RuleStep =
   | (StepIdentity & { delay: { duration: number | string } })
   | (StepIdentity & {
       wait: {
+        request?: { actor?: string; label: string; fields: readonly FieldDefinition[] };
         signal?: string;
         timeout?: number | string;
         as?: string;

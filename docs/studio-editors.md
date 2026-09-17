@@ -27,3 +27,32 @@ Execution remains a Kernel responsibility rather than being copied into Studio.
 Studio consumers can style the semantic tokens and compose host preview snippets. Runtime-specific compatibility diagnostics and registries must come from the host, never an assumed browser runtime.
 
 All four full editors accept `class` for outer layout adjustments. Their controls use the shared chrome Card and semantic tokens, so the implementing app retains its theme rather than adopting a hard-coded Studio theme. The shadcn-Svelte extraction keeps the existing chrome/header/body/footer composition intact.
+
+## Workflow execution interface
+
+`ExecutionList`, `RuleLauncher`, `ExecutionInspector`, and `ActorRequestCard` are reusable Svelte
+components from the same Studio entry point. They use chrome Cards and inherit the host theme.
+They never import a host session, router, Kernel instance, or persistence adapter.
+
+The launcher and inspector accept the transport-neutral `RuleExecutionClient`. Hosts load
+`RuleExecutionSummary` pages and the selected `RuleExecutionDetails`, plus the caller's assigned
+requests. The host owns navigation, refresh, and Actor display names. The inspector distinguishes
+signal delivery, elapsed deadlines, User responses, failures, and completed results. Step labels
+come from the execution's immutable definitions rather than today's edited Rule. Explicit
+termination is hidden unless `canTerminate` is supplied; the Kernel still authorizes the operation.
+
+`FieldInputs` renders canonical `FieldDefinition` primitives, including typed booleans/numbers,
+dates, choices, multiple choices, structured values, and references. It reuses the Kernel's
+condition evaluator for visibility, enabling and conditional requirements. The runtime remains
+authoritative for validation and reference resolution. Request forms preserve drafts across
+refreshes, disable submission while pending, and show field-level validation issues. Their working
+values are strings/choice arrays, converted to portable JSON only on submission.
+
+Reference controls default to record-ID entry. A host can supply the `referenceInput` snippet
+(Field, control ID, value, change callback, control state) to use a searchable picker without
+changing the execution interface. The same snippet is available through the launcher, inspector
+and standalone request card. Rule input defaults are applied by the runtime when left blank.
+
+Studio's Rule adapter preserves ActorRequest definitions and Fields when round-tripping a Rule.
+Task-field authoring and a global assigned-task inbox are subsequent authoring/discovery slices;
+this interface consumes actual persisted requests, not an invented local task runtime.

@@ -121,6 +121,7 @@ function draftStep(step: CanonicalStep, spec: Spec): RuleStep {
       id,
       wait: {
         ...(step.wait.signal ? { signal: step.wait.signal } : {}),
+        ...(step.wait.request ? { request: structuredClone(step.wait.request) } : {}),
         ...(step.wait.timeout !== undefined ? { timeout: step.wait.timeout } : {}),
         ...(step.wait.as ? { as: step.wait.as } : {}),
         ...(step.wait.onSignal
@@ -198,6 +199,7 @@ function canonicalStep(step: RuleStep, spec: Spec): CanonicalStep {
       id,
       wait: {
         ...(step.wait.signal ? { signal: step.wait.signal } : {}),
+        ...(step.wait.request ? { request: structuredClone(step.wait.request) } : {}),
         ...(step.wait.timeout !== undefined ? { timeout: step.wait.timeout } : {}),
         ...(step.wait.as ? { as: step.wait.as } : {}),
         ...(step.wait.on_signal

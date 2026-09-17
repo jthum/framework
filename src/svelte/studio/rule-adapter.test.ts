@@ -3,6 +3,34 @@ import { ruleSpec } from "../../testing/rule-fixture.js";
 import { ruleDefinitionFromDraft, ruleDraftFromDefinition } from "./rule-adapter.js";
 
 describe("Rule Studio adapter", () => {
+  it("preserves canonical ActorRequest Fields through the authoring round trip", () => {
+    const spec = ruleSpec();
+    const rule = {
+      ...spec.rules[0]!,
+      steps: [
+        {
+          id: "approval",
+          wait: {
+            request: {
+              actor: "reviewer",
+              label: "Approve",
+              fields: [
+                {
+                  id: "approved",
+                  key: "approved",
+                  label: "Approved",
+                  type: "boolean" as const,
+                  required: true,
+                },
+              ],
+            },
+            as: "review",
+          },
+        },
+      ],
+    };
+    expect(ruleDefinitionFromDraft(ruleDraftFromDefinition(rule, spec), spec)).toEqual(rule);
+  });
   it("round-trips identity-based Rules through the key-oriented editor model", () => {
     const spec = ruleSpec();
     const rule = spec.rules[0]!;

@@ -21,7 +21,7 @@ No compatibility with the current Spec, `Host`, `TypeDef`, `WorkflowDef`, widget
 | 4     | Complete    | Forms, Pages, Builder projection, executable S1 slice, browser SQLite bridge                            |
 | 5     | Complete    | Short Rules, Action/Condition registries, Events, snapshots, attached mutations                         |
 | 6     | Complete    | Membership ACL, `others`, attenuation, explicit re-share, spawn policy, S3 proof                        |
-| 7     | In progress | Durable RuleExecution checkpoint persistence and atomic revision checks                                 |
+| 7     | In progress | Durable waits/User requests, context-bound client and reusable execution UI; host cutover still pending |
 
 Later phases remain intentionally unimplemented; their entries below are the source of truth for scope.
 
@@ -260,6 +260,16 @@ host. Requests and their continuation claim persist atomically in one checkpoint
 is retained unchanged for ordinary calls and published Events. Hosts supply signal/deadline delivery;
 durable parallel joins and per-item failure continuation remain unsupported, explicitly rejected
 before side effects. No scheduler/webhook or distributed worker is implied by the environment flag.
+
+**Interface checkpoint:** reusable Svelte Studio run history, launcher, inspector and ActorRequest
+forms consume a context-bound `RuleExecutionClient`. Public summaries/details keep continuation
+frames private; history is bounded and Actor/Workspace-scoped. Canonical Field controls reuse
+condition evaluation and runtime validation, with optional host reference-picker snippets.
+Builder.run exposes `/build/automations/runs` against its canonical Framework catalog and an
+explicit, independent approval example. Deterministic tests cover submit, SQLite reopen, User
+response, preserved execution Actor, and approval/decline results. This is explicitly a Framework
+runtime preview: current Host editor/data changes are not synchronized. Full Host-to-Kernel
+adoption, request-field authoring and global assigned-task discovery are not silently implied.
 
 ### Phase 8 — AgentRuntime
 

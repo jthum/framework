@@ -1,4 +1,16 @@
 export { default as EditorActions } from "./editor-actions.svelte";
+export { default as ExecutionInspector } from "./execution-inspector.svelte";
+export { default as ExecutionList } from "./execution-list.svelte";
+export { default as RuleLauncher } from "./rule-launcher.svelte";
+export { default as ActorRequestCard } from "./actor-request.svelte";
+export { default as FieldInputs } from "./field-inputs.svelte";
+export {
+  fieldInputDefaults,
+  fieldInputState,
+  parseFieldInputs,
+  type FieldInputValues,
+  type ReferenceInput,
+} from "./field-inputs.js";
 export { default as CollectionEditor } from "./collection-editor.svelte";
 export { default as ViewEditor } from "./view-editor.svelte";
 export {
