@@ -37,3 +37,4 @@ Start with the [framework documentation](docs/README.md).
 
 See [Sources, Views, and Blocks](docs/sources-views-blocks.md) for the data-to-presentation boundary.
 See [Forms and Pages](docs/forms-pages.md) for the portable surface contracts.
+See [Svelte UI and Studio](docs/svelte.md) for component ownership and customization boundaries.

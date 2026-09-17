@@ -1,18 +1,21 @@
 <script lang="ts">
 	import type { Snippet } from "svelte";
+	import { cn } from "../utils.js";
 
 	let {
 		title,
 		description,
 		actions,
+		class: className,
 	}: {
 		title: string;
 		description?: string;
 		actions?: Snippet;
+		class?: string;
 	} = $props();
 </script>
 
-<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+<div class={cn("flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between", className)}>
 	<div class="flex min-w-0 flex-col gap-1">
 		<h1 class="text-2xl font-semibold tracking-tight">{title}</h1>
 		{#if description}

@@ -37,12 +37,6 @@
   --sidebar-accent-foreground: oklch(0.218 0.008 223.9);
   --sidebar-border: oklch(0.925 0.005 214.3);
   --sidebar-ring: oklch(0.723 0.014 214.4);
-  --app-hue: 264;
-  --app-accent: oklch(0.55 0.18 264);
-  --starter-crm: oklch(0.58 0.2 304);
-  --starter-projects: oklch(0.59 0.16 155);
-  --starter-finance: oklch(0.68 0.16 72);
-  --starter-content: oklch(0.62 0.18 25);
 }
 
 .dark {
@@ -78,10 +72,6 @@
   --sidebar-accent-foreground: oklch(0.987 0.002 197.1);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.56 0.021 213.5);
-  --starter-crm: oklch(0.72 0.16 304);
-  --starter-projects: oklch(0.72 0.14 155);
-  --starter-finance: oklch(0.78 0.14 72);
-  --starter-content: oklch(0.72 0.15 25);
 }
 
 @theme inline {
@@ -100,10 +90,6 @@
   --color-chart-3: var(--chart-3);
   --color-chart-2: var(--chart-2);
   --color-chart-1: var(--chart-1);
-  --color-starter-crm: var(--starter-crm);
-  --color-starter-projects: var(--starter-projects);
-  --color-starter-finance: var(--starter-finance);
-  --color-starter-content: var(--starter-content);
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);

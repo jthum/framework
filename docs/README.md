@@ -8,6 +8,7 @@ These documents define the engineering conventions for the shared framework and 
 - [Sources, Views, and Blocks](sources-views-blocks.md)
 - [Forms and Pages](forms-pages.md)
 - [Workspace client](workspace-client.md)
+- [Svelte UI and Studio](svelte.md)
 - [Coding standards](coding-standards.md)
 - [Testing strategy](testing.md)
 - [Errors](errors.md)

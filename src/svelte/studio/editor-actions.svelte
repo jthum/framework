@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, type Snippet } from "svelte";
+	import { cn } from "../utils.js";
 	import { Button } from "../ui/button/index.js";
 	import { Spinner } from "../ui/spinner/index.js";
 
@@ -10,6 +11,7 @@
 		onSave,
 		left,
 		beforeSave,
+		class: className,
 	}: {
 		dirty: boolean;
 		saving?: boolean;
@@ -17,6 +19,7 @@
 		onSave: () => void | Promise<void>;
 		left?: Snippet;
 		beforeSave?: Snippet;
+		class?: string;
 	} = $props();
 
 	let row = $state<HTMLDivElement | null>(null);
@@ -35,7 +38,7 @@
 	});
 </script>
 
-<div bind:this={row} class="flex flex-wrap items-center justify-between gap-3">
+<div bind:this={row} class={cn("flex flex-wrap items-center justify-between gap-3", className)}>
 	<div class="flex items-center gap-2">
 		{@render left?.()}
 	</div>
