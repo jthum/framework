@@ -72,7 +72,18 @@ export class SqliteRecordStore implements RecordStore {
     collection: CollectionDefinition,
     record: CollectionRecord,
   ): Promise<void> {
-    const table = await this.requireTable(workspaceId, collection.id);
+    return this.database.transaction((connection) =>
+      this.createWith(connection, workspaceId, collection, record),
+    );
+  }
+
+  async createWith(
+    connection: SqliteConnection,
+    workspaceId: string,
+    collection: CollectionDefinition,
+    record: CollectionRecord,
+  ): Promise<void> {
+    const table = await requireTableWith(connection, workspaceId, collection.id);
     const columns: string[] = [
       ...systemColumns.map((column) => column.name),
       ...collection.fields.map(fieldColumn),
@@ -87,7 +98,7 @@ export class SqliteRecordStore implements RecordStore {
       ...collection.fields.map((field) => encodeValue(record.values[field.key])),
     ];
     try {
-      await this.database.run(
+      await connection.run(
         `INSERT INTO ${quoteIdentifier(table)} (${columns.map(quoteIdentifier).join(", ")}) VALUES (${columns.map(() => "?").join(", ")})`,
         parameters,
       );
@@ -176,13 +187,21 @@ export class SqliteRecordStore implements RecordStore {
   }
 
   private async requireTable(workspaceId: string, collectionId: string): Promise<string> {
-    const row = await this.database.get<SchemaRow>(
-      "SELECT * FROM framework_record_schemas WHERE workspace_id = ? AND collection_id = ?",
-      [workspaceId, collectionId],
-    );
-    if (!row) throw resourceNotFound("Collection", collectionId);
-    return row.table_name;
+    return requireTableWith(this.database, workspaceId, collectionId);
   }
+}
+
+async function requireTableWith(
+  connection: SqliteConnection,
+  workspaceId: string,
+  collectionId: string,
+): Promise<string> {
+  const row = await connection.get<SchemaRow>(
+    "SELECT * FROM framework_record_schemas WHERE workspace_id = ? AND collection_id = ?",
+    [workspaceId, collectionId],
+  );
+  if (!row) throw resourceNotFound("Collection", collectionId);
+  return row.table_name;
 }
 
 const systemColumns = [

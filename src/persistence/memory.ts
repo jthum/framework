@@ -33,10 +33,13 @@ export class MemoryPersistenceAdapter implements PersistenceAdapter {
     return {
       catalog: this.repository,
       records: this.records,
-      applyWorkspaceSpec: async (workspace) => {
+      applyWorkspaceSpec: async (workspace, seeds = []) => {
         const snapshot = this.records.snapshot();
         try {
           await this.records.applySchema(workspace.id, workspace.spec.collections);
+          for (const seed of seeds)
+            for (const record of seed.records)
+              await this.records.create(workspace.id, seed.collection, record);
           await this.repository.transaction((transaction) =>
             transaction.updateWorkspace(workspace),
           );

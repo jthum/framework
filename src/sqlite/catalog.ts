@@ -50,9 +50,12 @@ export class SqlitePersistenceAdapter implements PersistenceAdapter {
     return {
       catalog: new SqliteCatalogRepository(database),
       records,
-      applyWorkspaceSpec: (workspace) =>
+      applyWorkspaceSpec: (workspace, seeds = []) =>
         database.transaction(async (connection) => {
           await records.applySchemaWith(connection, workspace.id, workspace.spec.collections);
+          for (const seed of seeds)
+            for (const record of seed.records)
+              await records.createWith(connection, workspace.id, seed.collection, record);
           await updateWorkspace(connection, workspace);
         }),
       close: () => database.close(),

@@ -135,6 +135,84 @@ export function catalogAdapterContract(
       await persistence.close();
     });
 
+    it("seeds a new Collection atomically with its Spec change", async () => {
+      expect.hasAssertions();
+      const persistence = await createAdapter().open();
+      const { workspace, actor, membership } = catalogFixture();
+      await persistence.catalog.transaction(async (transaction) => {
+        await transaction.insertWorkspace(workspace);
+        await transaction.insertActor(actor);
+        await transaction.insertMembership(membership);
+      });
+      const collection = {
+        id: "collection-snapshot",
+        key: "snapshot",
+        label: "Snapshot",
+        fields: [{ id: "field-title", key: "title", label: "Title", type: "text" as const }],
+      };
+      const next: Workspace = {
+        ...workspace,
+        spec: { ...workspace.spec, collections: [collection] },
+      };
+      const record = {
+        id: "record-snapshot",
+        collectionId: collection.id,
+        values: { title: "Copied" },
+        createdAt: workspace.createdAt,
+        updatedAt: workspace.updatedAt,
+        createdBy: actor.id,
+        updatedBy: actor.id,
+      };
+
+      await persistence.applyWorkspaceSpec(next, [{ collection, records: [record] }]);
+
+      expect(await persistence.catalog.getWorkspace(workspace.id)).toEqual(next);
+      expect(await persistence.records.list(workspace.id, collection)).toEqual([record]);
+      await persistence.close();
+    });
+
+    it("rolls back a seeded Spec when any initial record fails", async () => {
+      expect.hasAssertions();
+      const persistence = await createAdapter().open();
+      const { workspace, actor, membership } = catalogFixture();
+      await persistence.catalog.transaction(async (transaction) => {
+        await transaction.insertWorkspace(workspace);
+        await transaction.insertActor(actor);
+        await transaction.insertMembership(membership);
+      });
+      const collection = {
+        id: "collection-snapshot",
+        key: "snapshot",
+        label: "Snapshot",
+        fields: [{ id: "field-title", key: "title", label: "Title", type: "text" as const }],
+      };
+      const next: Workspace = {
+        ...workspace,
+        spec: { ...workspace.spec, collections: [collection] },
+      };
+      const record = {
+        id: "duplicate-record",
+        collectionId: collection.id,
+        values: { title: "Copied" },
+        createdAt: workspace.createdAt,
+        updatedAt: workspace.updatedAt,
+        createdBy: actor.id,
+        updatedBy: actor.id,
+      };
+
+      await expect(
+        persistence.applyWorkspaceSpec(next, [
+          { collection, records: [record, { ...record, values: { title: "Conflict" } }] },
+        ]),
+      ).rejects.toMatchObject({ code: ERROR_CODES.resourceConflict });
+
+      expect(await persistence.catalog.getWorkspace(workspace.id)).toEqual(workspace);
+      await expect(persistence.records.list(workspace.id, collection)).rejects.toMatchObject({
+        code: ERROR_CODES.resourceNotFound,
+      });
+      await persistence.close();
+    });
+
     it("distinguishes issued Actors, members, and root-universe discovery", async () => {
       expect.hasAssertions();
       const persistence = await createAdapter().open();

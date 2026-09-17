@@ -143,6 +143,154 @@ describe("Kernel Rules", () => {
     expect(runs.map((run) => run.ruleId)).toEqual(["rule-high", "rule-low"]);
   });
 
+  it("publishes record and Form Events from their high-level execution paths", async () => {
+    expect.hasAssertions();
+    const observed: JsonValue[] = [];
+    const { kernel, context, spec } = await bootstrap(undefined, [
+      {
+        key: "tests.capture",
+        run({ input }) {
+          observed.push(input.value ?? null);
+        },
+      },
+    ]);
+    const recordRule: RuleDefinition = {
+      id: "rule-created",
+      key: "project_created",
+      label: "Project created",
+      input: { project: { sourceId: "collection-project", required: true } },
+      trigger: { event: "record.created", sourceId: "collection-project" },
+      steps: [
+        {
+          id: "step-record",
+          action: { key: "tests.capture", input: { value: { $ref: "vars.project.name" } } },
+        },
+      ],
+    };
+    const formRule: RuleDefinition = {
+      id: "rule-form",
+      key: "intake_submitted",
+      label: "Intake submitted",
+      trigger: { event: "form.submitted", formId: "form-intake" },
+      steps: [
+        {
+          id: "step-form",
+          action: {
+            key: "tests.capture",
+            input: { value: { $ref: "trigger.payload.values.email" } },
+          },
+        },
+      ],
+    };
+    await kernel.applySpec(context, {
+      ...specWithRules(spec, [recordRule, formRule]),
+      forms: [
+        {
+          id: "form-intake",
+          key: "intake",
+          label: "Intake",
+          mode: "standalone",
+          fields: [{ id: "field-email", key: "email", label: "Email", type: "text" }],
+        },
+      ],
+    });
+
+    await kernel.createRecord(context, "project", { name: "Quiet low-level write" });
+    await kernel.executeAction(context, "records.create", {
+      collectionId: "collection-project",
+      values: { name: "Published write" },
+    });
+    await kernel.submitForm(context, "intake", { values: { email: "jane@example.com" } });
+
+    expect(observed).toEqual(["Published write", "jane@example.com"]);
+  });
+
+  it("authorizes custom Actions before invoking their handler", async () => {
+    expect.hasAssertions();
+    let called = false;
+    const { kernel, context } = await bootstrap(
+      {
+        async authorize(request) {
+          return request.operation === "actions.execute" && request.resource.id === "tests.denied"
+            ? { allowed: false as const, message: "Denied by test policy." }
+            : { allowed: true as const };
+        },
+      },
+      [
+        {
+          key: "tests.denied",
+          run() {
+            called = true;
+          },
+        },
+      ],
+    );
+
+    await expect(kernel.executeAction(context, "tests.denied")).rejects.toMatchObject({
+      code: ERROR_CODES.permissionDenied,
+      message: "Denied by test policy.",
+    });
+    expect(called).toBe(false);
+  });
+
+  it("creates an independent local Collection snapshot from a View", async () => {
+    expect.hasAssertions();
+    const { kernel, context, spec } = await bootstrap();
+    await kernel.applySpec(context, {
+      ...spec,
+      views: [
+        {
+          id: "view-active-projects",
+          key: "active_projects",
+          label: "Active projects",
+          source: "project",
+          query: {
+            filter: { path: ["field-status"], operator: "eq", value: "active" },
+            select: [
+              { path: ["field-name"], as: "name", label: "Project" },
+              { path: ["field-budget"], as: "budget", label: "Budget" },
+            ],
+          },
+        },
+      ],
+    });
+    const active = await kernel.createRecord(context, "project", {
+      name: "Website",
+      status: "active",
+      budget: 12_000,
+    });
+    await kernel.createRecord(context, "project", {
+      name: "Later",
+      status: "draft",
+      budget: 4_000,
+    });
+
+    const output = await kernel.executeAction(context, "views.snapshot", {
+      viewId: "view-active-projects",
+      label: "Quarterly baseline",
+      meta: { purpose: "reporting" },
+    });
+
+    expect(output).toMatchObject({ collectionKey: "quarterly_baseline", count: 1 });
+    const snapshot = await kernel.listRecords(context, "quarterly_baseline");
+    expect(snapshot).toHaveLength(1);
+    expect(snapshot[0]?.values).toEqual({ name: "Website", budget: 12_000 });
+    const workspace = await kernel.getWorkspace(context);
+    expect(workspace?.spec.collections.at(-1)).toMatchObject({
+      key: "quarterly_baseline",
+      label: "Quarterly baseline",
+      meta: { purpose: "reporting" },
+      fields: [
+        { key: "name", label: "Project", type: "text" },
+        { key: "budget", label: "Budget", type: "number" },
+      ],
+    });
+    await kernel.updateRecord(context, "project", active.id, { name: "Website renamed" });
+    expect((await kernel.listRecords(context, "quarterly_baseline"))[0]?.values.name).toBe(
+      "Website",
+    );
+  });
+
   it("rejects durable steps and missing registry contracts instead of silently skipping them", async () => {
     expect.hasAssertions();
     const { kernel, context, spec } = await bootstrap();
@@ -177,7 +325,11 @@ describe("Kernel Rules", () => {
 });
 
 async function bootstrap(
-  authorizer?: { authorize(request: AuthorizationRequest): Promise<{ allowed: true }> },
+  authorizer?: {
+    authorize(
+      request: AuthorizationRequest,
+    ): Promise<{ allowed: true } | { allowed: false; message?: string }>;
+  },
   actions: Parameters<typeof Kernel.open>[0]["actions"] = [],
 ) {
   const kernel = await Kernel.open({
@@ -202,6 +354,7 @@ async function bootstrap(
         fields: [
           { id: "field-name", key: "name", label: "Name", type: "text" },
           { id: "field-status", key: "status", label: "Status", type: "text" },
+          { id: "field-budget", key: "budget", label: "Budget", type: "number" },
         ],
       },
     ],

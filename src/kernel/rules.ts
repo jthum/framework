@@ -167,6 +167,16 @@ export class RuleService {
     return this.execute(context, rule, input, state);
   }
 
+  async callAction(
+    context: ExecutionContext,
+    key: string,
+    input: Readonly<Record<string, JsonValue>> = {},
+  ): Promise<JsonValue> {
+    await this.assertContext(context);
+    const state = this.createState();
+    return this.executeAction(key, input, context, { kind: "call" }, state);
+  }
+
   async dispatch(context: ExecutionContext, event: RuleEvent): Promise<readonly RuleRun[]> {
     await this.assertContext(context);
     await this.authorize({
@@ -175,6 +185,17 @@ export class RuleService {
       resource: { kind: "workspace", id: context.workspaceId, workspaceId: context.workspaceId },
     });
     const workspace = await this.catalog.getWorkspace(context.workspaceId);
+    if (!workspace) throw resourceNotFound("Workspace", context.workspaceId);
+    return this.dispatchWithState(context, event, this.createState(), workspace);
+  }
+
+  private async dispatchWithState(
+    context: ExecutionContext,
+    event: RuleEvent,
+    state: RunState,
+    knownWorkspace?: Awaited<ReturnType<CatalogRepository["getWorkspace"]>>,
+  ): Promise<readonly RuleRun[]> {
+    const workspace = knownWorkspace ?? (await this.catalog.getWorkspace(context.workspaceId));
     if (!workspace) throw resourceNotFound("Workspace", context.workspaceId);
     const matches = workspace.spec.rules
       .filter((rule) => rule.enabled !== false && matchesEvent(rule, event))
@@ -187,17 +208,11 @@ export class RuleService {
       await this.assertExecutable(context, rule, new Set([event.event]));
     const runs: RuleRun[] = [];
     for (const { rule } of matches) {
-      const state: RunState = {
-        remaining: this.maxSteps,
-        depth: 0,
-        trace: [],
-        compensations: [],
-      };
       runs.push(
         await this.execute(
           context,
           rule,
-          { ...(event.input === undefined ? {} : { input: event.input }), trigger: event },
+          { input: eventInput(rule, event), trigger: event },
           state,
         ),
       );
@@ -277,7 +292,14 @@ export class RuleService {
           step.action.runAs,
           scope,
         );
-        const output = await this.runAction(step.action, resolved, actionContext, rule.id, step.id);
+        const output = await this.runAction(
+          step.action,
+          resolved,
+          actionContext,
+          rule.id,
+          step.id,
+          state,
+        );
         if (step.action.as) scope.vars[step.action.as] = output;
         if (step.action.compensate)
           state.compensations.push({
@@ -413,6 +435,7 @@ export class RuleService {
     context: ExecutionContext,
     ruleId: string,
     stepId: string,
+    state: RunState,
   ): Promise<JsonValue> {
     const attempts = action.retry?.max ?? 1;
     let failure: unknown;
@@ -422,13 +445,13 @@ export class RuleService {
         if (seconds > 0) await new Promise((resolve) => setTimeout(resolve, seconds * 1_000));
       }
       try {
-        return await this.actions.run(action.key, {
-          context,
+        return await this.executeAction(
+          action.key,
           input,
-          runtime: this.runtime,
-          ruleId,
-          stepId,
-        });
+          context,
+          { kind: "rule", ruleId, stepId },
+          state,
+        );
       } catch (error) {
         failure = error;
       }
@@ -485,13 +508,13 @@ export class RuleService {
   private async compensate(state: RunState, start: number): Promise<void> {
     const pending = state.compensations.splice(start);
     for (const item of pending.reverse())
-      await this.actions.run(item.action.key, {
-        context: item.context,
-        input: item.input,
-        runtime: this.runtime,
-        ruleId: item.ruleId,
-        stepId: item.stepId,
-      });
+      await this.executeAction(
+        item.action.key,
+        item.input,
+        item.context,
+        { kind: "rule", ruleId: item.ruleId, stepId: item.stepId },
+        state,
+      );
   }
 
   private async requireRule(context: ExecutionContext, key: string): Promise<RuleDefinition> {
@@ -538,6 +561,39 @@ export class RuleService {
       resource: { kind: "rule", id: rule.id, workspaceId: context.workspaceId },
     });
   }
+
+  private async executeAction(
+    key: string,
+    input: Readonly<Record<string, JsonValue>>,
+    context: ExecutionContext,
+    origin: import("./action-registry.ts").ActionOrigin,
+    knownState?: RunState,
+  ): Promise<JsonValue> {
+    await this.authorize({
+      context,
+      operation: "actions.execute",
+      resource: { kind: "action", id: key, workspaceId: context.workspaceId },
+    });
+    const state = knownState ?? this.createState();
+    return this.actions.run(key, {
+      context,
+      input,
+      runtime: this.runtime,
+      origin,
+      publish: async (event) => {
+        await this.dispatchWithState(context, event, state);
+      },
+    });
+  }
+
+  private createState(): RunState {
+    return {
+      remaining: this.maxSteps,
+      depth: 0,
+      trace: [],
+      compensations: [],
+    };
+  }
 }
 
 function matchesEvent(rule: RuleDefinition, event: RuleEvent): boolean {
@@ -549,6 +605,20 @@ function matchesEvent(rule: RuleDefinition, event: RuleEvent): boolean {
     (trigger.fieldId === undefined || trigger.fieldId === event.fieldId) &&
     (trigger.formId === undefined || trigger.formId === event.formId),
   );
+}
+
+function eventInput(rule: RuleDefinition, event: RuleEvent): Readonly<Record<string, JsonValue>> {
+  const input: Record<string, JsonValue> = { ...event.input };
+  const record = event.payload?.record;
+  if (record !== undefined && event.sourceId)
+    for (const [name, definition] of Object.entries(rule.input ?? {}))
+      if (
+        "sourceId" in definition &&
+        definition.sourceId === event.sourceId &&
+        input[name] === undefined
+      )
+        input[name] = record;
+  return input;
 }
 
 function resolveObject(

@@ -6,6 +6,7 @@ import {
 } from "../errors/error.ts";
 import type {
   CatalogRepository,
+  CollectionSeed,
   PersistenceAdapter,
   PersistenceSession,
 } from "../persistence/catalog.ts";
@@ -13,6 +14,7 @@ import type { CollectionRecord, RecordValues } from "../persistence/records.ts";
 import {
   createEmptySpec,
   type CollectionDefinition,
+  type FieldDefinition,
   type JsonValue,
   type SourceQueryDefinition,
   type Spec,
@@ -21,6 +23,7 @@ import { assertValidSpec } from "../spec/validate.ts";
 import { AllowAllAuthorizer, type AuthorizationRequest, type Authorizer } from "./authorization.ts";
 import { AttachmentService, type CreateAttachmentInput } from "./attachments.ts";
 import { SourceService } from "./sources.ts";
+import type { SourceColumn, SourceRow } from "./sources.ts";
 import { ViewService } from "./views.ts";
 import {
   NanoIdGenerator,
@@ -150,7 +153,7 @@ export class Kernel {
     );
     this.rules = new RuleService(
       catalog,
-      new ActionRegistry([...this.recordActions(), ...actions]),
+      new ActionRegistry([...this.coreActions(), ...actions]),
       new ConditionRegistry([...coreConditions(), ...conditions]),
       this,
       (context) => this.assertContext(context),
@@ -205,8 +208,22 @@ export class Kernel {
   getForm(context: ExecutionContext, key: string) {
     return this.forms.get(context, key);
   }
-  submitForm(context: ExecutionContext, key: string, input: SubmitFormInput) {
-    return this.forms.submit(context, key, input);
+  async submitForm(context: ExecutionContext, key: string, input: SubmitFormInput) {
+    const submission = await this.forms.submit(context, key, input);
+    const record = submission.mode === "standalone" ? undefined : recordValue(submission.record);
+    await this.rules.dispatch(context, {
+      event: "form.submitted",
+      formId: submission.form.id,
+      ...(submission.mode === "standalone" ? {} : { sourceId: submission.form.collectionId }),
+      payload: {
+        mode: submission.mode,
+        values: {
+          ...(submission.mode === "standalone" ? submission.values : submission.record.values),
+        },
+        ...(record === undefined ? {} : { record }),
+      },
+    });
+    return submission;
   }
   listPages(context: ExecutionContext) {
     return this.pages.list(context);
@@ -216,6 +233,13 @@ export class Kernel {
   }
   runRule(context: ExecutionContext, key: string, input?: RunRuleInput) {
     return this.rules.run(context, key, input);
+  }
+  executeAction(
+    context: ExecutionContext,
+    key: string,
+    input?: Readonly<Record<string, JsonValue>>,
+  ) {
+    return this.rules.callAction(context, key, input);
   }
   dispatchEvent(context: ExecutionContext, event: RuleEvent) {
     return this.rules.dispatch(context, event);
@@ -408,6 +432,14 @@ export class Kernel {
   }
 
   async applySpec(context: ExecutionContext, input: unknown): Promise<Workspace> {
+    return this.applySpecChange(context, input);
+  }
+
+  private async applySpecChange(
+    context: ExecutionContext,
+    input: unknown,
+    seeds: readonly CollectionSeed[] = [],
+  ): Promise<Workspace> {
     await this.assertContext(context);
     assertValidSpec(input);
     const current = await this.requireWorkspace(context.workspaceId);
@@ -427,7 +459,7 @@ export class Kernel {
       spec,
       updatedAt: this.clock.now(),
     };
-    await this.persistence.applyWorkspaceSpec(workspace);
+    await this.persistence.applyWorkspaceSpec(workspace, seeds);
     return workspace;
   }
 
@@ -616,14 +648,21 @@ export class Kernel {
     });
   }
 
-  private recordActions(): readonly ActionDefinition[] {
+  private coreActions(): readonly ActionDefinition[] {
     return [
       {
         key: "records.create",
-        run: async ({ context, input, runtime }) => {
-          const collectionKey = await this.actionCollectionKey(context, input);
+        run: async ({ context, input, runtime, publish }) => {
+          const collection = await this.actionCollection(context, input);
           const values = actionValues(input.values, "values");
-          return recordValue(await runtime.createRecord(context, collectionKey, values));
+          const record = await runtime.createRecord(context, collection.key, values);
+          const output = recordValue(record);
+          await publish({
+            event: "record.created",
+            sourceId: collection.id,
+            payload: { record: output, recordId: record.id },
+          });
+          return output;
         },
       },
       {
@@ -643,20 +682,132 @@ export class Kernel {
       },
       {
         key: "records.update",
-        run: async ({ context, input, runtime }) => {
+        run: async ({ context, input, runtime, publish }) => {
           const target = await this.actionRecordTarget(context, input);
           const values = actionValues(input.values, "values");
-          return recordValue(
-            await runtime.updateRecord(context, target.collectionKey, target.recordId, values),
+          const previous = await runtime.getRecord(context, target.collectionKey, target.recordId);
+          if (!previous) throw resourceNotFound("Record", target.recordId);
+          const record = await runtime.updateRecord(
+            context,
+            target.collectionKey,
+            target.recordId,
+            values,
           );
+          const output = recordValue(record);
+          await publish({
+            event: "record.updated",
+            sourceId: target.collection.id,
+            payload: { record: output, recordId: record.id, previous: recordValue(previous) },
+          });
+          for (const field of target.collection.fields)
+            if (
+              field.key in values &&
+              JSON.stringify(previous.values[field.key]) !==
+                JSON.stringify(record.values[field.key])
+            )
+              await publish({
+                event: "record.field_changed",
+                sourceId: target.collection.id,
+                fieldId: field.id,
+                payload: {
+                  record: output,
+                  recordId: record.id,
+                  previous: previous.values[field.key] ?? null,
+                  value: record.values[field.key] ?? null,
+                },
+              });
+          return output;
         },
       },
       {
         key: "records.delete",
-        run: async ({ context, input, runtime }) => {
+        run: async ({ context, input, runtime, publish }) => {
           const target = await this.actionRecordTarget(context, input);
+          const record = await runtime.getRecord(context, target.collectionKey, target.recordId);
+          if (!record) throw resourceNotFound("Record", target.recordId);
           await runtime.deleteRecord(context, target.collectionKey, target.recordId);
+          await publish({
+            event: "record.deleted",
+            sourceId: target.collection.id,
+            payload: { record: recordValue(record), recordId: record.id },
+          });
           return { id: target.recordId };
+        },
+      },
+      {
+        key: "views.snapshot",
+        run: async ({ context, input, publish }) => {
+          const workspace = await this.requireWorkspace(context.workspaceId);
+          const viewId = requiredActionString(input.viewId, "viewId");
+          const view = workspace.spec.views.find((candidate) => candidate.id === viewId);
+          if (!view) throw resourceNotFound("View", viewId);
+          const label = requiredActionString(input.label, "label");
+          const key =
+            input.key === undefined
+              ? semanticKey(label, "snapshot")
+              : requiredActionString(input.key, "key");
+          if (workspace.spec.collections.some((collection) => collection.key === key))
+            throw resourceConflict(`Collection key ${key} is already in use.`);
+          const parameters = optionalActionObject(input.parameters, "parameters");
+          const meta = optionalActionObject(input.meta, "meta");
+          const result = await this.views.query(
+            context,
+            view.key,
+            parameters === undefined ? {} : { parameters },
+          );
+          const fields = snapshotFields(result.data.columns, result.data.rows, this.ids);
+          const titleFieldId = firstTextFieldId(fields);
+          const collection: CollectionDefinition = {
+            id: this.ids.create("definition"),
+            key,
+            label,
+            ...(typeof input.description === "string" && input.description.trim()
+              ? { description: input.description.trim() }
+              : {}),
+            ...(meta === undefined ? {} : { meta: structuredClone(meta) }),
+            fields,
+            ...(titleFieldId === undefined ? {} : { titleFieldId }),
+          };
+          await this.assertAuthorized({
+            context,
+            operation: "records.create",
+            resource: this.collectionResource(context, collection),
+          });
+          const stamp = this.clock.now();
+          const records: CollectionRecord[] = [];
+          for (const row of result.data.rows) {
+            const values = prepareCreateValues(collection, row.values);
+            await this.assertReferences(context, collection, values);
+            records.push({
+              id: this.ids.create("record"),
+              collectionId: collection.id,
+              values,
+              createdAt: stamp,
+              updatedAt: stamp,
+              createdBy: context.actorId,
+              updatedBy: context.actorId,
+            });
+          }
+          await this.applySpecChange(
+            context,
+            {
+              ...workspace.spec,
+              collections: [...workspace.spec.collections, collection],
+            },
+            [{ collection, records }],
+          );
+          const output: JsonValue = {
+            collectionId: collection.id,
+            collectionKey: collection.key,
+            recordIds: records.map((record) => record.id),
+            count: records.length,
+          };
+          await publish({
+            event: "snapshot.created",
+            sourceId: collection.id,
+            payload: { snapshot: output, viewId },
+          });
+          return output;
         },
       },
     ];
@@ -666,6 +817,13 @@ export class Kernel {
     context: ExecutionContext,
     input: Readonly<Record<string, JsonValue>>,
   ): Promise<string> {
+    return (await this.actionCollection(context, input)).key;
+  }
+
+  private async actionCollection(
+    context: ExecutionContext,
+    input: Readonly<Record<string, JsonValue>>,
+  ): Promise<CollectionDefinition> {
     const collectionId =
       typeof input.collectionId === "string"
         ? input.collectionId
@@ -677,17 +835,18 @@ export class Kernel {
       (candidate) => candidate.id === collectionId,
     );
     if (!collection) throw resourceNotFound("Collection", collectionId);
-    return collection.key;
+    return collection;
   }
 
   private async actionRecordTarget(
     context: ExecutionContext,
     input: Readonly<Record<string, JsonValue>>,
-  ): Promise<{ collectionKey: string; recordId: string }> {
+  ): Promise<{ collectionKey: string; collection: CollectionDefinition; recordId: string }> {
     const record = actionRecord(input.record);
     const recordId = typeof input.recordId === "string" ? input.recordId : record?.id;
     if (!recordId) throw actionInputError("A record Action requires recordId or a record value.");
-    return { collectionKey: await this.actionCollectionKey(context, input), recordId };
+    const collection = await this.actionCollection(context, input);
+    return { collectionKey: collection.key, collection, recordId };
   }
 
   private async resolveRuleSourceInput(
@@ -979,4 +1138,63 @@ function recordValue(record: CollectionRecord): JsonValue {
 
 function actionInputError(message: string): FrameworkError {
   return new FrameworkError({ code: ERROR_CODES.validationInvalidInput, message });
+}
+
+function requiredActionString(value: JsonValue | undefined, name: string): string {
+  if (typeof value !== "string" || !value.trim())
+    throw actionInputError(`Action input ${name} must be a non-empty string.`);
+  return value.trim();
+}
+
+function optionalActionObject(
+  value: JsonValue | undefined,
+  name: string,
+): Readonly<Record<string, JsonValue>> | undefined {
+  if (value === undefined) return undefined;
+  if (!isJsonObject(value)) throw actionInputError(`Action input ${name} must be an object.`);
+  return value;
+}
+
+function isJsonObject(value: JsonValue): value is Readonly<Record<string, JsonValue>> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function snapshotFields(
+  columns: readonly SourceColumn[],
+  rows: readonly SourceRow[],
+  ids: IdGenerator,
+): FieldDefinition[] {
+  const keys = new Set<string>();
+  return columns.map((column) => {
+    const base = semanticKey(column.key || column.label, "field");
+    let key = base;
+    for (let suffix = 2; keys.has(key); suffix += 1) key = `${base}_${suffix}`;
+    keys.add(key);
+    return {
+      id: ids.create("definition"),
+      key,
+      label: column.label,
+      type: snapshotFieldType(column, rows),
+    } as FieldDefinition;
+  });
+}
+
+function snapshotFieldType(
+  column: SourceColumn,
+  rows: readonly SourceRow[],
+): FieldDefinition["type"] {
+  if (column.type === "json" || column.type === "reference") return "json";
+  if (
+    rows.some((row) => {
+      const value = row.values[column.key];
+      return Boolean(value && typeof value === "object");
+    })
+  )
+    return "json";
+  if (column.type === "choice") return "text";
+  return column.type;
+}
+
+function firstTextFieldId(fields: readonly FieldDefinition[]): string | undefined {
+  return fields.find((field) => field.type === "text")?.id;
 }

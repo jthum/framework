@@ -11,7 +11,8 @@ export interface AuthorizationResource {
     | "view"
     | "form"
     | "page"
-    | "rule";
+    | "rule"
+    | "action";
   readonly id: string;
   readonly workspaceId?: string;
   readonly collectionId?: string;

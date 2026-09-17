@@ -1,5 +1,12 @@
 import type { Actor, Attachment, Membership, Workspace } from "../kernel/model.ts";
 import type { RecordStore } from "./records.ts";
+import type { CollectionRecord } from "./records.ts";
+import type { CollectionDefinition } from "../spec/model.ts";
+
+export interface CollectionSeed {
+  readonly collection: CollectionDefinition;
+  readonly records: readonly CollectionRecord[];
+}
 
 export interface CatalogReader {
   getWorkspace(id: string): Promise<Workspace | null>;
@@ -40,6 +47,7 @@ export interface PersistenceAdapter {
 export interface PersistenceSession {
   readonly catalog: CatalogRepository;
   readonly records: RecordStore;
-  applyWorkspaceSpec(workspace: Workspace): Promise<void>;
+  /** Atomically applies schema/catalog changes and optional initial records. */
+  applyWorkspaceSpec(workspace: Workspace, seeds?: readonly CollectionSeed[]): Promise<void>;
   close(): Promise<void>;
 }

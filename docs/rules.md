@@ -42,19 +42,34 @@ that preflight—including nested Rules—before the first side effect. Unknown 
 are errors, even when they sit in a branch that would not have run.
 
 `Kernel.runRule` calls a Rule by key. `Kernel.dispatchEvent` runs enabled matching Rules in stable
-priority order. Source inputs accept a record ID and resolve through the unified Source boundary,
-so attached records remain valid Rule inputs. Built-in `records.create`, `records.get`,
-`records.list`, `records.update`, and `records.delete` Actions deliberately call the same Kernel
-CRUD methods as direct consumers; validation and authorization therefore cannot drift. Custom
-Actions and Conditions are installed when the Kernel opens.
+priority order. `Kernel.executeAction` is the high-level Action path. Source inputs accept a record
+ID and resolve through the unified Source boundary, so attached records remain valid Rule inputs.
+Built-in `records.create`, `records.get`, `records.list`, `records.update`, and `records.delete`
+Actions deliberately call the same Kernel CRUD methods as direct consumers; validation and
+authorization therefore cannot drift. Custom Actions and Conditions are installed when the Kernel
+opens, and every Action receives a coarse `actions.execute` policy check before its own
+resource-level checks.
+
+Record mutation Actions publish `record.created`, `record.updated`, `record.field_changed`, and
+`record.deleted`; Form submission publishes `form.submitted`. Event-triggered source inputs are
+filled from the published record when their stable Source ID matches. Cascaded Rules share the
+same step and nesting budgets. Direct CRUD remains a deliberately quiet lower-level primitive for
+imports, migrations, and hosts that explicitly control Event publication.
 
 The execution Actor is inherited by Actions and nested Rules. The built-in `system` binding uses a
 System Actor that is actually a member of the active Workspace; a host may install a resolver for
 other semantic bindings. The resolved Actor is passed back through ordinary context and Action
 authorization rather than becoming a permission shortcut.
 
-The short runner bounds nesting, steps, loops, and repeats. Retries are process-local, parallel
+The short runner bounds nesting, cascaded steps, loops, and repeats. Retries are process-local, parallel
 branches use deterministic in-process emulation, and successful compensations capture their
 resolved input before later work can mutate the scope. Delay and signal waits fail preflight as
-unsupported: durable Rule execution, persisted traces, automatic record/Form Event publication,
-and snapshot Actions remain later Phase 5 slices rather than hidden approximations.
+unsupported: durable Rule execution and persisted traces remain later slices rather than hidden
+approximations.
+
+`views.snapshot` takes a stable `viewId`, a target `label`, and optional `key`, `description`,
+View `parameters`, and Collection `meta`. It evaluates the View once and creates a new independent
+local Collection. Projection aliases become Field keys; reference-shaped and structured values are
+flattened to JSON rather than retaining a live relationship to the origin. The Spec change and all
+initial records commit atomically through the persistence adapter. Subsequent edits on either side
+do not synchronize unless an explicit Rule does so.

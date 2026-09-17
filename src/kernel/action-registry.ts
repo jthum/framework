@@ -2,6 +2,11 @@ import { ERROR_CODES, FrameworkError, resourceConflict } from "../errors/error.t
 import type { CollectionRecord, RecordValues } from "../persistence/records.ts";
 import type { JsonValue } from "../spec/model.ts";
 import type { ExecutionContext } from "./model.ts";
+import type { RuleEvent } from "./rules.ts";
+
+export type ActionOrigin =
+  | { readonly kind: "call" }
+  | { readonly kind: "rule"; readonly ruleId: string; readonly stepId: string };
 
 export interface ActionRuntime {
   createRecord(
@@ -28,8 +33,8 @@ export interface ActionExecution {
   readonly context: ExecutionContext;
   readonly input: Readonly<Record<string, JsonValue>>;
   readonly runtime: ActionRuntime;
-  readonly ruleId: string;
-  readonly stepId: string;
+  readonly origin: ActionOrigin;
+  readonly publish: (event: RuleEvent) => Promise<void>;
 }
 
 export interface ActionDefinition {
