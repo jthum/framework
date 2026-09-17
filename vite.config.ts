@@ -1,8 +1,11 @@
 import { defineConfig } from "vite-plus";
+import { svelte } from "@sveltejs/vite-plugin-svelte";
 
 export default defineConfig({
+  plugins: [svelte()],
   fmt: {},
   lint: {
+    ignorePatterns: ["src/svelte/**"],
     jsPlugins: [{ name: "vite-plus", specifier: "vite-plus/oxlint-plugin" }],
     rules: { "vite-plus/prefer-vite-plus-imports": "error" },
     options: { typeAware: true, typeCheck: true },

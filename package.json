@@ -5,6 +5,7 @@
   "description": "A portable information-system specification and reference TypeScript kernel.",
   "files": [
     "dist",
+    "src/svelte",
     "docs",
     "README.md",
     "LICENSE"
@@ -46,21 +47,49 @@
     "./sqlite/node": {
       "types": "./dist/sqlite/node-index.d.mts",
       "import": "./dist/sqlite/node-index.mjs"
+    },
+    "./svelte/utils": {
+      "types": "./src/svelte/utils.ts",
+      "import": "./src/svelte/utils.ts"
+    },
+    "./svelte/hooks/is-mobile.svelte": {
+      "types": "./src/svelte/hooks/is-mobile.svelte.ts",
+      "import": "./src/svelte/hooks/is-mobile.svelte.ts"
+    },
+    "./svelte/theme.css": "./src/svelte/theme.css",
+    "./svelte/ui/*": {
+      "types": "./src/svelte/ui/*/index.ts",
+      "svelte": "./src/svelte/ui/*/index.ts",
+      "import": "./src/svelte/ui/*/index.ts"
     }
   },
   "scripts": {
     "build": "vp pack",
     "check": "vp check",
+    "check:svelte": "svelte-check --tsconfig ./tsconfig.svelte.json",
     "test": "vp test"
   },
   "dependencies": {
-    "nanoid": "^6.0.1"
+    "@lucide/svelte": "^1.46.0",
+    "bits-ui": "^2.19.2",
+    "clsx": "^2.1.1",
+    "mode-watcher": "^1.1.0",
+    "nanoid": "^6.0.1",
+    "svelte-sonner": "^1.2.1",
+    "tailwind-merge": "^3.7.0",
+    "tailwind-variants": "^3.3.1"
   },
   "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.3.0",
     "@types/node": "^26.4.0",
+    "svelte": "^5.57.0",
+    "svelte-check": "^4.7.6",
     "typescript": "^6.0.3",
     "vite": "catalog:",
     "vite-plus": "catalog:"
+  },
+  "peerDependencies": {
+    "svelte": "^5.0.0"
   },
   "devEngines": {
     "packageManager": {
