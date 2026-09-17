@@ -73,7 +73,7 @@ Definition nodes have opaque portable stable IDs. Authors use semantic keys. ID 
 | **Source**     | Structured data a View can query. It advertises capabilities; a View never connects directly to SQLite or HTTP.                   |
 | **View**       | Saved interpretation of one root Source: query plus optional default presentation. A Page Block may override presentation.        |
 | **Form**       | Intake: create/edit a Collection or standalone Fields producing `form.submitted`. Not a command builder.                          |
-| **Page**       | Authored layout of Blocks and layout nodes.                                                                                       |
+| **Page**       | Authored layout tree of stable Block and Group nodes. A Group is layout, not a registry Block.                                    |
 | **Block**      | Configurable visual unit resolved through a registry. Receives values, rows, and schema; it is not a data-access layer.           |
 
 One View has one **root** Source. It may traverse explicitly declared relationships such as `project.client.name`. A reference identifies a local Collection or declared Source binding by its stable definition ID. A local relationship may therefore terminate in an attached record, but it does not confer implicit traversal into that record's other origin relationships. Arbitrary unrelated federated joins are not implicit.
@@ -302,7 +302,7 @@ Temporary side-by-side code during extraction is risk isolation, not backwards c
 - exact optional View default-presentation contract;
 - `wait.signal` versus a dedicated Actor step inside a Rule;
 - embedded AgentRuntime library;
-- how far Form submission goes beyond Collection CRUD plus `form.submitted`;
+- whether later Form presentation needs anything beyond the current success title/description;
 - future rolling Materialization semantics;
 - cross-root guest identity;
 - exact external Source contracts;

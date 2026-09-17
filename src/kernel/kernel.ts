@@ -29,6 +29,8 @@ import {
   type IdGenerator,
 } from "./defaults.ts";
 import { LOCAL_BROWSER_ENVIRONMENT, type EnvironmentProfile } from "./environment.ts";
+import { FormService, type SubmitFormInput } from "./forms.ts";
+import { PageService } from "./pages.ts";
 import {
   prepareCreateValues,
   prepareMigratedValues,
@@ -73,6 +75,8 @@ export class Kernel {
   private readonly attachments: AttachmentService;
   private readonly sources: SourceService;
   private readonly views: ViewService;
+  private readonly forms: FormService;
+  private readonly pages: PageService;
   private constructor(
     private readonly persistence: PersistenceSession,
     private readonly catalog: CatalogRepository,
@@ -99,6 +103,24 @@ export class Kernel {
     this.views = new ViewService(
       catalog,
       this.sources,
+      (context) => this.assertContext(context),
+      (request) => this.assertAuthorized(request),
+    );
+    this.forms = new FormService(
+      catalog,
+      {
+        create: (context, collectionKey, values) =>
+          this.createRecord(context, collectionKey, values),
+        update: (context, collectionKey, recordId, values) =>
+          this.updateRecord(context, collectionKey, recordId, values),
+        assertReferences: (context, collection, values) =>
+          this.assertReferences(context, collection, values),
+      },
+      (context) => this.assertContext(context),
+      (request) => this.assertAuthorized(request),
+    );
+    this.pages = new PageService(
+      catalog,
       (context) => this.assertContext(context),
       (request) => this.assertAuthorized(request),
     );
@@ -137,6 +159,21 @@ export class Kernel {
   }
   queryView(context: ExecutionContext, key: string) {
     return this.views.query(context, key);
+  }
+  listForms(context: ExecutionContext) {
+    return this.forms.list(context);
+  }
+  getForm(context: ExecutionContext, key: string) {
+    return this.forms.get(context, key);
+  }
+  submitForm(context: ExecutionContext, key: string, input: SubmitFormInput) {
+    return this.forms.submit(context, key, input);
+  }
+  listPages(context: ExecutionContext) {
+    return this.pages.list(context);
+  }
+  getPage(context: ExecutionContext, key: string) {
+    return this.pages.get(context, key);
   }
 
   static async open(options: KernelOptions): Promise<Kernel> {

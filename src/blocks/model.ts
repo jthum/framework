@@ -10,8 +10,9 @@ export interface BlockDefinition {
 }
 
 /** The complete declared input to a Block renderer. Blocks do not perform data access. */
-export interface BlockInput {
-  readonly data: SourceResult;
+export interface BlockInput<Data = SourceResult> {
+  /** Static Blocks may specialize Data as undefined and render entirely from config. */
+  readonly data: Data;
   readonly config?: SpecMeta;
 }
 

@@ -141,6 +141,101 @@ describe("portable Collection Spec", () => {
       }),
     );
   });
+
+  it("validates collection and standalone Forms with stable Field references", () => {
+    expect.hasAssertions();
+    const spec = projectSpec();
+    const withForms: Spec = {
+      ...spec,
+      forms: [
+        {
+          id: "form-create-project",
+          key: "create_project",
+          label: "Create project",
+          mode: "create",
+          collectionId: "collection-project",
+          fieldIds: ["field-name", "field-budget"],
+        },
+        {
+          id: "form-contact",
+          key: "contact_us",
+          label: "Contact us",
+          mode: "standalone",
+          fields: [
+            {
+              id: "field-contact-email",
+              key: "email",
+              label: "Email",
+              type: "text",
+              format: "email",
+              required: true,
+            },
+          ],
+          submit: { success: { title: "Thanks" } },
+        },
+      ],
+    };
+    expect(validateSpec(withForms)).toEqual([]);
+    expect(
+      validateSpec({
+        ...withForms,
+        forms: [{ ...withForms.forms[0]!, fieldIds: ["field-name", "field-name", "missing"] }],
+      }),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "SPEC.REFERENCE_DUPLICATE" }),
+        expect.objectContaining({ code: "SPEC.REFERENCE_UNRESOLVED" }),
+      ]),
+    );
+  });
+
+  it("validates Page layout nodes separately from Blocks", () => {
+    expect.hasAssertions();
+    const spec: Spec = {
+      ...projectSpec(),
+      pages: [
+        {
+          id: "page-dashboard",
+          key: "dashboard",
+          label: "Dashboard",
+          layout: [
+            { id: "block-heading", kind: "block", block: "heading", config: { text: "Hello" } },
+            {
+              id: "group-overview",
+              kind: "group",
+              columns: 2,
+              children: [{ id: "block-table", kind: "block", block: "table" }],
+            },
+          ],
+        },
+      ],
+    };
+    expect(validateSpec(spec)).toEqual([]);
+    expect(
+      validateSpec({
+        ...spec,
+        pages: [
+          {
+            ...spec.pages[0]!,
+            layout: [
+              {
+                id: "group-overview",
+                kind: "group",
+                columns: 13,
+                children: [{ id: "group-overview", kind: "block", block: "Not valid" }],
+              },
+            ],
+          },
+        ],
+      }),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "SPEC.RANGE_INVALID" }),
+        expect.objectContaining({ code: "SPEC.KEY_INVALID" }),
+        expect.objectContaining({ code: "SPEC.ID_DUPLICATE" }),
+      ]),
+    );
+  });
 });
 
 function projectSpec(): Spec {

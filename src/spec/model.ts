@@ -194,8 +194,59 @@ export interface ViewDefinition extends DefinitionIdentity {
   readonly query?: SourceQueryDefinition;
   readonly presentation?: ViewPresentationDefinition;
 }
-export interface FormDefinition extends DefinitionIdentity {}
-export interface PageDefinition extends DefinitionIdentity {}
+
+export interface FormSuccessDefinition {
+  readonly title?: string;
+  readonly description?: string;
+}
+
+export interface FormSubmitDefinition {
+  /** Presentation hint only; workflow behavior belongs to form.submitted Rules. */
+  readonly success?: FormSuccessDefinition;
+}
+
+export interface CollectionFormDefinition extends DefinitionIdentity {
+  readonly mode: "create" | "edit";
+  /** Stable ID of the local Collection this Form writes. */
+  readonly collectionId: string;
+  /** Ordered stable IDs of Fields exposed by this Form. */
+  readonly fieldIds: readonly string[];
+  readonly submit?: FormSubmitDefinition;
+}
+
+export interface StandaloneFormDefinition extends DefinitionIdentity {
+  readonly mode: "standalone";
+  /** Ordered, Form-owned Fields emitted with form.submitted. */
+  readonly fields: readonly FieldDefinition[];
+  readonly submit?: FormSubmitDefinition;
+}
+
+export type FormDefinition = CollectionFormDefinition | StandaloneFormDefinition;
+
+export type PageHeight = "s" | "m" | "l" | "xl";
+
+export interface PageBlockNode {
+  readonly id: string;
+  readonly kind: "block";
+  readonly block: string;
+  readonly config?: SpecMeta;
+}
+
+export interface PageGroupNode {
+  readonly id: string;
+  readonly kind: "group";
+  readonly columns?: number;
+  readonly minHeight?: PageHeight;
+  readonly children: readonly PageLayoutNode[];
+}
+
+export type PageLayoutNode = PageBlockNode | PageGroupNode;
+
+export interface PageDefinition extends DefinitionIdentity {
+  /** Ordered layout tree. Groups are layout, never registry Blocks. */
+  readonly layout: readonly PageLayoutNode[];
+}
+
 export interface RuleDefinition extends DefinitionIdentity {}
 
 export interface Spec extends DefinitionIdentity {

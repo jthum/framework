@@ -5,7 +5,10 @@ import {
   type CollectionDefinition,
   type FieldCondition,
   type FieldDefinition,
+  type FormDefinition,
   type JsonValue,
+  type PageDefinition,
+  type PageLayoutNode,
   type SourceFilter,
   type SourceQueryDefinition,
   type Spec,
@@ -32,6 +35,8 @@ export function validateSpec(input: unknown): ValidationIssue[] {
   );
   validateSourceNamespace(spec, issues);
   spec.views.forEach((view, index) => validateView(view, index, spec, issues));
+  spec.forms.forEach((form, index) => validateForm(form, index, spec, sourceIds, issues));
+  spec.pages.forEach((page, index) => validatePage(page, index, issues));
   for (const [property, definitions] of otherDefinitions(spec)) {
     unique(definitions, property, issues);
     definitions.forEach((definition, index) =>
@@ -141,10 +146,120 @@ function hasSpecStructure(input: unknown, issues: ValidationIssue[]): input is S
         }
         requireIdentityShape(definition, `${property}.${index}`, issues);
         if (property === "views") requireViewShape(definition, `${property}.${index}`, issues);
+        if (property === "forms") requireFormShape(definition, `${property}.${index}`, issues);
+        if (property === "pages") requirePageShape(definition, `${property}.${index}`, issues);
       });
     }
   }
   return valid && issues.length === 0;
+}
+
+function requireFormShape(
+  input: Readonly<Record<string, unknown>>,
+  path: string,
+  issues: ValidationIssue[],
+): void {
+  optionalEnum(input, "mode", ["create", "edit", "standalone"], path, issues);
+  if (input.mode === undefined) {
+    issue(issues, `${path}.mode`, "SPEC.TYPE_INVALID", "Form mode is required.");
+  } else if (input.mode === "standalone") {
+    if (!Array.isArray(input.fields)) {
+      issue(
+        issues,
+        `${path}.fields`,
+        "SPEC.TYPE_INVALID",
+        "Standalone Form Fields must be an array.",
+      );
+    } else {
+      input.fields.forEach((field, index) =>
+        requireFieldShape(field, `${path}.fields.${index}`, issues),
+      );
+    }
+    if (input.collectionId !== undefined || input.fieldIds !== undefined) {
+      issue(
+        issues,
+        path,
+        "SPEC.FORM_SHAPE_INVALID",
+        "Standalone Forms own Fields and cannot target a Collection.",
+      );
+    }
+  } else if (input.mode === "create" || input.mode === "edit") {
+    requireString(input, "collectionId", path, issues);
+    if (!isStringArrayUnknown(input.fieldIds)) {
+      issue(
+        issues,
+        `${path}.fieldIds`,
+        "SPEC.TYPE_INVALID",
+        "Collection Form fieldIds must be an array of stable Field IDs.",
+      );
+    }
+    if (input.fields !== undefined) {
+      issue(
+        issues,
+        `${path}.fields`,
+        "SPEC.FORM_SHAPE_INVALID",
+        "Collection Forms reference Fields and cannot own them.",
+      );
+    }
+  }
+  if (input.submit !== undefined) requireFormSubmitShape(input.submit, `${path}.submit`, issues);
+}
+
+function requireFormSubmitShape(input: unknown, path: string, issues: ValidationIssue[]): void {
+  if (!isRecord(input)) {
+    issue(issues, path, "SPEC.TYPE_INVALID", "Form submit settings must be an object.");
+    return;
+  }
+  if (input.success === undefined) return;
+  if (!isRecord(input.success)) {
+    issue(issues, `${path}.success`, "SPEC.TYPE_INVALID", "Form success must be an object.");
+    return;
+  }
+  optionalString(input.success, "title", `${path}.success`, issues);
+  optionalString(input.success, "description", `${path}.success`, issues);
+}
+
+function requirePageShape(
+  input: Readonly<Record<string, unknown>>,
+  path: string,
+  issues: ValidationIssue[],
+): void {
+  if (!Array.isArray(input.layout)) {
+    issue(issues, `${path}.layout`, "SPEC.TYPE_INVALID", "Page layout must be an array.");
+    return;
+  }
+  input.layout.forEach((node, index) =>
+    requirePageNodeShape(node, `${path}.layout.${index}`, issues),
+  );
+}
+
+function requirePageNodeShape(input: unknown, path: string, issues: ValidationIssue[]): void {
+  if (!isRecord(input)) {
+    issue(issues, path, "SPEC.TYPE_INVALID", "Page layout node must be an object.");
+    return;
+  }
+  requireString(input, "id", path, issues);
+  optionalEnum(input, "kind", ["block", "group"], path, issues);
+  if (input.kind === undefined) {
+    issue(issues, `${path}.kind`, "SPEC.TYPE_INVALID", "Page layout node kind is required.");
+  } else if (input.kind === "block") {
+    requireString(input, "block", path, issues);
+    if (input.config !== undefined && (!isRecord(input.config) || !isJsonValue(input.config))) {
+      issue(issues, `${path}.config`, "SPEC.TYPE_INVALID", "Block config must be a JSON object.");
+    }
+  } else if (input.kind === "group") {
+    if (input.columns !== undefined && typeof input.columns !== "number") {
+      issue(issues, `${path}.columns`, "SPEC.TYPE_INVALID", "Group columns must be a number.");
+    }
+    optionalEnum(input, "minHeight", ["s", "m", "l", "xl"], path, issues);
+    if (!Array.isArray(input.children)) {
+      issue(issues, `${path}.children`, "SPEC.TYPE_INVALID", "Group children must be an array.");
+    } else {
+      input.children.forEach((node, index) =>
+        requirePageNodeShape(node, `${path}.children.${index}`, issues),
+      );
+    }
+  }
 }
 
 function requireViewShape(
@@ -754,6 +869,79 @@ function validateSourceNamespace(spec: Spec, issues: ValidationIssue[]): void {
   });
 }
 
+function validateForm(
+  form: FormDefinition,
+  index: number,
+  spec: Spec,
+  sourceIds: ReadonlySet<string>,
+  issues: ValidationIssue[],
+): void {
+  const path = `forms.${index}`;
+  if (form.mode === "standalone") {
+    unique(form.fields, `${path}.fields`, issues);
+    const fieldsById = new Map(form.fields.map((field) => [field.id, field]));
+    form.fields.forEach((field, fieldIndex) =>
+      validateField(field, `${path}.fields.${fieldIndex}`, fieldsById, sourceIds, issues),
+    );
+    return;
+  }
+  const collection = spec.collections.find((candidate) => candidate.id === form.collectionId);
+  if (!collection) {
+    issue(
+      issues,
+      `${path}.collectionId`,
+      "SPEC.REFERENCE_UNRESOLVED",
+      "The Form Collection does not exist in this Spec.",
+    );
+    return;
+  }
+  const fieldIds = new Set<string>();
+  form.fieldIds.forEach((fieldId, fieldIndex) => {
+    const fieldPath = `${path}.fieldIds.${fieldIndex}`;
+    if (fieldIds.has(fieldId)) {
+      issue(issues, fieldPath, "SPEC.REFERENCE_DUPLICATE", "Form Field is listed more than once.");
+    } else if (!collection.fields.some((field) => field.id === fieldId)) {
+      issue(
+        issues,
+        fieldPath,
+        "SPEC.REFERENCE_UNRESOLVED",
+        "The Form Field does not exist in its Collection.",
+      );
+    }
+    fieldIds.add(fieldId);
+  });
+}
+
+function validatePage(page: PageDefinition, index: number, issues: ValidationIssue[]): void {
+  page.layout.forEach((node, nodeIndex) =>
+    validatePageNode(node, `pages.${index}.layout.${nodeIndex}`, issues),
+  );
+}
+
+function validatePageNode(node: PageLayoutNode, path: string, issues: ValidationIssue[]): void {
+  if (!node.id) issue(issues, `${path}.id`, "SPEC.ID_REQUIRED", "A stable ID is required.");
+  if (node.kind === "block") {
+    if (!semanticKeyPattern.test(node.block)) {
+      issue(issues, `${path}.block`, "SPEC.KEY_INVALID", "Block must be a semantic key.");
+    }
+    return;
+  }
+  if (
+    node.columns !== undefined &&
+    (!Number.isInteger(node.columns) || node.columns < 1 || node.columns > 12)
+  ) {
+    issue(
+      issues,
+      `${path}.columns`,
+      "SPEC.RANGE_INVALID",
+      "Group columns must be an integer from 1 to 12.",
+    );
+  }
+  node.children.forEach((child, childIndex) =>
+    validatePageNode(child, `${path}.children.${childIndex}`, issues),
+  );
+}
+
 function validateView(
   view: ViewDefinition,
   index: number,
@@ -1278,9 +1466,35 @@ function validateGlobalDefinitionIds(spec: Spec, issues: ValidationIssue[]): voi
       ),
     );
   });
+  spec.forms.forEach((form, formIndex) => {
+    if (form.mode !== "standalone") return;
+    form.fields.forEach((field, fieldIndex) => {
+      visit(field.id, `forms.${formIndex}.fields.${fieldIndex}.id`);
+      if (field.type === "choice") {
+        field.options.forEach((option, optionIndex) =>
+          visit(option.id, `forms.${formIndex}.fields.${fieldIndex}.options.${optionIndex}.id`),
+        );
+      }
+    });
+  });
+  spec.pages.forEach((page, pageIndex) =>
+    visitPageNodeIds(page.layout, `pages.${pageIndex}.layout`, visit),
+  );
   for (const [property, definitions] of otherDefinitions(spec)) {
     definitions.forEach((definition, index) => visit(definition.id, `${property}.${index}.id`));
   }
+}
+
+function visitPageNodeIds(
+  nodes: readonly PageLayoutNode[],
+  path: string,
+  visit: (id: string, path: string) => void,
+): void {
+  nodes.forEach((node, index) => {
+    const nodePath = `${path}.${index}`;
+    visit(node.id, `${nodePath}.id`);
+    if (node.kind === "group") visitPageNodeIds(node.children, `${nodePath}.children`, visit);
+  });
 }
 
 function otherDefinitions(spec: Spec): ReadonlyArray<readonly [string, Spec["sources"]]> {

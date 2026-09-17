@@ -162,6 +162,8 @@ Attachment write and derived re-share APIs are not exposed yet. Their rights are
 
 **Tests:** S1 end-to-end UI; current editor behaviours retained; Spec export/import clones the mould only; Block library remains lazily loaded.
 
+**First contract checkpoint delivered:** Forms are a discriminated create/edit/standalone primitive. Collection Forms reference stable Collection and Field IDs and submit through the existing record CRUD authorization spine. Standalone Forms own the same Field definitions, apply defaults, conditions, validation, and attached-reference checks, and return an event-ready value payload without inventing a storage model. Pages own stable Block/Group layout-node IDs; Groups carry layout only and are not registry Blocks. Page and Form read/submit services expose cloned portable definitions. `form.submitted` publication and the Builder host adapter remain in this phase's next slice.
+
 ### Phase 5 — Primitive Actions, Rules, and snapshots
 
 **Goal:** One mutation spine and simple structured orchestration.

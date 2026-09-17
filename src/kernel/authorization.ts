@@ -8,7 +8,9 @@ export interface AuthorizationResource {
     | "collection"
     | "record"
     | "attachment"
-    | "view";
+    | "view"
+    | "form"
+    | "page";
   readonly id: string;
   readonly workspaceId?: string;
   readonly collectionId?: string;
