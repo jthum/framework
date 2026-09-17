@@ -12,11 +12,13 @@ No compatibility with the current Spec, `Host`, `TypeDef`, `WorkflowDef`, widget
 
 ## Progress
 
-| Phase | Status   | Delivered                                                                                          |
-| ----- | -------- | -------------------------------------------------------------------------------------------------- |
-| 0     | Complete | Package boundary, Kernel, Workspace/Actor/Membership, authorization, environment, SQLite           |
-| 1     | Complete | Collection/Field Spec, runtime validation, RecordStore contracts, CRUD, schema materialization     |
-| 2     | Complete | Persisted live Attachments, semantic binding, filtered reads, origin schema, rights and revocation |
+| Phase | Status      | Delivered                                                                                          |
+| ----- | ----------- | -------------------------------------------------------------------------------------------------- |
+| 0     | Complete    | Package boundary, Kernel, Workspace/Actor/Membership, authorization, environment, SQLite           |
+| 1     | Complete    | Collection/Field Spec, runtime validation, RecordStore contracts, CRUD, schema materialization     |
+| 2     | Complete    | Persisted live Attachments, semantic binding, filtered reads, origin schema, rights and revocation |
+| 3     | Complete    | Sources, Views, relationship traversal, Block contracts, lazy renderer registry                    |
+| 4     | In progress | Forms, Pages, Builder projection, executable S1 slice, browser SQLite bridge                       |
 
 Later phases remain intentionally unimplemented; their entries below are the source of truth for scope.
 
@@ -162,7 +164,11 @@ Attachment write and derived re-share APIs are not exposed yet. Their rights are
 
 **Tests:** S1 end-to-end UI; current editor behaviours retained; Spec export/import clones the mould only; Block library remains lazily loaded.
 
-**First contract checkpoint delivered:** Forms are a discriminated create/edit/standalone primitive. Collection Forms reference stable Collection and Field IDs and submit through the existing record CRUD authorization spine. Standalone Forms own the same Field definitions, apply defaults, conditions, validation, and attached-reference checks, and return an event-ready value payload without inventing a storage model. Pages own stable Block/Group layout-node IDs; Groups carry layout only and are not registry Blocks. Page and Form read/submit services expose cloned portable definitions. `form.submitted` publication and the Builder host adapter remain in this phase's next slice.
+**Current checkpoints delivered:** Forms are a discriminated create/edit/standalone primitive. Collection Forms reference stable Collection and Field IDs and submit through the existing record CRUD authorization spine. Standalone Forms own the same Field definitions, apply defaults, conditions, validation, and attached-reference checks, and return an event-ready value payload without inventing a storage model. Pages own stable Block/Group layout-node IDs; Groups carry layout only and are not registry Blocks. Page and Form read/submit services expose cloned portable definitions.
+
+Builder now has an explicit old-Spec-to-framework projection whose unsupported semantics are reported rather than dropped. An executable S1 integration proves a root Space, child App, attached shared Contact Collection, local Invoice Form, related View, and Page without copying shared records. Builder's low-level browser/Node SQLite gateway is bridged to `SqlitePersistenceAdapter` with queued transaction boundaries; the new Kernel does not import the old Host, catalog, or record services. Builder Page layout nodes and lifecycle transitions retain stable IDs instead of deriving identity from position or editable keys.
+
+The remaining Phase 4 work is replacing Builder's old Host-facing editor/runtime seams with the public Kernel contract while retaining its frontend, followed by deleting the temporary projection and old persisted shape. `form.submitted` publication lands with the Phase 5 Event/Action spine rather than introducing a Phase 4-only event mechanism.
 
 ### Phase 5 — Primitive Actions, Rules, and snapshots
 
