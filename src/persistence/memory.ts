@@ -1,4 +1,5 @@
 import { resourceConflict, resourceNotFound } from "../errors/error.ts";
+import { MemoryExecutionStore } from "./executions.ts";
 import type { Actor, Attachment, Membership, Workspace } from "../kernel/model.ts";
 import type { CollectionDefinition } from "../spec/model.ts";
 import type {
@@ -29,9 +30,11 @@ export class MemoryPersistenceAdapter implements PersistenceAdapter {
   readonly kind = "memory";
   private readonly repository = new MemoryCatalogRepository();
   private readonly records = new MemoryRecordStore();
+  private readonly executions = new MemoryExecutionStore();
 
   async open(): Promise<PersistenceSession> {
     return {
+      executions: this.executions,
       catalog: this.repository,
       records: this.records,
       applyWorkspaceSpec: async (workspace, seeds = []) => {

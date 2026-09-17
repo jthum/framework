@@ -12,15 +12,16 @@ No compatibility with the current Spec, `Host`, `TypeDef`, `WorkflowDef`, widget
 
 ## Progress
 
-| Phase | Status   | Delivered                                                                                               |
-| ----- | -------- | ------------------------------------------------------------------------------------------------------- |
-| 0     | Complete | Package boundary, Kernel, Workspace/Actor/Membership, authorization, environment, SQLite                |
-| 1     | Complete | Collection/Field Spec, runtime validation, RecordStore contracts, CRUD, schema materialization          |
-| 2     | Complete | Persisted live Attachments, semantic binding, filtered reads, origin schema, permissions and revocation |
-| 3     | Complete | Sources, Views, relationship traversal, Block contracts, lazy renderer registry                         |
-| 4     | Complete | Forms, Pages, Builder projection, executable S1 slice, browser SQLite bridge                            |
-| 5     | Complete | Short Rules, Action/Condition registries, Events, snapshots, attached mutations                         |
-| 6     | Complete | Membership ACL, `others`, attenuation, explicit re-share, spawn policy, S3 proof                        |
+| Phase | Status      | Delivered                                                                                               |
+| ----- | ----------- | ------------------------------------------------------------------------------------------------------- |
+| 0     | Complete    | Package boundary, Kernel, Workspace/Actor/Membership, authorization, environment, SQLite                |
+| 1     | Complete    | Collection/Field Spec, runtime validation, RecordStore contracts, CRUD, schema materialization          |
+| 2     | Complete    | Persisted live Attachments, semantic binding, filtered reads, origin schema, permissions and revocation |
+| 3     | Complete    | Sources, Views, relationship traversal, Block contracts, lazy renderer registry                         |
+| 4     | Complete    | Forms, Pages, Builder projection, executable S1 slice, browser SQLite bridge                            |
+| 5     | Complete    | Short Rules, Action/Condition registries, Events, snapshots, attached mutations                         |
+| 6     | Complete    | Membership ACL, `others`, attenuation, explicit re-share, spawn policy, S3 proof                        |
+| 7     | In progress | Durable RuleExecution checkpoint persistence and atomic revision checks                                 |
 
 Later phases remain intentionally unimplemented; their entries below are the source of truth for scope.
 
@@ -247,6 +248,8 @@ semantics continue in Phase 6.
 **Out:** distributed workflow engine and every retry policy.
 
 **Tests:** reload during a wait and resume as a User; execution Actor preserved across resume.
+
+**First checkpoint:** the persistence session now exposes an ExecutionStore, implemented by Memory and SQLite. RuleExecution stores its original execution context, immutable Rule snapshot, serializable checkpoint, status, and revision. Updates atomically advance exactly one revision and reject competing/stale writes or changes to execution identity. Workspace-scoped reads never return another Workspace's execution. This is trusted infrastructure, not an actor-facing API. The short runner is unchanged; pause/resume and ActorRequest are not exposed yet. Revision checks prevent competing checkpoint updates, but do not promise exactly-once external Action effects; the resumable runner must define claim/recovery and idempotency semantics before advertising those guarantees.
 
 ### Phase 8 — AgentRuntime
 

@@ -2,6 +2,7 @@ import type { Actor, Attachment, Membership, Workspace } from "../kernel/model.t
 import type { RecordStore } from "./records.ts";
 import type { CollectionRecord } from "./records.ts";
 import type { CollectionDefinition } from "../spec/model.ts";
+import type { ExecutionStore } from "./executions.ts";
 
 export interface CollectionSeed {
   readonly collection: CollectionDefinition;
@@ -46,6 +47,7 @@ export interface PersistenceAdapter {
 }
 
 export interface PersistenceSession {
+  readonly executions: ExecutionStore;
   readonly catalog: CatalogRepository;
   readonly records: RecordStore;
   /** Atomically applies schema/catalog changes and optional initial records. */

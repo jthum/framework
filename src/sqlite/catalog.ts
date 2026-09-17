@@ -12,6 +12,7 @@ import type {
   PersistenceSession,
 } from "../persistence/catalog.ts";
 import { SqliteRecordStore } from "./records.ts";
+import { SqliteExecutionStore } from "./executions.ts";
 import {
   assertActorIntegrity,
   assertAttachmentIntegrity,
@@ -37,9 +38,11 @@ export class SqlitePersistenceAdapter implements PersistenceAdapter {
   async open(): Promise<PersistenceSession> {
     const database = await this.openDatabase();
     const records = new SqliteRecordStore(database);
+    const executions = new SqliteExecutionStore(database);
     try {
       await initializeCatalog(database);
       await records.initialize();
+      await executions.initialize();
     } catch (error) {
       try {
         await database.close();
@@ -49,6 +52,7 @@ export class SqlitePersistenceAdapter implements PersistenceAdapter {
       throw error;
     }
     return {
+      executions,
       catalog: new SqliteCatalogRepository(database),
       records,
       applyWorkspaceSpec: (workspace, seeds = []) =>
@@ -64,7 +68,7 @@ export class SqlitePersistenceAdapter implements PersistenceAdapter {
   }
 }
 
-export const SQLITE_CATALOG_SCHEMA_VERSION = 8;
+export const SQLITE_CATALOG_SCHEMA_VERSION = 9;
 
 export class SqliteCatalogRepository implements CatalogRepository {
   constructor(private readonly database: SqliteDatabase) {}
