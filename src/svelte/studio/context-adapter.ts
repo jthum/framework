@@ -7,6 +7,7 @@ import type {
 import type { WorkspaceClient } from "@jthum/framework/client";
 import type { CollectionDraft, EditorContext, FormDraft, LifecycleDraft } from "./authoring.js";
 import { fieldDraftFromDefinition } from "./field-adapter.js";
+import { formDraftFromDefinition } from "./form-adapter.js";
 import { ruleDraftFromDefinition } from "./rule-adapter.js";
 import {
   localViewSchemas,
@@ -63,7 +64,7 @@ export function editorContextFromSpec(
   return {
     collections,
     views: spec.views.map((view) => viewDraftFromDefinition(view, schemas)),
-    forms: spec.forms.map((form) => formDraft(form, spec, identities)),
+    forms: spec.forms.map((form) => formDraftFromDefinition(form, spec, identities)),
     rules: spec.rules.map((rule) => ruleDraftFromDefinition(rule, spec, schemas)),
   };
 }
@@ -143,38 +144,5 @@ function lifecycleDraft(collection: CollectionDefinition, fieldId: string): Life
       from: [...transition.from],
       to: transition.to,
     })),
-  };
-}
-
-function formDraft(
-  form: FormDefinition,
-  spec: Spec,
-  sources: readonly CollectionDraft[],
-): FormDraft {
-  const identity = {
-    id: form.id,
-    key: form.key,
-    label: form.label,
-    ...(form.description ? { description: form.description } : {}),
-    ...(form.meta ? { meta: structuredClone(form.meta) } : {}),
-    ...(form.submit ? { submit: structuredClone(form.submit) } : {}),
-  };
-  if (form.mode === "standalone")
-    return {
-      ...identity,
-      mode: form.mode,
-      inputs: form.fields.map((field) => fieldDraftFromDefinition(field, form.fields, sources)),
-    };
-  const collection = spec.collections.find((candidate) => candidate.id === form.collectionId);
-  if (!collection) throw new Error(`Form Collection ${form.collectionId} is unavailable.`);
-  return {
-    ...identity,
-    mode: form.mode,
-    type: collection.key,
-    fields: form.fieldIds.map((id) => {
-      const field = collection.fields.find((candidate) => candidate.id === id);
-      if (!field) throw new Error(`Form Field ${id} is unavailable.`);
-      return field.key;
-    }),
   };
 }

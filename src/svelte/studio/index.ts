@@ -21,6 +21,12 @@ export {
   type ViewAuthoringSchemas,
 } from "./view-adapter.js";
 export { default as FormEditor } from "./form-editor.svelte";
+export {
+  formDefinitionFromDraft,
+  formDraftFromDefinition,
+  prepareFormField,
+} from "./form-adapter.js";
+export { createFormActions, type FormAuthoringOptions } from "./form-authoring.js";
 export { default as RuleEditor } from "./rule-editor.svelte";
 export { default as RuleSteps } from "./automation-step-list.svelte";
 export { default as RuleConditions } from "./automation-predicate-editor.svelte";
