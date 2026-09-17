@@ -89,7 +89,7 @@ export function ruleDefinitionFromDraft(draft: RuleDraft, spec: Spec): RuleDefin
 
 function draftStep(step: CanonicalStep, spec: Spec): RuleStep {
   const id = step.id;
-  if ("action" in step) return { id, effect: draftAction(step.action) };
+  if ("action" in step) return { id, effect: draftAction(step.action, spec) };
   if ("invoke" in step)
     return {
       id,
@@ -169,7 +169,7 @@ function draftStep(step: CanonicalStep, spec: Spec): RuleStep {
 
 function canonicalStep(step: RuleStep, spec: Spec): CanonicalStep {
   const id = step.id || nanoid();
-  if ("effect" in step) return { id, action: canonicalAction(step.effect) };
+  if ("effect" in step) return { id, action: canonicalAction(step.effect, spec) };
   if ("invoke" in step)
     return {
       id,
@@ -245,11 +245,9 @@ function canonicalStep(step: RuleStep, spec: Spec): CanonicalStep {
   };
 }
 
-function draftAction(action: RuleAction): AutomationEffect {
+function draftAction(action: RuleAction, spec: Spec): AutomationEffect {
   return {
-    key: action.key,
-    ...(action.input ? { params: draftClone<Record<string, AutomationValue>>(action.input) } : {}),
-    ...(action.runAs ? { runAs: action.runAs } : {}),
+    ...draftActionCall(action, spec),
     ...(action.as ? { as: action.as } : {}),
     ...(action.retry
       ? {
@@ -259,33 +257,61 @@ function draftAction(action: RuleAction): AutomationEffect {
           },
         }
       : {}),
-    ...(action.compensate ? { compensate: draftActionCall(action.compensate) } : {}),
+    ...(action.compensate ? { compensate: draftActionCall(action.compensate, spec) } : {}),
   };
 }
 
-function canonicalAction(effect: AutomationEffect): RuleAction {
+function canonicalAction(effect: AutomationEffect, spec: Spec): RuleAction {
   return {
-    key: effect.key,
-    ...(effect.params ? { input: structuredClone(effect.params) } : {}),
-    ...(effect.runAs ? { runAs: effect.runAs } : {}),
+    ...canonicalActionCall(effect, spec),
     ...(effect.as ? { as: effect.as } : {}),
     ...(effect.retry ? { retry: structuredClone(effect.retry) } : {}),
-    ...(effect.compensate ? { compensate: canonicalActionCall(effect.compensate) } : {}),
+    ...(effect.compensate ? { compensate: canonicalActionCall(effect.compensate, spec) } : {}),
   };
 }
 
-function draftActionCall(action: RuleActionCall): AutomationEffectCall {
+function draftActionCall(action: RuleActionCall, spec: Spec): AutomationEffectCall {
+  let key = action.key;
+  let params = action.input ? draftClone<Record<string, AutomationValue>>(action.input) : undefined;
+  if (key === "records.update" && params?.record !== undefined) key = "records.set";
+  if (
+    key === "records.create" &&
+    typeof params?.sourceId === "string" &&
+    !("type" in params) &&
+    !("fields" in params)
+  ) {
+    const { sourceId: id, values, ...rest } = params;
+    params = {
+      ...rest,
+      type: sourceKey(spec, id as string),
+      ...(values !== undefined ? { fields: values } : {}),
+    };
+  }
   return {
-    key: action.key,
-    ...(action.input ? { params: draftClone<Record<string, AutomationValue>>(action.input) } : {}),
+    key,
+    ...(params ? { params } : {}),
     ...(action.runAs ? { runAs: action.runAs } : {}),
   };
 }
 
-function canonicalActionCall(effect: AutomationEffectCall): RuleActionCall {
+function canonicalActionCall(effect: AutomationEffectCall, spec: Spec): RuleActionCall {
+  const key = effect.key === "records.set" ? "records.update" : effect.key;
+  let input = effect.params ? structuredClone(effect.params) : undefined;
+  if (key === "records.create" && input && "type" in input && !("sourceId" in input)) {
+    if (typeof input.type !== "string")
+      throw new RuleAuthoringError("Choose a record Source before saving a create step.");
+    if ("values" in input)
+      throw new RuleAuthoringError("A create step cannot mix fields and canonical values.");
+    const { type, fields, ...rest } = input;
+    input = {
+      ...rest,
+      sourceId: sourceId(spec, type),
+      ...(fields !== undefined ? { values: fields } : {}),
+    };
+  }
   return {
-    key: effect.key,
-    ...(effect.params ? { input: structuredClone(effect.params) } : {}),
+    key,
+    ...(input ? { input } : {}),
     ...(effect.runAs ? { runAs: effect.runAs } : {}),
   };
 }

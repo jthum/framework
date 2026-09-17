@@ -24,6 +24,13 @@ references, stable step identities, nested control flow, and optional run-as bin
 its key-oriented working vocabulary private and automatically assigns missing step identities.
 Execution remains a Kernel responsibility rather than being copied into Studio.
 
+Friendly Studio record steps translate to executable canonical inputs: “Update current record”
+becomes `records.update`; “Create a record” resolves the selected key to stable `sourceId` and
+maps its fields to Action `values`. The same translation applies to compensation. Reading a
+canonical Rule restores the friendly working controls without changing persisted contract keys,
+identities, Actor bindings, retries or custom Action payloads. This is an authoring boundary,
+not a Kernel alias for old Actions. Query-step execution remains a separate cutover seam.
+
 Studio consumers can style the semantic tokens and compose host preview snippets. Runtime-specific compatibility diagnostics and registries must come from the host, never an assumed browser runtime.
 
 All four full editors accept `class` for outer layout adjustments. Their controls use the shared chrome Card and semantic tokens, so the implementing app retains its theme rather than adopting a hard-coded Studio theme. The shadcn-Svelte extraction keeps the existing chrome/header/body/footer composition intact.

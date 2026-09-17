@@ -278,6 +278,16 @@ by the sheet are retained. Existing JSON fields are preserved read-only, not sil
 Builder.run can edit its independent approval example in the Framework run preview; its Host
 business-record editor remains outside this cutover. No new workflow format or task store added.
 
+**Record-backed cutover checkpoint:** the context-bound client exposes short Rule and Action
+execution. Studio create/update steps and compensation translate to the executable stable-ID
+Action contracts, without compatibility aliases in the Kernel. Record create/edit Form intake
+shares Action mutation publication, including conditional hidden-field clearing, before its
+Form-submission Event. Deterministic Builder.run tests author a record approval, create the
+record through an Action, pause/reopen SQLite, respond, and update that original record with a
+short Event-triggered follow-up as the original Actor. This proves one canonical record/execution
+store, not the main shell cutover. Host removal, query-step translation and automatic durable
+Event subscribers remain pending; no dual-write or old-database migration bridge introduced.
+
 ### Phase 8 — AgentRuntime
 
 **Goal:** Agent is an Actor; Rules and UI call an AgentRuntime port; SDK details stay outside the Kernel.

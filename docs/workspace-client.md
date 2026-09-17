@@ -22,6 +22,19 @@ durable Rule execution. Catalog administration and Attachment management remain 
 operations; do not expose trusted persistence discovery APIs through a client. Attachment Sources
 are readable through Source operations, not writable local Collections.
 
+`executeAction(key, input)` and `runRule(key, input)` expose the same context-bound Action/short
+Rule spine. An Action-published Event runs matching short Rules; authorization is checked for
+the Action and its actual record operations. Use `startRule` for a durable wait or User request.
+Published Events still reject durable-only subscribers in the short runner; this does not imply
+automatic durable dispatch or a scheduler.
+
+Local `createRecord`/`updateRecord`/`deleteRecord` are deliberately quiet CRUD primitives. For
+an interactive write that should trigger automations, call the corresponding record Action with
+stable `sourceId`, `recordId` and `values`, or submit a Form. Create/edit Form intake shares the
+Action mutation/event implementation and publishes `record.created` or `record.updated` plus
+effective field changes before `form.submitted`. Standalone Forms publish only `form.submitted`.
+Event handlers run after a successful write; a later Rule failure does not roll that write back.
+
 `RuleExecutionClient` is the smaller execution-only contract implemented by `WorkspaceClient`.
 It includes start/resume, paginated run summaries, selected run details, assigned ActorRequests,
 responses, and explicit termination. Components can accept this smaller port when they need no

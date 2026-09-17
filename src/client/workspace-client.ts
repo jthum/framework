@@ -6,7 +6,7 @@ import type {
   RuleExecutionDetails,
   RuleExecutionSummary,
 } from "../kernel/durable-rules.ts";
-import type { RunRuleInput } from "../kernel/rules.ts";
+import type { RunRuleInput, RuleRun } from "../kernel/rules.ts";
 import type { JsonValue, RuleDefinition } from "../spec/model.ts";
 
 /** Transport-neutral durable operations. Components receive this, never a Kernel or database. */
@@ -47,6 +47,10 @@ export interface WorkspaceClient extends RuleExecutionClient {
   getWorkspace(): Promise<Workspace>;
   applySpec(spec: Spec): Promise<Workspace>;
   listRules(): Promise<readonly RuleDefinition[]>;
+  /** Published Action Events run matching short Rules through the same authorization spine. */
+  executeAction(key: string, input?: Readonly<Record<string, JsonValue>>): Promise<JsonValue>;
+  /** Synchronous workflows; use startRule for durable waits and User requests. */
+  runRule(key: string, input?: RunRuleInput): Promise<RuleRun>;
 
   createRecord(collectionKey: string, values: RecordValues): Promise<CollectionRecord>;
   getRecord(collectionKey: string, recordId: string): Promise<CollectionRecord | null>;
@@ -92,6 +96,12 @@ class LocalWorkspaceClient implements WorkspaceClient {
 
   async listRules(): Promise<readonly RuleDefinition[]> {
     return (await this.getWorkspace()).spec.rules;
+  }
+  executeAction(key: string, input?: Readonly<Record<string, JsonValue>>) {
+    return this.kernel.executeAction(this.context, key, input);
+  }
+  runRule(key: string, input?: RunRuleInput) {
+    return this.kernel.runRule(this.context, key, input);
   }
   listRuleExecutions(limit?: number, offset?: number) {
     return this.kernel.listRuleExecutions(this.context, limit, offset);

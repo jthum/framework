@@ -1,10 +1,120 @@
 import { describe, expect, it } from "vite-plus/test";
 import { ERROR_CODES } from "../errors/error.ts";
 import { MemoryPersistenceAdapter } from "../persistence/memory.ts";
-import type { Spec } from "../spec/model.ts";
+import type { Spec, RuleTriggerDefinition } from "../spec/model.ts";
 import { Kernel } from "./kernel.ts";
 
 describe("Forms and Pages", () => {
+  it("publishes record mutation events before form.submitted, including conditional clearing", async () => {
+    expect.hasAssertions();
+    const events: Array<{ event: string; field: unknown }> = [];
+    const kernel = await Kernel.open({
+      persistence: new MemoryPersistenceAdapter(),
+      actions: [
+        {
+          key: "tests.capture",
+          run: ({ input }) => {
+            if (typeof input.event !== "string") throw new Error("Expected an Event key");
+            events.push({ event: input.event, field: input.field });
+          },
+        },
+      ],
+    });
+    try {
+      const root = await kernel.createRootWorkspace({ name: "Space", user: { name: "Jane" } });
+      const context = { workspaceId: root.workspace.id, actorId: root.user.id };
+      const triggers: RuleTriggerDefinition[] = [
+        { event: "record.created", sourceId: "notes" },
+        { event: "record.updated", sourceId: "notes" },
+        { event: "record.field_changed", sourceId: "notes", fieldId: "enabled" },
+        { event: "record.field_changed", sourceId: "notes", fieldId: "note" },
+        { event: "form.submitted", formId: "create" },
+        { event: "form.submitted", formId: "edit" },
+      ];
+      await kernel.applySpec(context, {
+        ...root.workspace.spec,
+        collections: [
+          {
+            id: "notes",
+            key: "note",
+            label: "Note",
+            fields: [
+              { id: "enabled", key: "enabled", label: "Enabled", type: "boolean", default: true },
+              {
+                id: "note",
+                key: "note",
+                label: "Note",
+                type: "text",
+                behavior: {
+                  visibleWhen: { fieldId: "enabled", operator: "eq", value: true },
+                  hiddenValue: "clear",
+                },
+              },
+            ],
+          },
+        ],
+        forms: [
+          {
+            id: "create",
+            key: "create_note",
+            label: "Create",
+            mode: "create",
+            collectionId: "notes",
+            fieldIds: ["enabled", "note"],
+          },
+          {
+            id: "edit",
+            key: "edit_note",
+            label: "Edit",
+            mode: "edit",
+            collectionId: "notes",
+            fieldIds: ["enabled"],
+          },
+        ],
+        rules: triggers.map((trigger, index) => ({
+          id: `rule-${index}`,
+          key: `capture_${index}`,
+          label: trigger.event,
+          trigger,
+          steps: [
+            {
+              id: `step-${index}`,
+              action: {
+                key: "tests.capture",
+                input: {
+                  event: { $ref: "trigger.event" },
+                  field: trigger.fieldId ? { $ref: "trigger.fieldId" } : null,
+                },
+              },
+            },
+          ],
+        })),
+      });
+      await expect(
+        kernel.submitForm(context, "create_note", { values: { enabled: "invalid" } }),
+      ).rejects.toMatchObject({ code: "VALIDATION.INVALID_INPUT" });
+      expect(events).toEqual([]);
+      const created = await kernel.submitForm(context, "create_note", {
+        values: { note: "A note" },
+      });
+      if (created.mode === "standalone") throw new Error("Expected a record Form");
+      expect(events.map((item) => item.event)).toEqual(["record.created", "form.submitted"]);
+      events.length = 0;
+      await kernel.submitForm(context, "edit_note", {
+        recordId: created.record.id,
+        values: { enabled: false },
+      });
+      expect(events).toEqual([
+        { event: "record.updated", field: null },
+        { event: "record.field_changed", field: "enabled" },
+        { event: "record.field_changed", field: "note" },
+        { event: "form.submitted", field: null },
+      ]);
+      expect((await kernel.getRecord(context, "note", created.record.id))?.values.note).toBe(null);
+    } finally {
+      await kernel.close();
+    }
+  });
   it("submits create, edit, and standalone Forms through one contract", async () => {
     expect.hasAssertions();
     const kernel = await Kernel.open({ persistence: new MemoryPersistenceAdapter() });

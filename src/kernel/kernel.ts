@@ -177,10 +177,28 @@ export class Kernel {
     this.forms = new FormService(
       catalog,
       {
-        create: (context, collectionKey, values) =>
-          this.createRecord(context, collectionKey, values),
-        update: (context, collectionKey, recordId, values) =>
-          this.updateRecord(context, collectionKey, recordId, values),
+        create: async (context, collectionKey, values) => {
+          const collection = await this.requireCollection(context, collectionKey);
+          return this.createActionRecord(
+            context,
+            { sourceId: collection.id, values },
+            async (event) => {
+              await this.rules.dispatch(context, event);
+            },
+          );
+        },
+        update: async (context, collectionKey, recordId, values) => {
+          const collection = await this.requireCollection(context, collectionKey);
+          return (
+            await this.updateActionRecord(
+              context,
+              { sourceId: collection.id, recordId, values },
+              async (event) => {
+                await this.rules.dispatch(context, event);
+              },
+            )
+          ).record;
+        },
         assertReferences: (context, collection, values) =>
           this.assertReferences(context, collection, values),
       },
@@ -871,18 +889,8 @@ export class Kernel {
     return [
       {
         key: "records.create",
-        run: async ({ context, input, runtime, publish }) => {
-          const collection = await this.actionCollection(context, input);
-          const values = actionValues(input.values, "values");
-          const record = await runtime.createRecord(context, collection.key, values);
-          const output = recordValue(record);
-          await publish({
-            event: "record.created",
-            sourceId: collection.id,
-            payload: { record: output, recordId: record.id },
-          });
-          return output;
-        },
+        run: async ({ context, input, publish }) =>
+          recordValue(await this.createActionRecord(context, input, publish)),
       },
       {
         key: "records.get",
@@ -903,49 +911,9 @@ export class Kernel {
       },
       {
         key: "records.update",
-        run: async ({ context, input, runtime, publish }) => {
-          const target = await this.actionRecordTarget(context, input);
-          const values = actionValues(input.values, "values");
-          const previous = await runtime.getSourceRecord(
-            context,
-            target.source.key,
-            target.recordId,
-          );
-          if (!previous) throw resourceNotFound("Record", target.recordId);
-          const record = await runtime.updateSourceRecord(
-            context,
-            target.source.key,
-            target.recordId,
-            values,
-          );
-          const output = recordValue(record, target.source.id);
-          await publish({
-            event: "record.updated",
-            sourceId: target.source.id,
-            payload: {
-              record: output,
-              recordId: record.id,
-              previous: sourceRecordValue(previous.id, target.source.id, previous.values),
-            },
-          });
-          for (const field of target.source.schema.fields)
-            if (
-              field.key in values &&
-              JSON.stringify(previous.values[field.key]) !==
-                JSON.stringify(record.values[field.key])
-            )
-              await publish({
-                event: "record.field_changed",
-                sourceId: target.source.id,
-                fieldId: field.id,
-                payload: {
-                  record: output,
-                  recordId: record.id,
-                  previous: previous.values[field.key] ?? null,
-                  value: record.values[field.key] ?? null,
-                },
-              });
-          return output;
+        run: async ({ context, input, publish }) => {
+          const result = await this.updateActionRecord(context, input, publish);
+          return recordValue(result.record, result.sourceId);
         },
       },
       {
@@ -1043,6 +1011,67 @@ export class Kernel {
         },
       },
     ];
+  }
+
+  /** Actions and Form intake share mutation publication; low-level CRUD stays quiet. */
+  private async createActionRecord(
+    context: ExecutionContext,
+    input: Readonly<Record<string, JsonValue>>,
+    publish: (event: RuleEvent) => Promise<void>,
+  ): Promise<CollectionRecord> {
+    const collection = await this.actionCollection(context, input);
+    const record = await this.createRecord(
+      context,
+      collection.key,
+      actionValues(input.values, "values"),
+    );
+    await publish({
+      event: "record.created",
+      sourceId: collection.id,
+      payload: { record: recordValue(record), recordId: record.id },
+    });
+    return record;
+  }
+
+  private async updateActionRecord(
+    context: ExecutionContext,
+    input: Readonly<Record<string, JsonValue>>,
+    publish: (event: RuleEvent) => Promise<void>,
+  ): Promise<{ record: CollectionRecord; sourceId: string }> {
+    const target = await this.actionRecordTarget(context, input);
+    const values = actionValues(input.values, "values");
+    const previous = await this.getSourceRecord(context, target.source.key, target.recordId);
+    if (!previous) throw resourceNotFound("Record", target.recordId);
+    const record = await this.updateSourceRecord(
+      context,
+      target.source.key,
+      target.recordId,
+      values,
+    );
+    const output = recordValue(record, target.source.id);
+    await publish({
+      event: "record.updated",
+      sourceId: target.source.id,
+      payload: {
+        record: output,
+        recordId: record.id,
+        previous: sourceRecordValue(previous.id, target.source.id, previous.values),
+      },
+    });
+    for (const field of target.source.schema.fields)
+      if (JSON.stringify(previous.values[field.key]) !== JSON.stringify(record.values[field.key]))
+        await publish({
+          event: "record.field_changed",
+          sourceId: target.source.id,
+          fieldId: field.id,
+          payload: {
+            record: output,
+            recordId: record.id,
+            previous: previous.values[field.key] ?? null,
+            value: record.values[field.key] ?? null,
+          },
+        });
+    return { record, sourceId: target.source.id };
   }
 
   private async actionCollection(

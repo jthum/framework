@@ -75,4 +75,57 @@ describe("WorkspaceClient", () => {
     ).rejects.toMatchObject({ code: "RESOURCE.NOT_FOUND" });
     await kernel.close();
   });
+  it("executes Actions and short Rules as the bound Actor and rechecks authorization", async () => {
+    expect.hasAssertions();
+    let allowed = true;
+    const kernel = await Kernel.open({
+      persistence: new MemoryPersistenceAdapter(),
+      authorizer: { authorize: async () => ({ allowed }) },
+    });
+    try {
+      const root = await kernel.createRootWorkspace({ name: "Space", user: { name: "Jane" } });
+      const client = await createWorkspaceClient(kernel, {
+        workspaceId: root.workspace.id,
+        actorId: root.user.id,
+      });
+      const spec = createEmptySpec({ id: "spec", key: "space", label: "Space" });
+      await client.applySpec({
+        ...spec,
+        collections: [
+          {
+            id: "notes",
+            key: "note",
+            label: "Note",
+            fields: [{ id: "title", key: "title", label: "Title", type: "text" }],
+          },
+        ],
+        rules: [
+          {
+            id: "count",
+            key: "count",
+            label: "Count",
+            steps: [
+              {
+                id: "list",
+                action: { key: "records.list", input: { sourceId: "notes" }, as: "notes" },
+              },
+            ],
+          },
+        ],
+      });
+      const created = await client.executeAction("records.create", {
+        sourceId: "notes",
+        values: { title: "Hello" },
+      });
+      expect(created).toMatchObject({ sourceId: "notes", createdBy: root.user.id });
+      expect((await client.runRule("count")).vars.notes).toHaveLength(1);
+      allowed = false;
+      await expect(
+        client.executeAction("records.create", { sourceId: "notes", values: { title: "Blocked" } }),
+      ).rejects.toMatchObject({ code: "PERMISSION.DENIED" });
+      await expect(client.runRule("count")).rejects.toMatchObject({ code: "PERMISSION.DENIED" });
+    } finally {
+      await kernel.close();
+    }
+  });
 });

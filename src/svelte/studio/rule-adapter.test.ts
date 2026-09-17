@@ -1,8 +1,70 @@
 import { describe, expect, it } from "vite-plus/test";
+import type { RuleDefinition } from "@jthum/framework/spec";
 import { ruleSpec } from "../../testing/rule-fixture.js";
 import { ruleDefinitionFromDraft, ruleDraftFromDefinition } from "./rule-adapter.js";
 
 describe("Rule Studio adapter", () => {
+  it("translates friendly create/update steps and compensation to executable canonical Actions", () => {
+    const spec = ruleSpec();
+    const draft = ruleDraftFromDefinition(spec.rules[1]!, spec);
+    draft.steps = [
+      {
+        effect: {
+          key: "records.create",
+          params: { type: "project", fields: { status: "draft" } },
+          as: "created",
+          retry: { max: 2 },
+          compensate: {
+            key: "records.set",
+            params: { record: { $ref: "vars.created" }, values: { status: "cancelled" } },
+          },
+        },
+      },
+    ];
+    const canonical = ruleDefinitionFromDraft(draft, spec);
+    expect(canonical.steps[0]).toMatchObject({
+      action: {
+        key: "records.create",
+        input: { sourceId: "collection-project", values: { status: "draft" } },
+        as: "created",
+        retry: { max: 2 },
+        compensate: { key: "records.update" },
+      },
+    });
+    const again = ruleDraftFromDefinition(canonical, spec);
+    expect(again.steps[0]).toMatchObject(draft.steps[0]!);
+    expect(ruleDefinitionFromDraft(again, spec)).toEqual(canonical);
+  });
+  it("does not rewrite custom Action inputs or ambiguous canonical create inputs", () => {
+    const spec = ruleSpec();
+    const rule: RuleDefinition = {
+      ...spec.rules[1]!,
+      steps: [
+        {
+          id: "custom",
+          action: { key: "billing.create", input: { type: "project", fields: { title: "keep" } } },
+        },
+        {
+          id: "raw-create",
+          action: {
+            key: "records.create",
+            input: { sourceId: "collection-project", type: "custom-value", values: {} },
+          },
+        },
+      ],
+    };
+    expect(ruleDefinitionFromDraft(ruleDraftFromDefinition(rule, spec), spec)).toEqual(rule);
+  });
+  it("rejects unresolved and dynamic friendly create Sources instead of saving broken execution inputs", () => {
+    const spec = ruleSpec();
+    const draft = ruleDraftFromDefinition(spec.rules[1]!, spec);
+    draft.steps = [{ effect: { key: "records.create", params: { type: "missing", fields: {} } } }];
+    expect(() => ruleDefinitionFromDraft(draft, spec)).toThrow("unavailable");
+    draft.steps = [
+      { effect: { key: "records.create", params: { type: { $ref: "vars.type" }, fields: {} } } },
+    ];
+    expect(() => ruleDefinitionFromDraft(draft, spec)).toThrow("Choose a record Source");
+  });
   it("preserves canonical ActorRequest Fields through the authoring round trip", () => {
     const spec = ruleSpec();
     const rule = {
@@ -45,7 +107,7 @@ describe("Rule Studio adapter", () => {
           id: "step-gate",
           gate: {
             pass: [
-              { id: "step-update", effect: { key: "records.update", runAs: "trigger" } },
+              { id: "step-update", effect: { key: "records.set", runAs: "trigger" } },
               { id: "step-follow-up", invoke: { workflow: "follow_up" } },
             ],
           },
