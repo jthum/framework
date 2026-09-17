@@ -333,11 +333,41 @@ function requireRuleStepsShape(
     } else if (kind === "delay") {
       requireDurationShape(config.duration, `${at}.duration`, issues);
     } else if (kind === "wait") {
+      if (config.request !== undefined) {
+        if (!isRecord(config.request))
+          issue(issues, `${at}.request`, "SPEC.TYPE_INVALID", "ActorRequest must be an object.");
+        else {
+          requireString(config.request, "label", `${at}.request`, issues);
+          optionalString(config.request, "actor", `${at}.request`, issues);
+          if (!Array.isArray(config.request.fields))
+            issue(
+              issues,
+              `${at}.request.fields`,
+              "SPEC.TYPE_INVALID",
+              "Request Fields must be an array.",
+            );
+          else
+            config.request.fields.forEach((field, index) =>
+              requireFieldShape(field, `${at}.request.fields.${index}`, issues),
+            );
+        }
+      }
       optionalString(config, "signal", at, issues);
       if (config.timeout !== undefined)
         requireDurationShape(config.timeout, `${at}.timeout`, issues);
-      if (config.signal === undefined && config.timeout === undefined)
-        issue(issues, at, "SPEC.VALUE_REQUIRED", "Wait needs a signal or timeout.");
+      if (
+        config.signal === undefined &&
+        config.timeout === undefined &&
+        config.request === undefined
+      )
+        issue(issues, at, "SPEC.VALUE_REQUIRED", "Wait needs a signal, timeout, or ActorRequest.");
+      if (config.signal !== undefined && config.request !== undefined)
+        issue(
+          issues,
+          at,
+          "SPEC.PROPERTY_CONFLICT",
+          "Wait cannot combine a signal and ActorRequest.",
+        );
       optionalString(config, "as", at, issues);
       requireOptionalRuleSteps(config.onSignal, `${at}.onSignal`, issues, ids);
       requireOptionalRuleSteps(config.onTimeout, `${at}.onTimeout`, issues, ids);
@@ -1498,6 +1528,48 @@ function validateRule(
   }
   const ruleIds = new Set(spec.rules.map((item) => item.id));
   validateRuleStepReferences(rule.steps, `${path}.steps`, ruleIds, issues);
+  validateRuleRequests(rule.steps, `${path}.steps`, sourceIds, issues);
+}
+
+function validateRuleRequests(
+  steps: readonly RuleStep[],
+  path: string,
+  sourceIds: ReadonlySet<string>,
+  issues: ValidationIssue[],
+): void {
+  steps.forEach((step, index) => {
+    const at = `${path}.${index}`;
+    if ("wait" in step && step.wait.request) {
+      const request = step.wait.request;
+      if (request.actor && request.actor !== "trigger" && !semanticKeyPattern.test(request.actor))
+        issue(
+          issues,
+          `${at}.wait.request.actor`,
+          "SPEC.KEY_INVALID",
+          "Request Actor binding must be semantic.",
+        );
+      unique(request.fields, `${at}.wait.request.fields`, issues);
+      const fields = new Map(request.fields.map((field) => [field.id, field]));
+      request.fields.forEach((field, fieldIndex) =>
+        validateField(field, `${at}.wait.request.fields.${fieldIndex}`, fields, sourceIds, issues),
+      );
+    }
+    const children =
+      "gate" in step
+        ? [step.gate.pass ?? [], step.gate.fail ?? []]
+        : "wait" in step
+          ? [step.wait.onSignal ?? [], step.wait.onTimeout ?? []]
+          : "foreach" in step
+            ? [step.foreach.steps]
+            : "repeat" in step
+              ? [step.repeat.steps]
+              : "parallel" in step
+                ? step.parallel.branches.map((branch) => branch.steps)
+                : [];
+    children.forEach((nested, childIndex) =>
+      validateRuleRequests(nested, `${at}.children.${childIndex}`, sourceIds, issues),
+    );
+  });
 }
 
 function validateRuleStepReferences(

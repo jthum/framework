@@ -170,6 +170,7 @@ function collectRequirements(
         collectRequirements(branch.steps, capabilities, actions);
     } else if ("delay" in step) capabilities.add("durable_waits");
     else if ("wait" in step) {
+      if (step.wait.request) capabilities.add("actor_requests");
       if (step.wait.signal) capabilities.add("signals");
       if (step.wait.timeout !== undefined) capabilities.add("durable_waits");
       collectRequirements(step.wait.onSignal ?? [], capabilities, actions);

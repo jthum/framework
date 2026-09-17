@@ -376,6 +376,12 @@ export type RuleStep =
   | (RuleStepIdentity & { readonly delay: { readonly duration: number | string } })
   | (RuleStepIdentity & {
       readonly wait: {
+        /** Host-rendered User intake; concrete Actor IDs remain instance data. */
+        readonly request?: {
+          readonly actor?: string;
+          readonly label: string;
+          readonly fields: readonly FieldDefinition[];
+        };
         readonly signal?: string;
         readonly timeout?: number | string;
         readonly as?: string;

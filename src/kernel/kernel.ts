@@ -73,6 +73,7 @@ import {
   type RuleServiceOptions,
   type RunRuleInput,
 } from "./rules.ts";
+import type { DurableRuleService, ResumeRuleInput } from "./durable-rules.ts";
 
 export interface KernelOptions {
   readonly persistence: PersistenceAdapter;
@@ -139,6 +140,7 @@ export class Kernel {
   private readonly forms: FormService;
   private readonly pages: PageService;
   private readonly rules: RuleService;
+  private readonly durableRules: DurableRuleService;
   private constructor(
     private readonly persistence: PersistenceSession,
     private readonly catalog: CatalogRepository,
@@ -200,6 +202,22 @@ export class Kernel {
       (context, sourceId, value) => this.resolveRuleSourceInput(context, sourceId, value),
       resolveActorBinding ?? ((request) => this.resolveRuleActor(request)),
       ruleExecution,
+    );
+    this.durableRules = this.rules.durableRunner(
+      persistence.executions,
+      ids,
+      clock,
+      async (context, fields, input) => {
+        const collection: CollectionDefinition = {
+          id: "actor_request",
+          key: "actor_request",
+          label: "ActorRequest",
+          fields,
+        };
+        const values = prepareCreateValues(collection, input);
+        await this.assertReferences(context, collection, values);
+        return { ...values };
+      },
     );
   }
 
@@ -301,6 +319,45 @@ export class Kernel {
   }
   runRule(context: ExecutionContext, key: string, input?: RunRuleInput) {
     return this.rules.run(context, key, input);
+  }
+  startRule(context: ExecutionContext, key: string, input?: RunRuleInput) {
+    this.assertDurableExecution();
+    return this.durableRules.start(context, key, input);
+  }
+  resumeRule(context: ExecutionContext, id: string, input?: ResumeRuleInput) {
+    this.assertDurableExecution();
+    return this.durableRules.resume(context, id, input);
+  }
+  getRuleExecution(context: ExecutionContext, id: string) {
+    return this.durableRules.get(context, id);
+  }
+  getActorRequest(context: ExecutionContext, executionId: string, requestId: string) {
+    return this.durableRules.getRequest(context, executionId, requestId);
+  }
+  listActorRequests(context: ExecutionContext, executionId: string) {
+    return this.durableRules.listRequests(context, executionId);
+  }
+  respondToActorRequest(
+    context: ExecutionContext,
+    executionId: string,
+    requestId: string,
+    values: Readonly<Record<string, JsonValue>>,
+  ) {
+    this.assertDurableExecution();
+    return this.durableRules.respond(context, executionId, requestId, values);
+  }
+  failRuleExecution(context: ExecutionContext, id: string) {
+    return this.durableRules.fail(context, id);
+  }
+  getDurableRuleRuntimeProfile() {
+    return this.durableRules.profile(this.environment.durableRuleExecution);
+  }
+  private assertDurableExecution(): void {
+    if (!this.environment.durableRuleExecution)
+      throw new FrameworkError({
+        code: ERROR_CODES.persistenceUnsupported,
+        message: "This environment does not enable durable Rule execution.",
+      });
   }
   executeAction(
     context: ExecutionContext,

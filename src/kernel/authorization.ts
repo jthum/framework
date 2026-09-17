@@ -14,6 +14,8 @@ export interface AuthorizationResource {
     | "form"
     | "page"
     | "rule"
+    | "execution"
+    | "actor_request"
     | "action";
   readonly id: string;
   readonly workspaceId?: string;
@@ -82,6 +84,8 @@ function requiredPermission(operation: string): Permission {
     operation.endsWith(".read") ||
     operation.endsWith(".list") ||
     operation === "rules.run" ||
+    operation === "rules.resume" ||
+    operation === "actor_requests.respond" ||
     operation === "rules.dispatch" ||
     operation === "actions.execute" ||
     operation === "forms.submit"

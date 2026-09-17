@@ -2,10 +2,12 @@ import { nanoid } from "nanoid";
 
 export type IdKind =
   | "actor"
+  | "actor_request"
   | "attachment"
   | "definition"
   | "membership"
   | "record"
+  | "execution"
   | "spec"
   | "workspace";
 

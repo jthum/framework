@@ -251,6 +251,16 @@ semantics continue in Phase 6.
 
 **First checkpoint:** the persistence session now exposes an ExecutionStore, implemented by Memory and SQLite. RuleExecution stores its original execution context, immutable Rule snapshot, serializable checkpoint, status, and revision. Updates atomically advance exactly one revision and reject competing/stale writes or changes to execution identity. Workspace-scoped reads never return another Workspace's execution. This is trusted infrastructure, not an actor-facing API. The short runner is unchanged; pause/resume and ActorRequest are not exposed yet. Revision checks prevent competing checkpoint updates, but do not promise exactly-once external Action effects; the resumable runner must define claim/recovery and idempotency semantics before advertising those guarantees.
 
+**Execution checkpoint:** an opt-in cooperative runner now exposes start/resume, scoped execution
+inspection, assigned User requests and validated responses. SQLite close/reopen preserves the
+continuation, original Actor, nested Rule snapshots, loop positions, traces and compensation inputs.
+Concurrent resumes claim one revision before effects; uncertain `running` executions are never
+automatically replayed. Explicit management-only termination leaves external reconciliation to the
+host. Requests and their continuation claim persist atomically in one checkpoint. The short runner
+is retained unchanged for ordinary calls and published Events. Hosts supply signal/deadline delivery;
+durable parallel joins and per-item failure continuation remain unsupported, explicitly rejected
+before side effects. No scheduler/webhook or distributed worker is implied by the environment flag.
+
 ### Phase 8 — AgentRuntime
 
 **Goal:** Agent is an Actor; Rules and UI call an AgentRuntime port; SDK details stay outside the Kernel.

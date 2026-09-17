@@ -12,6 +12,10 @@ import type { ActionRegistry, ActionRuntime } from "./action-registry.ts";
 import type { ConditionRegistry } from "./condition-registry.ts";
 import type { AuthorizationRequest } from "./authorization.ts";
 import type { ExecutionContext } from "./model.ts";
+import { DurableRuleService } from "./durable-rules.ts";
+import type { Clock, IdGenerator } from "./defaults.ts";
+import type { ExecutionStore } from "../persistence/executions.ts";
+import type { FieldDefinition } from "../spec/model.ts";
 import {
   checkRuleCompatibility,
   type RuleCompatibilityDiagnostic,
@@ -126,6 +130,51 @@ export class RuleService {
 
   conditionKeys(): ReadonlySet<string> {
     return this.conditions.keys();
+  }
+
+  durableRunner(
+    store: ExecutionStore,
+    ids: IdGenerator,
+    clock: Clock,
+    validateResponse: (
+      context: ExecutionContext,
+      fields: readonly FieldDefinition[],
+      values: Readonly<Record<string, JsonValue>>,
+    ) => Promise<Record<string, JsonValue>>,
+  ): DurableRuleService {
+    return new DurableRuleService(
+      store,
+      this.catalog,
+      ids,
+      clock,
+      {
+        maxSteps: this.maxSteps,
+        maxDepth: this.maxDepth,
+        profile: () => this.profile(),
+        scope: async (context, rule, input) => ({
+          ...emptyScope(context, rule),
+          trigger: {
+            event: input.trigger?.event ?? "rule.called",
+            ...(input.trigger?.sourceId ? { sourceId: input.trigger.sourceId } : {}),
+            ...(input.trigger?.fieldId ? { fieldId: input.trigger.fieldId } : {}),
+            ...(input.trigger?.formId ? { formId: input.trigger.formId } : {}),
+            payload: { ...input.trigger?.payload },
+          },
+          vars: await this.prepareInputs(context, rule, input.input ?? {}),
+        }),
+        leaf: (context, rule, step, scope, state) =>
+          this.runSteps(context, rule, [step], scope, state),
+        test: (predicate, scope) => this.test(predicate, scope),
+        read: resolveReference,
+        values: resolveObject,
+        actor: (context, rule, stepId, binding, scope) =>
+          this.actionContext(context, rule, stepId, binding, scope),
+        compensate: (state) => this.compensate(state, 0),
+        validateResponse,
+      },
+      this.assertContext,
+      this.authorize,
+    );
   }
 
   profile(events: ReadonlySet<string> = new Set()): RuleRuntimeProfile {

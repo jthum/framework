@@ -73,8 +73,8 @@ authorization rather than becoming a permission shortcut.
 The short runner bounds nesting, cascaded steps, loops, and repeats. Retries are process-local, parallel
 branches use deterministic in-process emulation, and successful compensations capture their
 resolved input before later work can mutate the scope. Delay and signal waits fail preflight as
-unsupported: durable Rule execution and persisted traces remain later slices rather than hidden
-approximations.
+unsupported in this short path; durable execution uses the explicit API below rather than hidden
+in-process approximations.
 
 `views.snapshot` takes a stable `viewId`, a target `label`, and optional `key`, `description`,
 View `parameters`, and Collection `meta`. It evaluates the View once and creates a new independent
@@ -82,3 +82,72 @@ local Collection. Projection aliases become Field keys; reference-shaped and str
 flattened to JSON rather than retaining a live relationship to the origin. The Spec change and all
 initial records commit atomically through the persistence adapter. Subsequent edits on either side
 do not synchronize unless an explicit Rule does so.
+
+## Durable execution
+
+Hosts opt in with `EnvironmentProfile.durableRuleExecution`. `startRule(context, key, input)`
+stores a `RuleExecution` and runs until a wait or completion. `resumeRule(context, executionId,
+{ signal?, payload? })` continues a matching signal wait or an elapsed delay/timeout. Numeric
+durations are seconds; strings use `ms`, `s`, `m`, `h`, or `d` (for example `"30m"`). Unsupported
+durations and executable semantics are rejected before the first Action. An elapsed deadline wins
+over a late signal. Hosts arrange delivery/polling; the Kernel does not start timers, a scheduler,
+or webhook listeners. `dispatchEvent` and Action-published events still use the short runner.
+
+The immutable `rule` snapshot fixes the original definition. Invoked Rules are also snapshotted;
+editing the Spec while paused cannot silently replace the next steps. Persisted continuations
+retain scopes, loop positions, nested invocation frames, remaining budget, trace, and compensation
+inputs. Memory and SQLite implement the same execution port. Closing and reopening SQLite during
+a wait does not rerun completed Actions.
+
+A User task is the same wait primitive, not a second workflow shape:
+
+```json
+{
+  "id": "approve",
+  "wait": {
+    "request": {
+      "label": "Approve this expense",
+      "fields": [
+        {
+          "id": "answer",
+          "key": "approved",
+          "label": "Approved",
+          "type": "boolean",
+          "required": true
+        }
+      ]
+    },
+    "as": "approval",
+    "timeout": "2d"
+  }
+}
+```
+
+Assignment defaults to the execution Actor, which must be a User. Optional `request.actor` uses
+the host's existing semantic Actor binding resolver. System and Agent cannot satisfy a request.
+`listActorRequests(context, executionId)` lists only the caller's assigned requests;
+`getActorRequest` requires management permission to inspect another Actor's request.
+`respondToActorRequest(context, executionId, requestId, values)` validates the declared Fields,
+claims the continuation, and returns the responded request—not another Actor's full checkpoint.
+The values become the wait's `as` variable, and `onSignal` handles successful responses;
+`onTimeout` handles expiration. Requests are instance state co-located in the execution checkpoint,
+so request satisfaction and claiming the continuation commit in one atomic revision update.
+
+The original execution Actor stays the Actor after a reviewer responds. Resume checks current
+membership and Rule authorization; Actions use ordinary current authorization and optional
+`runAs`. Inspection/resumption of another Actor's execution and explicit termination require
+management permission. A duplicate response or concurrent resume cannot claim the same revision.
+
+This is **not exactly-once external delivery**. A waiting-to-running compare-and-swap happens
+before resumed effects. A crash or storage failure after an Action can leave its outcome uncertain;
+a `running` execution is never automatically replayed. `failRuleExecution` explicitly terminates
+it without replay or compensation. Hosts must investigate external outcomes; Actions should use
+idempotency where appropriate. Known execution failures attempt captured compensations and become
+terminal failures. If a response committed and subsequent work failed, inspect the request's
+status before retrying it.
+
+`getDurableRuleRuntimeProfile` reports the environment opt-in and installed contracts. Gates,
+bounded loops, nested Rules, process-local retries, compensation, and Action overrides are supported.
+Durable parallel joins and per-item failure continuation are deliberately rejected, not emulated
+incorrectly; they remain Spec capabilities and are still available in the short runner. The durable
+runner is a cooperative reference implementation, not a distributed workflow engine.
