@@ -71,6 +71,34 @@ always comes from the currently visible results, so filtering cannot submit a hi
 `OptionSelect` is the shared single-choice control used by Studio. It accepts readonly option
 lists, a bound value, and an optional change callback; it has no app or session dependency.
 
+`PageEditor` edits canonical `PageDefinition.layout` directly. Supply a Block catalog,
+`onSave(page)`, and a `renderBlock(node)` snippet. The host owns querying, renderer imports,
+and navigation. Optional `getConfig`, `getInputs`, and `getOptions` callbacks customize
+catalog-driven configuration without putting application state into Framework.
+`onFinish()` lets the host remove an edit-mode URL or change its shell.
+Groups and Blocks keep their IDs when moved or configured; Groups are layout nodes,
+not catalog entries. Saves are awaited, duplicate interactions are disabled while saving,
+and failed edits restore the previous layout. Configuration errors keep the settings panel open.
+
+`PageContent` recursively renders canonical layout, passing only Block nodes to the
+host renderer snippet. It supports arbitrary Group nesting without importing renderer code.
+
+`PageList` accepts canonical Page definitions and explicit create/update/delete/reorder
+callbacks. The host supplies `pageHref(page)` and may supply `onOpen(page, editing)` for
+client-side routing. The default falls back to ordinary browser navigation.
+Folder and icon choices are optional presentation conventions in `page.meta`; they are
+not Kernel entities or routing rules. Existing metadata is retained when changing these choices.
+Hosts choose which Pages to include (for example, excluding an implicit Home page), and can
+customize placement and empty-state copy.
+
+```svelte
+<PageEditor {page} {blocks} onSave={savePage}>
+  {#snippet renderBlock(node)}
+    <MyBlock node={node} />
+  {/snippet}
+</PageEditor>
+```
+
 Reusable editors must:
 
 - accept canonical Framework definitions and explicit client or mutation callbacks;

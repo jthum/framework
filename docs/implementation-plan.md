@@ -172,6 +172,24 @@ The context-bound `WorkspaceClient` contract and in-process adapter now provide 
 
 The remaining Phase 4 work is replacing Builder's old Host-facing editor/runtime seams with the public client contract while retaining its frontend, followed by deleting the temporary projection and old persisted shape. The current application shell and editors still use the old Host; the integration seam is not yet a migrated user-facing UI. `form.submitted` publication lands with the Phase 5 Event/Action spine rather than introducing a Phase 4-only event mechanism.
 
+**Phase 4 Studio extraction checkpoint:** Framework owns the semantic Svelte theme,
+shadcn-Svelte primitives, editor actions, form-purpose choices, vertical drag interaction,
+catalog-driven Block picker/settings, canonical Page listing/editor, and recursive Page
+content. Page authoring receives explicit callbacks and renderer snippets, without host
+registry, session, persistence, or SvelteKit imports. Builder's Page components now supply
+host routing, lazy renderers, and data queries. A temporary host adapter maps the existing
+Page storage shape to canonical definitions; it is not a supported legacy import format.
+This does **not** close Phase 4: the main session still uses Host, other editors still need
+canonical contracts, and the old projection/storage path has not been deleted.
+
+**Sequencing decision before deleting Host:** the current app has working automation
+definitions and execution, while canonical `RuleDefinition` currently contains identity
+only. Replacing that path without feature loss requires bringing the necessary Phase 5
+Rule/Action contracts and execution forward, or explicitly keeping Rules on the old path
+until Phase 5 (which means Phase 4 cannot yet claim complete old-runtime deletion).
+Do not silently discard automations or store executable legacy definitions in `meta` as a
+substitute for the planned canonical Rule contract.
+
 ### Phase 5 — Primitive Actions, Rules, and snapshots
 
 **Goal:** One mutation spine and simple structured orchestration.

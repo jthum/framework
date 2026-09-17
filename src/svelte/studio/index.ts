@@ -1,5 +1,9 @@
 export { default as EditorActions } from "./editor-actions.svelte";
 export { default as BlockPicker } from "./block-picker.svelte";
+export { default as BlockSettings } from "./block-settings.svelte";
+export { default as PageEditor } from "./page-editor.svelte";
+export { default as PageContent } from "./page-content.svelte";
+export { default as PageList } from "./page-list.svelte";
 export { default as OptionSelect } from "./option-select.svelte";
 export { default as FormPurposePicker } from "./form-purpose-picker.svelte";
 export { default as NameDialog } from "./name-dialog.svelte";
