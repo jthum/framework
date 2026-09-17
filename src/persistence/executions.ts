@@ -6,6 +6,7 @@ import type { JsonValue, RuleDefinition } from "../spec/model.ts";
 export interface RuleExecution {
   readonly id: string;
   readonly context: ExecutionContext;
+  /** Immutable definition snapshot captured when this execution starts. */
   readonly rule: RuleDefinition;
   readonly revision: number;
   readonly status: "running" | "waiting" | "completed" | "failed";
@@ -24,8 +25,42 @@ export interface ExecutionStore {
 }
 
 export function assertExecutionRevision(execution: RuleExecution, expected: number): void {
-  if (!Number.isSafeInteger(expected) || expected < 0 || execution.revision !== expected + 1)
+  if (
+    !Number.isSafeInteger(expected) ||
+    expected < 0 ||
+    !Number.isSafeInteger(execution.revision) ||
+    execution.revision !== expected + 1
+  )
     throw resourceConflict("An execution update must advance its revision by exactly one.");
+}
+
+export function assertExecutionUpdate(
+  current: RuleExecution | null | undefined,
+  next: RuleExecution,
+  expectedRevision: number,
+): void {
+  assertExecutionRevision(next, expectedRevision);
+  if (
+    !current ||
+    current.id !== next.id ||
+    current.revision !== expectedRevision ||
+    current.context.workspaceId !== next.context.workspaceId ||
+    current.context.actorId !== next.context.actorId ||
+    canonicalJson(current.rule) !== canonicalJson(next.rule) ||
+    current.createdAt !== next.createdAt
+  )
+    throw resourceConflict("RuleExecution changed or its identity does not match.");
+}
+
+/** Compare portable JSON structurally: object property order is not definition identity. */
+function canonicalJson(value: unknown): string | undefined {
+  return JSON.stringify(value, (_key, item: unknown) =>
+    item !== null && typeof item === "object" && !Array.isArray(item)
+      ? Object.fromEntries(
+          Object.entries(item).sort(([left], [right]) => left.localeCompare(right)),
+        )
+      : item,
+  );
 }
 
 export class MemoryExecutionStore implements ExecutionStore {
@@ -46,15 +81,7 @@ export class MemoryExecutionStore implements ExecutionStore {
   async update(execution: RuleExecution, expectedRevision: number): Promise<void> {
     assertExecutionRevision(execution, expectedRevision);
     const current = this.executions.get(execution.id);
-    if (
-      !current ||
-      current.revision !== expectedRevision ||
-      current.context.workspaceId !== execution.context.workspaceId ||
-      current.context.actorId !== execution.context.actorId ||
-      JSON.stringify(current.rule) !== JSON.stringify(execution.rule) ||
-      current.createdAt !== execution.createdAt
-    )
-      throw resourceConflict("RuleExecution changed or its identity does not match.");
+    assertExecutionUpdate(current, execution, expectedRevision);
     this.executions.set(execution.id, structuredClone(execution));
   }
 }

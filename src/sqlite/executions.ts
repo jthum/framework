@@ -1,6 +1,7 @@
 import { resourceConflict } from "../errors/error.ts";
 import {
   assertExecutionRevision,
+  assertExecutionUpdate,
   type ExecutionStore,
   type RuleExecution,
 } from "../persistence/executions.ts";
@@ -55,13 +56,7 @@ export class SqliteExecutionStore implements ExecutionStore {
         [execution.id, execution.context.workspaceId, expectedRevision],
       );
       const current = row ? (JSON.parse(row.execution_json) as RuleExecution) : null;
-      if (
-        !current ||
-        current.context.actorId !== execution.context.actorId ||
-        JSON.stringify(current.rule) !== JSON.stringify(execution.rule) ||
-        current.createdAt !== execution.createdAt
-      )
-        throw resourceConflict("RuleExecution changed or its identity does not match.");
+      assertExecutionUpdate(current, execution, expectedRevision);
       await connection.run(
         "UPDATE rule_executions SET revision = ?, execution_json = ? WHERE id = ? AND revision = ?",
         [execution.revision, JSON.stringify(execution), execution.id, expectedRevision],
