@@ -11,3 +11,4 @@ export {
   ruleDraftFromDefinition,
 } from "./rule-adapter.js";
 export type { RuleDraft, RuleStep } from "./rule-model.js";
+export { editorContextFromSpec, type EditorContextOptions } from "./context-adapter.js";

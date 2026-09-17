@@ -291,13 +291,31 @@
 
 	function setQuerySource(step: RuleStep, source: string): RuleStep {
 		if (!("effect" in step)) return step;
-		const { type: _type, view: _view, ...params } = step.effect.params ?? {};
+		const { type: _type, view: _view, where: _where, ...params } = step.effect.params ?? {};
 		const [kind, key] = source.split(":", 2);
 		if (!key || (kind !== "view" && kind !== "type")) return step;
 		return {
 			...step,
 			effect: { ...step.effect, params: { ...params, [kind === "view" ? "view" : "type"]: key } },
 		};
+	}
+
+	function queryFields(step: RuleStep) {
+		const source = querySource(step);
+		const [kind, key] = source.split(":", 2);
+		if (kind === "type") {
+			return (types.find((type) => type.key === key)?.fields ?? []).map((field) => ({
+				value: field.key,
+				label: field.label,
+				type: field.type,
+				values: field.values,
+			}));
+		}
+		const view = spec?.views.find((candidate) => candidate.key === key);
+		return (view?.expose ?? []).map((field) => ({
+			value: field.replaceAll(".", "_"),
+			label: labelFromKey(field.split(".").at(-1) ?? field),
+		}));
 	}
 
 	function whereFor(step: RuleStep): Record<string, AutomationValue> {
@@ -563,7 +581,7 @@
 					</Field.Field>
 					<Field.Field>
 						<Field.Label>Additional filters</Field.Label>
-						<AutomationValueMapEditor values={whereFor(step)} onValuesChange={(where) => replace(index, setEffectParam(step, "where", where))} keyPlaceholder="Field" references={referencesBefore(index)} />
+						<AutomationValueMapEditor values={whereFor(step)} onValuesChange={(where) => replace(index, setEffectParam(step, "where", where))} keys={queryFields(step)} keyPlaceholder="Field" references={referencesBefore(index)} />
 					</Field.Field>
 				</Field.Group>
 			{:else if "compute" in step}

@@ -274,6 +274,32 @@ function draftActionCall(action: RuleActionCall, spec: Spec): AutomationEffectCa
   let key = action.key;
   let params = action.input ? draftClone<Record<string, AutomationValue>>(action.input) : undefined;
   if (key === "records.update" && params?.record !== undefined) key = "records.set";
+  if (key === "records.list" && typeof params?.sourceId === "string") {
+    const where = draftQueryFilters(params.query, params.sourceId, spec);
+    if (where !== null) {
+      const { sourceId: id, query: _query, ...rest } = params;
+      key = "records.query";
+      params = {
+        ...rest,
+        type: sourceKey(spec, id as string),
+        ...(Object.keys(where).length ? { where } : {}),
+      };
+    }
+  }
+  if (key === "views.query" && typeof params?.viewId === "string") {
+    const view = spec.views.find((candidate) => candidate.id === params?.viewId);
+    if (!view) throw new RuleAuthoringError(`View ${params.viewId} is unavailable.`);
+    const parameters = params.parameters;
+    if (parameters === undefined || isAutomationObject(parameters)) {
+      const { viewId: _viewId, parameters: _parameters, ...rest } = params;
+      key = "records.query";
+      params = {
+        ...rest,
+        view: view.key,
+        ...(parameters && Object.keys(parameters).length ? { where: parameters } : {}),
+      };
+    }
+  }
   if (
     key === "records.create" &&
     typeof params?.sourceId === "string" &&
@@ -295,8 +321,41 @@ function draftActionCall(action: RuleActionCall, spec: Spec): AutomationEffectCa
 }
 
 function canonicalActionCall(effect: AutomationEffectCall, spec: Spec): RuleActionCall {
-  const key = effect.key === "records.set" ? "records.update" : effect.key;
+  let key = effect.key === "records.set" ? "records.update" : effect.key;
   let input = effect.params ? structuredClone(effect.params) : undefined;
+  if (key === "records.query" && input) {
+    const where = queryWhere(input.where);
+    if (typeof input.type === "string" && !("view" in input)) {
+      const source = sourceDefinitionByKey(spec, input.type);
+      const { type: _type, where: _where, ...rest } = input;
+      key = "records.list";
+      input = {
+        ...rest,
+        sourceId: source.id,
+        ...(Object.keys(where).length
+          ? { query: { filter: canonicalQueryFilter(where, source.id, spec) } }
+          : {}),
+      };
+    } else if (typeof input.view === "string" && !("type" in input)) {
+      const view = spec.views.find((candidate) => candidate.key === input?.view);
+      if (!view) throw new RuleAuthoringError(`View ${input.view} is unavailable.`);
+      const allowed = new Set((view.parameters ?? []).map((parameter) => parameter.key));
+      for (const parameter of Object.keys(where))
+        if (!allowed.has(parameter))
+          throw new RuleAuthoringError(
+            `View ${view.key} does not declare the ${parameter} parameter.`,
+          );
+      const { view: _view, where: _where, ...rest } = input;
+      key = "views.query";
+      input = {
+        ...rest,
+        viewId: view.id,
+        ...(Object.keys(where).length ? { parameters: where } : {}),
+      };
+    } else {
+      throw new RuleAuthoringError("Choose one record Source or View before saving a query step.");
+    }
+  }
   if (key === "records.create" && input && "type" in input && !("sourceId" in input)) {
     if (typeof input.type !== "string")
       throw new RuleAuthoringError("Choose a record Source before saving a create step.");
@@ -314,6 +373,73 @@ function canonicalActionCall(effect: AutomationEffectCall, spec: Spec): RuleActi
     ...(input ? { input } : {}),
     ...(effect.runAs ? { runAs: effect.runAs } : {}),
   };
+}
+
+function sourceDefinitionByKey(spec: Spec, key: string) {
+  const source = [...spec.collections, ...spec.sources].find((item) => item.key === key);
+  if (!source) throw new RuleAuthoringError(`Source ${key} is unavailable.`);
+  return source;
+}
+
+function queryWhere(value: AutomationValue | undefined): Record<string, AutomationValue> {
+  if (value === undefined) return {};
+  if (!isAutomationObject(value))
+    throw new RuleAuthoringError("Additional query filters must be a field map.");
+  return value;
+}
+
+function canonicalQueryFilter(
+  where: Record<string, AutomationValue>,
+  sourceIdValue: string,
+  spec: Spec,
+): AutomationValue {
+  const collection = spec.collections.find((candidate) => candidate.id === sourceIdValue);
+  if (!collection)
+    throw new RuleAuthoringError(
+      "Additional filters for attached Sources are not editable until their schema is loaded.",
+    );
+  const filters = Object.entries(where).map(([key, value]) => {
+    const field = collection.fields.find((candidate) => candidate.key === key);
+    if (!field) throw new RuleAuthoringError(`Query Field ${key} is unavailable.`);
+    return { path: [field.id], operator: "eq", value };
+  });
+  return filters.length === 1 ? filters[0]! : { all: filters };
+}
+
+function draftQueryFilters(
+  value: AutomationValue | undefined,
+  sourceIdValue: string,
+  spec: Spec,
+): Record<string, AutomationValue> | null {
+  if (value === undefined) return {};
+  if (!isAutomationObject(value)) return null;
+  const filter = value.filter;
+  if (filter === undefined) return Object.keys(value).length ? null : {};
+  if (Object.keys(value).some((key) => key !== "filter")) return null;
+  const collection = spec.collections.find((candidate) => candidate.id === sourceIdValue);
+  if (!collection || !isAutomationObject(filter)) return null;
+  const items = "all" in filter && Array.isArray(filter.all) ? filter.all : [filter];
+  const where: Record<string, AutomationValue> = {};
+  for (const item of items) {
+    if (
+      !isAutomationObject(item) ||
+      item.operator !== "eq" ||
+      !Array.isArray(item.path) ||
+      item.path.length !== 1 ||
+      typeof item.path[0] !== "string" ||
+      !("value" in item)
+    )
+      return null;
+    const fieldId = item.path[0];
+    const field = collection.fields.find((candidate) => candidate.id === fieldId);
+    if (!field || field.key in where) return null;
+    where[field.key] = item.value as AutomationValue;
+  }
+  return where;
+}
+
+function isAutomationObject(value: AutomationValue): value is Record<string, AutomationValue> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value) && !("$ref" in value));
 }
 
 function draftTrigger(trigger: RuleTriggerDefinition, spec: Spec): AutomationTrigger {

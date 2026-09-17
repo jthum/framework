@@ -55,6 +55,89 @@ describe("Rule Studio adapter", () => {
     };
     expect(ruleDefinitionFromDraft(ruleDraftFromDefinition(rule, spec), spec)).toEqual(rule);
   });
+  it("translates friendly Source and View queries to executable canonical Actions", () => {
+    const base = ruleSpec();
+    const spec = {
+      ...base,
+      views: [
+        {
+          id: "view-active-projects",
+          key: "active_projects",
+          label: "Active projects",
+          source: "project",
+          parameters: [{ key: "status", path: ["field-status"] }],
+        },
+      ],
+    } satisfies typeof base;
+    const draft = ruleDraftFromDefinition(spec.rules[1]!, spec);
+    draft.steps = [
+      {
+        effect: {
+          key: "records.query",
+          params: { type: "project", where: { status: "active" } },
+          as: "projects",
+        },
+      },
+      {
+        effect: {
+          key: "records.query",
+          params: { view: "active_projects", where: { status: { $ref: "vars.status" } } },
+          as: "active",
+        },
+      },
+    ];
+
+    const canonical = ruleDefinitionFromDraft(draft, spec);
+    expect(canonical.steps).toMatchObject([
+      {
+        action: {
+          key: "records.list",
+          input: {
+            sourceId: "collection-project",
+            query: {
+              filter: { path: ["field-status"], operator: "eq", value: "active" },
+            },
+          },
+        },
+      },
+      {
+        action: {
+          key: "views.query",
+          input: {
+            viewId: "view-active-projects",
+            parameters: { status: { $ref: "vars.status" } },
+          },
+        },
+      },
+    ]);
+    expect(ruleDefinitionFromDraft(ruleDraftFromDefinition(canonical, spec), spec)).toEqual(
+      canonical,
+    );
+  });
+
+  it("rejects query fields and View parameters that are not declared", () => {
+    const base = ruleSpec();
+    const spec = {
+      ...base,
+      views: [
+        {
+          id: "view-projects",
+          key: "projects",
+          label: "Projects",
+          source: "project",
+        },
+      ],
+    } satisfies typeof base;
+    const draft = ruleDraftFromDefinition(spec.rules[1]!, spec);
+    draft.steps = [
+      { effect: { key: "records.query", params: { type: "project", where: { missing: 1 } } } },
+    ];
+    expect(() => ruleDefinitionFromDraft(draft, spec)).toThrow("Query Field missing");
+    draft.steps = [
+      { effect: { key: "records.query", params: { view: "projects", where: { status: 1 } } } },
+    ];
+    expect(() => ruleDefinitionFromDraft(draft, spec)).toThrow("does not declare");
+  });
   it("rejects unresolved and dynamic friendly create Sources instead of saving broken execution inputs", () => {
     const spec = ruleSpec();
     const draft = ruleDraftFromDefinition(spec.rules[1]!, spec);

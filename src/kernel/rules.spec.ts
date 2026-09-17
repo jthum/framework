@@ -334,6 +334,63 @@ describe("Kernel Rules", () => {
     );
   });
 
+  it("queries Sources and parameterized Views through built-in Actions", async () => {
+    const { kernel, context, spec } = await bootstrap();
+    await kernel.applySpec(context, {
+      ...spec,
+      views: [
+        {
+          id: "view-projects-by-status",
+          key: "projects_by_status",
+          label: "Projects by status",
+          source: "project",
+          parameters: [{ key: "status", path: ["field-status"] }],
+        },
+      ],
+    });
+    await kernel.createRecord(context, "project", {
+      name: "Website",
+      status: "active",
+      budget: 12_000,
+    });
+    await kernel.createRecord(context, "project", {
+      name: "Later",
+      status: "draft",
+      budget: 4_000,
+    });
+
+    await expect(
+      kernel.executeAction(context, "records.list", {
+        sourceId: "collection-project",
+        query: { filter: { path: ["field-status"], operator: "eq", value: "active" } },
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        sourceId: "collection-project",
+        name: "Website",
+        status: "active",
+      }),
+    ]);
+    await expect(
+      kernel.executeAction(context, "views.query", {
+        viewId: "view-projects-by-status",
+        parameters: { status: "draft" },
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        sourceId: "collection-project",
+        name: "Later",
+        status: "draft",
+      }),
+    ]);
+    await expect(
+      kernel.executeAction(context, "views.query", {
+        viewId: "view-projects-by-status",
+        parameters: { missing: true },
+      }),
+    ).rejects.toMatchObject({ code: ERROR_CODES.validationInvalidInput });
+  });
+
   it("rejects durable steps and missing registry contracts instead of silently skipping them", async () => {
     expect.hasAssertions();
     const { kernel, context, spec } = await bootstrap();

@@ -904,7 +904,10 @@ export class Kernel {
         key: "records.list",
         run: async ({ context, input }) => {
           const source = await this.actionSource(context, input);
-          return (await this.sources.query(context, source.key)).rows.map((record) =>
+          const query = optionalActionObject(input.query, "query") as
+            | SourceQueryDefinition
+            | undefined;
+          return (await this.sources.query(context, source.key, query)).rows.map((record) =>
             sourceRecordValue(record.id, source.id, record.values),
           );
         },
@@ -932,6 +935,28 @@ export class Kernel {
             },
           });
           return { id: target.recordId };
+        },
+      },
+      {
+        key: "views.query",
+        run: async ({ context, input }) => {
+          const workspace = await this.requireWorkspace(context.workspaceId);
+          const viewId = requiredActionString(input.viewId, "viewId");
+          const view = workspace.spec.views.find((candidate) => candidate.id === viewId);
+          if (!view) throw resourceNotFound("View", viewId);
+          const parameters = optionalActionObject(input.parameters, "parameters");
+          const result = await this.views.query(
+            context,
+            view.key,
+            parameters === undefined ? {} : { parameters },
+          );
+          const source = [...workspace.spec.collections, ...workspace.spec.sources].find(
+            (candidate) => candidate.key === view.source,
+          );
+          if (!source) throw resourceNotFound("Source", view.source);
+          return result.data.rows.map((record) =>
+            sourceRecordValue(record.id, source.id, record.values),
+          );
         },
       },
       {

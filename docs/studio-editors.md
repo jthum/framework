@@ -26,10 +26,18 @@ Execution remains a Kernel responsibility rather than being copied into Studio.
 
 Friendly Studio record steps translate to executable canonical inputs: “Update current record”
 becomes `records.update`; “Create a record” resolves the selected key to stable `sourceId` and
-maps its fields to Action `values`. The same translation applies to compensation. Reading a
-canonical Rule restores the friendly working controls without changing persisted contract keys,
-identities, Actor bindings, retries or custom Action payloads. This is an authoring boundary,
-not a Kernel alias for old Actions. Query-step execution remains a separate cutover seam.
+maps its fields to Action `values`. “Query records” becomes `records.list` with an identity-based
+Source filter or `views.query` with declared View parameters. The Kernel supplies both query
+Actions through its ordinary authorized Source and View services. The same translation applies
+to compensation. Reading a canonical Rule restores the friendly working controls without changing
+persisted contract keys, identities, Actor bindings, retries or custom Action payloads. This is an
+authoring boundary, not a Kernel alias for old Actions.
+
+`editorContextFromSpec` projects canonical Collections, Views, Forms and Rules into one Studio
+context. Hosts may supply concrete schemas for attached Sources; unavailable attachments are
+omitted unless another editable definition depends on them. The projection rejects canonical
+features an editor cannot preserve, including JSON fields in the shared field sheet. This makes
+the cutover explicit rather than creating a lossy shadow model.
 
 Studio consumers can style the semantic tokens and compose host preview snippets. Runtime-specific compatibility diagnostics and registries must come from the host, never an assumed browser runtime.
 

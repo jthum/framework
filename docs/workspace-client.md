@@ -28,6 +28,12 @@ the Action and its actual record operations. Use `startRule` for a durable wait 
 Published Events still reject durable-only subscribers in the short runner; this does not imply
 automatic durable dispatch or a scheduler.
 
+The built-in read Actions are `records.list`, which accepts a stable `sourceId` and optional
+canonical Source `query`, and `views.query`, which accepts a stable `viewId` and declared
+`parameters`. Both return record-like values and enforce the same Source/View authorization and
+query validation as direct client calls. They exist so structured Rules can compose reads without
+inventing a second query runtime.
+
 Local `createRecord`/`updateRecord`/`deleteRecord` are deliberately quiet CRUD primitives. For
 an interactive write that should trigger automations, call the corresponding record Action with
 stable `sourceId`, `recordId` and `values`, or submit a Form. Create/edit Form intake shares the

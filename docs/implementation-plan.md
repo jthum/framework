@@ -285,8 +285,17 @@ shares Action mutation publication, including conditional hidden-field clearing,
 Form-submission Event. Deterministic Builder.run tests author a record approval, create the
 record through an Action, pause/reopen SQLite, respond, and update that original record with a
 short Event-triggered follow-up as the original Actor. This proves one canonical record/execution
-store, not the main shell cutover. Host removal, query-step translation and automatic durable
-Event subscribers remain pending; no dual-write or old-database migration bridge introduced.
+store, not the main shell cutover. Host removal and automatic durable Event subscribers remain
+pending; no dual-write or old-database migration bridge introduced.
+
+**Query authoring checkpoint:** Studio's friendly record query compiles to the canonical
+`records.list` or `views.query` Action, with stable Source/View identities and validated field or
+declared-parameter inputs. Both built-ins execute through the authorized Source/View services.
+`editorContextFromSpec` now derives the full key-oriented Studio context from a canonical Spec and
+optional attached Source schemas, rejecting shapes the current editors cannot preserve. Query-step
+translation is therefore complete. Host removal and automatic durable Event subscribers remain
+pending; Builder's old app selector cannot become authoritative until the complete canonical App
+lifecycle moves with it.
 
 ### Phase 8 — AgentRuntime
 
