@@ -30,6 +30,7 @@ export interface CatalogTransaction extends CatalogReader {
   insertWorkspace(workspace: Workspace): Promise<void>;
   insertActor(actor: Actor): Promise<void>;
   insertMembership(membership: Membership): Promise<void>;
+  updateMembership(membership: Membership): Promise<void>;
   updateWorkspace(workspace: Workspace): Promise<void>;
   insertAttachment(attachment: Attachment): Promise<void>;
   revokeAttachment(id: string, actorId: string, stamp: string): Promise<void>;

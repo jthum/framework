@@ -20,8 +20,16 @@ import {
   type Spec,
 } from "../spec/model.ts";
 import { assertValidSpec } from "../spec/validate.ts";
-import { AllowAllAuthorizer, type AuthorizationRequest, type Authorizer } from "./authorization.ts";
-import { AttachmentService, type CreateAttachmentInput } from "./attachments.ts";
+import {
+  MembershipAuthorizer,
+  type AuthorizationRequest,
+  type Authorizer,
+} from "./authorization.ts";
+import {
+  AttachmentService,
+  type CreateAttachmentInput,
+  type ReshareAttachmentInput,
+} from "./attachments.ts";
 import { SourceService } from "./sources.ts";
 import type { SourceColumn, SourceRow } from "./sources.ts";
 import { ViewService } from "./views.ts";
@@ -46,7 +54,17 @@ import {
   prepareMigratedValues,
   prepareUpdateValues,
 } from "./record-values.ts";
-import type { Actor, ActorKind, ExecutionContext, Membership, Workspace } from "./model.ts";
+import {
+  ACCESS_RIGHTS,
+  type AccessRight,
+  type Actor,
+  type ActorKind,
+  type ExecutionContext,
+  type Membership,
+  type Workspace,
+  type WorkspaceAccess,
+  type WorkspacePolicy,
+} from "./model.ts";
 import {
   RuleService,
   type ActorBindingRequest,
@@ -92,6 +110,27 @@ export interface CreateActorInput {
   readonly name: string;
   readonly email?: string;
 }
+
+export interface AddMembershipInput {
+  readonly actorId: string;
+  readonly workspaceId: string;
+  readonly roles?: readonly string[];
+  readonly rights?: readonly AccessRight[];
+}
+
+export interface UpdateMembershipInput {
+  readonly actorId: string;
+  readonly workspaceId: string;
+  readonly roles?: readonly string[];
+  readonly rights: readonly AccessRight[];
+}
+
+export interface UpdateWorkspaceAccessInput {
+  readonly members: readonly AccessRight[];
+  readonly others: readonly AccessRight[];
+}
+
+export type UpdateWorkspacePolicyInput = WorkspacePolicy;
 
 export class Kernel {
   private readonly attachments: AttachmentService;
@@ -166,6 +205,10 @@ export class Kernel {
 
   createAttachment(context: ExecutionContext, input: CreateAttachmentInput) {
     return this.attachments.create(context, input);
+  }
+
+  reshareAttachment(context: ExecutionContext, input: ReshareAttachmentInput) {
+    return this.attachments.reshare(context, input);
   }
 
   listAttachmentsTo(context: ExecutionContext) {
@@ -284,7 +327,7 @@ export class Kernel {
     return new Kernel(
       persistence,
       persistence.catalog,
-      options.authorizer ?? new AllowAllAuthorizer(),
+      options.authorizer ?? new MembershipAuthorizer(persistence.catalog),
       options.ids ?? new NanoIdGenerator(),
       options.clock ?? new SystemClock(),
       options.environment ?? LOCAL_BROWSER_ENVIRONMENT,
@@ -308,6 +351,8 @@ export class Kernel {
       parentId: null,
       rootId: workspaceId,
       name,
+      access: defaultAccess(),
+      policy: defaultPolicy(),
       spec: createEmptySpec({
         id: this.ids.create("spec"),
         key: semanticKey(name),
@@ -336,8 +381,8 @@ export class Kernel {
       updatedAt: stamp,
     };
     const memberships = [
-      membership(this.ids, stamp, userId, workspaceId, ["owner"]),
-      membership(this.ids, stamp, systemId, workspaceId, ["system"]),
+      membership(this.ids, stamp, userId, workspaceId, ["owner"], ACCESS_RIGHTS),
+      membership(this.ids, stamp, systemId, workspaceId, ["system"], ACCESS_RIGHTS),
     ] as const;
 
     await this.catalog.transaction(async (transaction) => {
@@ -366,6 +411,11 @@ export class Kernel {
         workspaceId: context.workspaceId,
       },
     });
+    if (!parent.policy.spawn)
+      throw new FrameworkError({
+        code: ERROR_CODES.permissionDenied,
+        message: "This Workspace does not permit spawning child Workspaces.",
+      });
 
     const name = requiredName(input.name, "Workspace");
     const stamp = this.clock.now();
@@ -376,6 +426,8 @@ export class Kernel {
       rootId: parent.rootId,
       name,
       createdBy: context.actorId,
+      access: defaultAccess(),
+      policy: defaultPolicy(),
       spec: createEmptySpec({
         id: this.ids.create("spec"),
         key: semanticKey(name),
@@ -384,7 +436,14 @@ export class Kernel {
       createdAt: stamp,
       updatedAt: stamp,
     };
-    const ownerMembership = membership(this.ids, stamp, context.actorId, workspace.id, ["owner"]);
+    const ownerMembership = membership(
+      this.ids,
+      stamp,
+      context.actorId,
+      workspace.id,
+      ["owner"],
+      ACCESS_RIGHTS,
+    );
     await this.catalog.transaction(async (transaction) => {
       await transaction.insertWorkspace(workspace);
       await transaction.insertMembership(ownerMembership);
@@ -404,6 +463,11 @@ export class Kernel {
         workspaceId: origin.id,
       },
     });
+    if (!origin.policy.createActors)
+      throw new FrameworkError({
+        code: ERROR_CODES.permissionDenied,
+        message: "This Workspace does not permit creating local Actors.",
+      });
     const stamp = this.clock.now();
     const actor: Actor = {
       id: this.ids.create("actor"),
@@ -419,10 +483,7 @@ export class Kernel {
     return actor;
   }
 
-  async addMembership(
-    context: ExecutionContext,
-    input: { readonly actorId: string; readonly workspaceId: string; readonly roles?: string[] },
-  ): Promise<Membership> {
+  async addMembership(context: ExecutionContext, input: AddMembershipInput): Promise<Membership> {
     await this.assertContext(context);
     const actor = await this.requireActor(input.actorId);
     const workspace = await this.requireWorkspace(input.workspaceId);
@@ -451,9 +512,79 @@ export class Kernel {
       actor.id,
       workspace.id,
       input.roles ?? ["member"],
+      input.rights ?? ["read"],
     );
     await this.catalog.transaction((transaction) => transaction.insertMembership(next));
     return next;
+  }
+
+  async updateMembership(
+    context: ExecutionContext,
+    input: UpdateMembershipInput,
+  ): Promise<Membership> {
+    await this.assertContext(context);
+    const current = await this.catalog.getMembership(input.actorId, input.workspaceId);
+    if (!current) throw resourceNotFound("Membership", `${input.actorId}:${input.workspaceId}`);
+    await this.assertAuthorized({
+      context,
+      operation: "memberships.update",
+      resource: {
+        kind: "membership",
+        id: current.id,
+        workspaceId: current.workspaceId,
+      },
+    });
+    const membership: Membership = {
+      ...current,
+      roles: input.roles === undefined ? current.roles : [...input.roles],
+      rights: normalizedRights(input.rights),
+      updatedAt: this.clock.now(),
+    };
+    await this.catalog.transaction((transaction) => transaction.updateMembership(membership));
+    return membership;
+  }
+
+  async updateWorkspaceAccess(
+    context: ExecutionContext,
+    input: UpdateWorkspaceAccessInput,
+  ): Promise<Workspace> {
+    await this.assertContext(context);
+    const current = await this.requireWorkspace(context.workspaceId);
+    await this.assertAuthorized({
+      context,
+      operation: "workspace.access.update",
+      resource: { kind: "workspace", id: current.id, workspaceId: current.id },
+    });
+    const workspace: Workspace = {
+      ...current,
+      access: {
+        members: normalizedRights(input.members),
+        others: normalizedRights(input.others),
+      },
+      updatedAt: this.clock.now(),
+    };
+    await this.catalog.transaction((transaction) => transaction.updateWorkspace(workspace));
+    return workspace;
+  }
+
+  async updateWorkspacePolicy(
+    context: ExecutionContext,
+    policy: UpdateWorkspacePolicyInput,
+  ): Promise<Workspace> {
+    await this.assertContext(context);
+    const current = await this.requireWorkspace(context.workspaceId);
+    await this.assertAuthorized({
+      context,
+      operation: "workspace.policy.update",
+      resource: { kind: "workspace", id: current.id, workspaceId: current.id },
+    });
+    const workspace: Workspace = {
+      ...current,
+      policy: { ...policy },
+      updatedAt: this.clock.now(),
+    };
+    await this.catalog.transaction((transaction) => transaction.updateWorkspace(workspace));
+    return workspace;
   }
 
   async applySpec(context: ExecutionContext, input: unknown): Promise<Workspace> {
@@ -1136,15 +1267,34 @@ function membership(
   actorId: string,
   workspaceId: string,
   roles: readonly string[],
+  rights: readonly AccessRight[],
 ): Membership {
   return {
     id: ids.create("membership"),
     actorId,
     workspaceId,
     roles: [...roles],
+    rights: [...rights],
     createdAt: stamp,
     updatedAt: stamp,
   };
+}
+
+function defaultAccess(): WorkspaceAccess {
+  return { members: [...ACCESS_RIGHTS], others: [] };
+}
+
+function defaultPolicy(): WorkspacePolicy {
+  return { spawn: true, createActors: true, reshare: false };
+}
+
+function normalizedRights(rights: readonly AccessRight[]): AccessRight[] {
+  if (rights.some((right) => !ACCESS_RIGHTS.includes(right)))
+    throw new FrameworkError({
+      code: ERROR_CODES.validationInvalidInput,
+      message: "Workspace access contains an unsupported right.",
+    });
+  return ACCESS_RIGHTS.filter((right) => rights.includes(right));
 }
 
 function requiredName(value: string, kind: string): string {

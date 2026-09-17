@@ -3,6 +3,22 @@ import type { FieldCondition, Spec } from "../spec/model.ts";
 export const ACTOR_KINDS = ["user", "agent", "system"] as const;
 export type ActorKind = (typeof ACTOR_KINDS)[number];
 
+export const ACCESS_RIGHTS = ["read", "create", "update", "delete", "manage"] as const;
+export type AccessRight = (typeof ACCESS_RIGHTS)[number];
+
+export interface WorkspaceAccess {
+  /** Maximum rights available to direct members, further narrowed by Membership rights. */
+  readonly members: readonly AccessRight[];
+  /** Maximum rights available through an Attachment without origin Membership. */
+  readonly others: readonly AccessRight[];
+}
+
+export interface WorkspacePolicy {
+  readonly spawn: boolean;
+  readonly createActors: boolean;
+  readonly reshare: boolean;
+}
+
 export interface Workspace {
   readonly id: string;
   readonly isRoot: boolean;
@@ -10,6 +26,8 @@ export interface Workspace {
   readonly rootId: string;
   readonly name: string;
   readonly createdBy?: string;
+  readonly access: WorkspaceAccess;
+  readonly policy: WorkspacePolicy;
   readonly spec: Spec;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -31,6 +49,7 @@ export interface Membership {
   readonly actorId: string;
   readonly workspaceId: string;
   readonly roles: readonly string[];
+  readonly rights: readonly AccessRight[];
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -46,6 +65,8 @@ export type AttachmentRight = (typeof ATTACHMENT_RIGHTS)[number];
 /** Instance binding; never serialized into a portable Spec. */
 export interface Attachment {
   readonly id: string;
+  /** Received Attachment when this binding was explicitly re-shared. */
+  readonly parentId?: string;
   /** Stable ID of the target Workspace's Source binding definition. */
   readonly sourceId: string;
   readonly originId: string;

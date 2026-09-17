@@ -162,10 +162,18 @@ export class MemoryCatalogRepository implements CatalogRepository, CatalogTransa
     insertUnique(this.state.memberships, membership, "Membership");
   }
 
+  async updateMembership(membership: Membership): Promise<void> {
+    await assertMembershipIntegrity(this, membership);
+    if (!this.state.memberships.has(membership.id))
+      throw resourceNotFound("Membership", membership.id);
+    this.state.memberships.set(membership.id, clone(membership));
+  }
+
   async updateWorkspace(workspace: Workspace): Promise<void> {
     const previous = this.state.workspaces.get(workspace.id);
     if (!previous) throw resourceNotFound("Workspace", workspace.id);
     assertWorkspaceTopologyUnchanged(previous, workspace);
+    await assertWorkspaceIntegrity(this, workspace);
     this.state.workspaces.set(workspace.id, clone(workspace));
   }
 

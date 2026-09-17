@@ -8,6 +8,32 @@ import { Kernel } from "./kernel.ts";
 import type { ExecutionContext } from "./model.ts";
 
 describe("Kernel catalog skeleton", () => {
+  it("enforces explicit Workspace spawn and local Actor policy", async () => {
+    expect.hasAssertions();
+    const kernel = await Kernel.open({
+      persistence: new MemoryPersistenceAdapter(),
+      ids: sequenceIds(),
+      clock: fixedClock,
+    });
+    const { workspace, user } = await kernel.createRootWorkspace({
+      name: "Space",
+      user: { name: "Jane" },
+    });
+    const context = { workspaceId: workspace.id, actorId: user.id };
+    await kernel.updateWorkspacePolicy(context, {
+      spawn: false,
+      createActors: false,
+      reshare: false,
+    });
+    await expect(kernel.createWorkspace(context, { name: "App" })).rejects.toMatchObject({
+      code: ERROR_CODES.permissionDenied,
+    });
+    await expect(
+      kernel.createActor(context, { kind: "user", name: "Candidate" }),
+    ).rejects.toMatchObject({ code: ERROR_CODES.permissionDenied });
+    await kernel.close();
+  });
+
   it("authorizes every actor-facing catalog read", async () => {
     expect.hasAssertions();
     const requests: AuthorizationRequest[] = [];

@@ -63,7 +63,7 @@ export class SqlitePersistenceAdapter implements PersistenceAdapter {
   }
 }
 
-export const SQLITE_CATALOG_SCHEMA_VERSION = 6;
+export const SQLITE_CATALOG_SCHEMA_VERSION = 7;
 
 export class SqliteCatalogRepository implements CatalogRepository {
   constructor(private readonly database: SqliteDatabase) {}
@@ -152,6 +152,7 @@ class SqliteCatalogTransaction implements CatalogTransaction {
     await assertAttachmentIntegrity(this, attachment);
     await insert(this.connection, "attachments", [
       attachment.id,
+      attachment.parentId ?? null,
       attachment.sourceId,
       attachment.originId,
       attachment.targetId,
@@ -227,6 +228,8 @@ class SqliteCatalogTransaction implements CatalogTransaction {
       workspace.rootId,
       workspace.name,
       workspace.createdBy ?? null,
+      JSON.stringify(workspace.access),
+      JSON.stringify(workspace.policy),
       JSON.stringify(workspace.spec),
       workspace.createdAt,
       workspace.updatedAt,
@@ -254,12 +257,30 @@ class SqliteCatalogTransaction implements CatalogTransaction {
       membership.actorId,
       membership.workspaceId,
       JSON.stringify(membership.roles),
+      JSON.stringify(membership.rights),
       membership.createdAt,
       membership.updatedAt,
     ]);
   }
 
+  async updateMembership(membership: Membership): Promise<void> {
+    await assertMembershipIntegrity(this, membership);
+    const existing = await this.getMembership(membership.actorId, membership.workspaceId);
+    if (!existing || existing.id !== membership.id)
+      throw resourceNotFound("Membership", membership.id);
+    await this.connection.run(
+      "UPDATE memberships SET roles_json = ?, rights_json = ?, updated_at = ? WHERE id = ?",
+      [
+        JSON.stringify(membership.roles),
+        JSON.stringify(membership.rights),
+        membership.updatedAt,
+        membership.id,
+      ],
+    );
+  }
+
   async updateWorkspace(workspace: Workspace): Promise<void> {
+    await assertWorkspaceIntegrity(this, workspace);
     await updateWorkspace(this.connection, workspace);
   }
 }
@@ -271,10 +292,12 @@ async function updateWorkspace(connection: SqliteConnection, workspace: Workspac
   if (!existing) throw resourceNotFound("Workspace", workspace.id);
   assertWorkspaceTopologyUnchanged(workspaceFromRow(existing), workspace);
   await connection.run(
-    "UPDATE workspaces SET name = ?, created_by = ?, spec_json = ?, updated_at = ? WHERE id = ?",
+    "UPDATE workspaces SET name = ?, created_by = ?, access_json = ?, policy_json = ?, spec_json = ?, updated_at = ? WHERE id = ?",
     [
       workspace.name,
       workspace.createdBy ?? null,
+      JSON.stringify(workspace.access),
+      JSON.stringify(workspace.policy),
       JSON.stringify(workspace.spec),
       workspace.updatedAt,
       workspace.id,
@@ -438,6 +461,8 @@ async function initializeCatalog(database: SqliteDatabase): Promise<void> {
       root_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       created_by TEXT,
+      access_json TEXT NOT NULL,
+      policy_json TEXT NOT NULL,
       spec_json TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
@@ -469,6 +494,7 @@ async function initializeCatalog(database: SqliteDatabase): Promise<void> {
       actor_id TEXT NOT NULL REFERENCES actors(id) ON DELETE CASCADE,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
       roles_json TEXT NOT NULL,
+      rights_json TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       UNIQUE (actor_id, workspace_id)
@@ -479,6 +505,7 @@ async function initializeCatalog(database: SqliteDatabase): Promise<void> {
 
     CREATE TABLE IF NOT EXISTS attachments (
       id TEXT PRIMARY KEY,
+      parent_id TEXT REFERENCES attachments(id),
       source_id TEXT NOT NULL,
       origin_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
       target_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -508,13 +535,13 @@ async function readSchemaVersion(database: SqliteDatabase): Promise<number> {
 
 const insertStatements = {
   attachments:
-    "INSERT INTO attachments (id, source_id, origin_id, target_id, collection_id, filter_json, rights_json, allow_reshare, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO attachments (id, parent_id, source_id, origin_id, target_id, collection_id, filter_json, rights_json, allow_reshare, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   workspaces:
-    "INSERT INTO workspaces (id, is_root, parent_id, root_id, name, created_by, spec_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO workspaces (id, is_root, parent_id, root_id, name, created_by, access_json, policy_json, spec_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   actors:
     "INSERT INTO actors (id, origin_id, root_id, kind, name, email, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
   memberships:
-    "INSERT INTO memberships (id, actor_id, workspace_id, roles_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+    "INSERT INTO memberships (id, actor_id, workspace_id, roles_json, rights_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
 } as const;
 
 async function insert(
@@ -549,6 +576,8 @@ interface WorkspaceRow {
   root_id: string;
   name: string;
   created_by: string | null;
+  access_json: string;
+  policy_json: string;
   spec_json: string;
   created_at: string;
   updated_at: string;
@@ -556,6 +585,7 @@ interface WorkspaceRow {
 
 interface AttachmentRow {
   id: string;
+  parent_id: string | null;
   source_id: string;
   origin_id: string;
   target_id: string;
@@ -572,6 +602,7 @@ interface AttachmentRow {
 function attachmentFromRow(row: AttachmentRow): Attachment {
   return {
     id: row.id,
+    ...(row.parent_id === null ? {} : { parentId: row.parent_id }),
     sourceId: row.source_id,
     originId: row.origin_id,
     targetId: row.target_id,
@@ -604,6 +635,7 @@ interface MembershipRow {
   actor_id: string;
   workspace_id: string;
   roles_json: string;
+  rights_json: string;
   created_at: string;
   updated_at: string;
 }
@@ -616,6 +648,8 @@ function workspaceFromRow(row: WorkspaceRow): Workspace {
     rootId: row.root_id,
     name: row.name,
     ...(row.created_by === null ? {} : { createdBy: row.created_by }),
+    access: JSON.parse(row.access_json) as Workspace["access"],
+    policy: JSON.parse(row.policy_json) as Workspace["policy"],
     spec: JSON.parse(row.spec_json) as Spec,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -641,6 +675,7 @@ function membershipFromRow(row: MembershipRow): Membership {
     actorId: row.actor_id,
     workspaceId: row.workspace_id,
     roles: JSON.parse(row.roles_json) as string[],
+    rights: JSON.parse(row.rights_json) as Membership["rights"],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

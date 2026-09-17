@@ -1,5 +1,6 @@
 import { resourceConflict, resourceNotFound } from "../errors/error.ts";
 import {
+  ACCESS_RIGHTS,
   ATTACHMENT_RIGHTS,
   type Actor,
   type Attachment,
@@ -13,6 +14,14 @@ export async function assertWorkspaceIntegrity(
   catalog: CatalogReader,
   workspace: Workspace,
 ): Promise<void> {
+  assertRights(workspace.access.members, "Workspace member");
+  assertRights(workspace.access.others, "Workspace others");
+  if (
+    typeof workspace.policy.spawn !== "boolean" ||
+    typeof workspace.policy.createActors !== "boolean" ||
+    typeof workspace.policy.reshare !== "boolean"
+  )
+    throw resourceConflict("Workspace policy values must be booleans.");
   if (workspace.isRoot) {
     if (workspace.parentId !== null || workspace.rootId !== workspace.id) {
       throw resourceConflict("A root Workspace must have no parent and reference itself as root.");
@@ -51,6 +60,7 @@ export async function assertMembershipIntegrity(
   catalog: CatalogReader,
   membership: Membership,
 ): Promise<void> {
+  assertRights(membership.rights, "Membership");
   const actor = await catalog.getActor(membership.actorId);
   if (!actor) throw resourceNotFound("Actor", membership.actorId);
   const workspace = await catalog.getWorkspace(membership.workspaceId);
@@ -60,10 +70,33 @@ export async function assertMembershipIntegrity(
   }
 }
 
+function assertRights(rights: readonly string[], kind: string): void {
+  if (
+    new Set(rights).size !== rights.length ||
+    rights.some((right) => !ACCESS_RIGHTS.includes(right as (typeof ACCESS_RIGHTS)[number]))
+  )
+    throw resourceConflict(`${kind} rights must be a unique set of supported rights.`);
+}
+
 export async function assertAttachmentIntegrity(
   catalog: CatalogReader,
   attachment: Attachment,
 ): Promise<void> {
+  const parent =
+    attachment.parentId === undefined ? null : await catalog.getAttachment(attachment.parentId);
+  if (attachment.parentId !== undefined && !parent)
+    throw resourceNotFound("Attachment", attachment.parentId);
+  if (parent) {
+    if (parent.revokedAt !== undefined || !parent.allowReshare)
+      throw resourceConflict("A derived Attachment requires a live re-shareable parent.");
+    if (
+      parent.targetId === attachment.targetId ||
+      parent.originId !== attachment.originId ||
+      parent.collectionId !== attachment.collectionId ||
+      attachment.rights.some((right) => !parent.rights.includes(right))
+    )
+      throw resourceConflict("A derived Attachment must preserve origin and attenuate rights.");
+  }
   const origin = await catalog.getWorkspace(attachment.originId);
   if (!origin) throw resourceNotFound("Workspace", attachment.originId);
   const target = await catalog.getWorkspace(attachment.targetId);

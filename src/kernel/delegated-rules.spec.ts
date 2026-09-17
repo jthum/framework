@@ -2,7 +2,6 @@ import { describe, expect, it } from "vite-plus/test";
 import { ERROR_CODES } from "../errors/error.ts";
 import { MemoryPersistenceAdapter } from "../persistence/memory.ts";
 import { createEmptySpec, type RuleDefinition, type Spec } from "../spec/model.ts";
-import type { AuthorizationRequest } from "./authorization.ts";
 import type { Clock, IdGenerator, IdKind } from "./defaults.ts";
 import { Kernel } from "./kernel.ts";
 
@@ -10,25 +9,10 @@ describe("delegated Rule execution", () => {
   it("rechecks origin authority for attached writes and explicit Actor overrides", async () => {
     expect.hasAssertions();
     let janeId = "";
-    let candidateId = "";
-    let hrId = "";
-    const requests: AuthorizationRequest[] = [];
     const kernel = await Kernel.open({
       persistence: new MemoryPersistenceAdapter(),
       ids: sequenceIds(),
       clock: fixedClock,
-      authorizer: {
-        async authorize(request) {
-          requests.push(request);
-          if (
-            request.operation === "records.update" &&
-            request.resource.workspaceId === hrId &&
-            request.context.actorId === candidateId
-          )
-            return { allowed: false, message: "Candidate cannot mutate HR records." };
-          return { allowed: true };
-        },
-      },
       async resolveActorBinding(request) {
         if (request.binding === "hr_owner") return janeId;
         throw new Error(`Unknown Actor binding ${request.binding}`);
@@ -37,9 +21,14 @@ describe("delegated Rule execution", () => {
     const root = await kernel.createRootWorkspace({ name: "Space", user: { name: "Jane" } });
     janeId = root.user.id;
     const rootContext = { workspaceId: root.workspace.id, actorId: janeId };
-    const { workspace: hr } = await kernel.createWorkspace(rootContext, { name: "HR" });
-    hrId = hr.id;
+    const { workspace: hr, membership: janeInHr } = await kernel.createWorkspace(rootContext, {
+      name: "HR",
+    });
     const hrContext = { workspaceId: hr.id, actorId: janeId };
+    await kernel.updateWorkspaceAccess(hrContext, {
+      members: ["read", "create", "update", "delete", "manage"],
+      others: ["read"],
+    });
     await kernel.applySpec(hrContext, hrSpec());
     const opening = await kernel.createRecord(hrContext, "job_opening", {
       title: "Designer",
@@ -54,17 +43,17 @@ describe("delegated Rule execution", () => {
       collectionKey: "job_opening",
       targetId: recruiting.id,
       sourceId: "source-openings",
-      rights: ["read", "update"],
+      rights: ["read"],
     });
     const candidate = await kernel.createActor(recruitingContext, {
       kind: "user",
       name: "Candidate",
     });
-    candidateId = candidate.id;
     await kernel.addMembership(recruitingContext, {
       actorId: candidate.id,
       workspaceId: recruiting.id,
       roles: ["candidate"],
+      rights: ["read", "update"],
     });
     const candidateContext = { workspaceId: recruiting.id, actorId: candidate.id };
 
@@ -72,7 +61,7 @@ describe("delegated Rule execution", () => {
       kernel.runRule(candidateContext, "close_opening", { input: { opening: opening.id } }),
     ).rejects.toMatchObject({
       code: ERROR_CODES.permissionDenied,
-      message: "Candidate cannot mutate HR records.",
+      message: "This Attachment does not permit update operations.",
     });
     expect(await kernel.getRecord(hrContext, "job_opening", opening.id)).toMatchObject({
       values: { status: "open" },
@@ -86,20 +75,27 @@ describe("delegated Rule execution", () => {
       values: { status: "closed" },
       updatedBy: janeId,
     });
-    expect(requests).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          operation: "records.update",
-          context: candidateContext,
-          resource: expect.objectContaining({ workspaceId: hr.id }),
-        }),
-        expect.objectContaining({
-          operation: "records.update",
-          context: hrContext,
-          resource: expect.objectContaining({ workspaceId: hr.id }),
-        }),
-      ]),
-    );
+    await expect(kernel.listMembers(candidateContext, hr.id)).rejects.toMatchObject({
+      code: ERROR_CODES.permissionDenied,
+    });
+    await expect(kernel.listActorsByRoot(candidateContext)).rejects.toMatchObject({
+      code: ERROR_CODES.permissionDenied,
+    });
+    expect(await kernel.listActorsByOrigin(recruitingContext)).toEqual([candidate]);
+    expect(await kernel.listActorsByOrigin(rootContext)).not.toContainEqual(candidate);
+
+    await kernel.updateRecord(hrContext, "job_opening", opening.id, { status: "open" });
+    await kernel.updateMembership(hrContext, {
+      actorId: janeId,
+      workspaceId: hr.id,
+      roles: janeInHr.roles,
+      rights: ["read", "create", "delete", "manage"],
+    });
+    await expect(
+      kernel.runRule(candidateContext, "close_opening_as_owner", {
+        input: { opening: opening.id },
+      }),
+    ).rejects.toMatchObject({ code: ERROR_CODES.permissionDenied });
   });
 });
 

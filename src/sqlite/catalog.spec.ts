@@ -34,6 +34,10 @@ describe("SQLite catalog adapter", () => {
       user: { name: "Jane" },
     });
     const origin = { workspaceId: root.id, actorId: user.id };
+    await first.updateWorkspaceAccess(origin, {
+      members: ["read", "create", "update", "delete", "manage"],
+      others: ["read"],
+    });
     const { workspace: app } = await first.createWorkspace(origin, { name: "CRM" });
     const target = { ...origin, workspaceId: app.id };
     await first.applySpec(origin, {
@@ -177,7 +181,7 @@ describe("SQLite catalog adapter", () => {
 
     await expect(persistence.open()).rejects.toMatchObject({
       code: ERROR_CODES.persistenceUnsupported,
-      details: { actualVersion: 99, supportedVersion: 6 },
+      details: { actualVersion: 99, supportedVersion: 7 },
     });
 
     await expect(database.get("SELECT 1")).rejects.toThrow();

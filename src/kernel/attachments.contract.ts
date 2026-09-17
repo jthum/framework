@@ -163,6 +163,59 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
       await kernel.close();
     });
 
+    it("keeps re-sharing explicit, attenuated, and tied to the received binding", async () => {
+      expect.hasAssertions();
+      const { kernel, origin, target, secondTarget, collection } = await setup(createAdapter());
+      const input = {
+        collectionKey: collection.key,
+        targetId: target.workspaceId,
+        sourceId: "source-jobs",
+      };
+      let parent = await kernel.createAttachment(origin, input);
+      await expect(
+        kernel.reshareAttachment(target, {
+          sourceKey: "shared_jobs",
+          targetId: secondTarget.workspaceId,
+          sourceId: "source-jobs",
+        }),
+      ).rejects.toMatchObject({ code: ERROR_CODES.permissionDenied });
+      await kernel.updateWorkspacePolicy(target, {
+        spawn: true,
+        createActors: true,
+        reshare: true,
+      });
+      await expect(
+        kernel.reshareAttachment(target, {
+          sourceKey: "shared_jobs",
+          targetId: secondTarget.workspaceId,
+          sourceId: "source-jobs",
+        }),
+      ).rejects.toMatchObject({ code: ERROR_CODES.permissionDenied });
+      await kernel.revokeAttachment(origin, parent.id);
+      parent = await kernel.createAttachment(origin, { ...input, allowReshare: true });
+      await expect(
+        kernel.reshareAttachment(target, {
+          sourceKey: "shared_jobs",
+          targetId: secondTarget.workspaceId,
+          sourceId: "source-jobs",
+          rights: ["read", "update"],
+        }),
+      ).rejects.toMatchObject({ code: ERROR_CODES.permissionDenied });
+      const derived = await kernel.reshareAttachment(target, {
+        sourceKey: "shared_jobs",
+        targetId: secondTarget.workspaceId,
+        sourceId: "source-jobs",
+      });
+      expect(derived).toMatchObject({ parentId: parent.id, rights: ["read"] });
+      await kernel.createRecord(origin, collection.key, { title: "Engineer", status: "open" });
+      expect(await sourceRows(kernel, secondTarget, "shared_jobs")).toHaveLength(1);
+      await kernel.revokeAttachment(origin, parent.id);
+      await expect(sourceRows(kernel, secondTarget, "shared_jobs")).rejects.toMatchObject({
+        code: ERROR_CODES.resourceNotFound,
+      });
+      await kernel.close();
+    });
+
     it("enforces declared rights and both target/origin authorization seams", async () => {
       expect.hasAssertions();
       const requests: AuthorizationRequest[] = [];
@@ -173,7 +226,10 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
           return { allowed: request.operation !== deniedOperation };
         },
       };
-      const { kernel, origin, target, collection } = await setup(createAdapter(), authorizer);
+      const { kernel, origin, target, candidate, collection } = await setup(
+        createAdapter(),
+        authorizer,
+      );
       deniedOperation = "attachments.accept";
       await expect(
         kernel.createAttachment(origin, {
@@ -191,7 +247,7 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
         sourceId: "source-jobs",
         rights: ["update"],
       });
-      await expect(sourceRows(kernel, target, "shared_jobs")).rejects.toMatchObject({
+      await expect(sourceRows(kernel, candidate, "shared_jobs")).rejects.toMatchObject({
         code: ERROR_CODES.permissionDenied,
       });
       await kernel.revokeAttachment(origin, writeOnly.id);
@@ -301,6 +357,13 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
       await expect(
         kernel.createAttachment(origin, { ...input, targetId: other.workspace.id }),
       ).rejects.toMatchObject({ code: ERROR_CODES.permissionDenied });
+      await kernel.updateWorkspaceAccess(origin, {
+        members: ["read", "create", "update", "delete", "manage"],
+        others: ["read"],
+      });
+      await expect(
+        kernel.createAttachment(origin, { ...input, rights: ["read", "update"] }),
+      ).rejects.toMatchObject({ code: ERROR_CODES.permissionDenied });
       const attachment = await kernel.createAttachment(origin, input);
       await expect(kernel.revokeAttachment(secondTarget, attachment.id)).rejects.toMatchObject({
         code: ERROR_CODES.permissionDenied,
@@ -356,6 +419,10 @@ async function setup(
     ? workspace
     : (await kernel.createWorkspace(root, { name: "HR" })).workspace;
   const origin = { ...root, workspaceId: hr.id };
+  await kernel.updateWorkspaceAccess(origin, {
+    members: ["read", "create", "update", "delete", "manage"],
+    others: ["read", "create", "update", "delete"],
+  });
   const { workspace: recruiting } = await kernel.createWorkspace(origin, { name: "Recruiting" });
   const { workspace: projects } = await kernel.createWorkspace(root, { name: "Projects" });
   const target = { ...root, workspaceId: recruiting.id };

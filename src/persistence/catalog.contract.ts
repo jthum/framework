@@ -255,6 +255,20 @@ export function catalogAdapterContract(
       expect(await catalog.listMembers(hr.id)).toEqual([jane]);
       expect(await catalog.listMembers(recruiting.id)).toEqual([candidate]);
       expect(await catalog.listActorsByRoot(root.id)).toHaveLength(2);
+      await catalog.transaction(async (transaction) => {
+        const current = await transaction.getMembership(candidate.id, recruiting.id);
+        if (!current) throw new Error("Expected candidate Membership fixture.");
+        await transaction.updateMembership({
+          ...current,
+          roles: ["reviewer"],
+          rights: ["read", "update"],
+          updatedAt: "2026-09-18T00:00:00.000Z",
+        });
+      });
+      expect(await catalog.getMembership(candidate.id, recruiting.id)).toMatchObject({
+        roles: ["reviewer"],
+        rights: ["read", "update"],
+      });
       await persistence.close();
     });
 
@@ -410,6 +424,8 @@ function catalogFixture(): {
     parentId: null,
     rootId: "workspace-1",
     name: "Acme",
+    access: { members: ["read", "create", "update", "delete", "manage"], others: [] },
+    policy: { spawn: true, createActors: true, reshare: false },
     spec: {
       version: 2,
       id: "spec-1",
@@ -441,6 +457,7 @@ function catalogFixture(): {
       actorId: "actor-1",
       workspaceId: workspace.id,
       roles: ["owner"],
+      rights: ["read", "create", "update", "delete", "manage"],
       createdAt: stamp,
       updatedAt: stamp,
     },

@@ -173,6 +173,8 @@ Rights only attenuate:
 derived Attachment rights ⊆ received Attachment rights ⊆ origin ACL.others
 ```
 
+That formula governs mediated access by target-local Actors. An effective Actor who is also a direct origin member is checked against the Actor's current origin Membership and member ceiling; the Source remains a stable binding, not an artificial reduction of authority the Actor already holds at the origin.
+
 Re-sharing is off by default. It requires explicit Workspace policy and permission on the received Attachment; read permission alone never implies redistribution permission. Provenance supports audit and revocation, but authorization does not walk a recursive Workspace tree.
 
 A snapshot needs origin authority while it is created, then becomes independent. A live Attachment requires continuing authority. Target Workspace permissions can narrow but never elevate origin rights.

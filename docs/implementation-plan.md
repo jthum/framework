@@ -12,13 +12,15 @@ No compatibility with the current Spec, `Host`, `TypeDef`, `WorkflowDef`, widget
 
 ## Progress
 
-| Phase | Status      | Delivered                                                                                          |
-| ----- | ----------- | -------------------------------------------------------------------------------------------------- |
-| 0     | Complete    | Package boundary, Kernel, Workspace/Actor/Membership, authorization, environment, SQLite           |
-| 1     | Complete    | Collection/Field Spec, runtime validation, RecordStore contracts, CRUD, schema materialization     |
-| 2     | Complete    | Persisted live Attachments, semantic binding, filtered reads, origin schema, rights and revocation |
-| 3     | Complete    | Sources, Views, relationship traversal, Block contracts, lazy renderer registry                    |
-| 4     | In progress | Forms, Pages, Builder projection, executable S1 slice, browser SQLite bridge                       |
+| Phase | Status   | Delivered                                                                                          |
+| ----- | -------- | -------------------------------------------------------------------------------------------------- |
+| 0     | Complete | Package boundary, Kernel, Workspace/Actor/Membership, authorization, environment, SQLite           |
+| 1     | Complete | Collection/Field Spec, runtime validation, RecordStore contracts, CRUD, schema materialization     |
+| 2     | Complete | Persisted live Attachments, semantic binding, filtered reads, origin schema, rights and revocation |
+| 3     | Complete | Sources, Views, relationship traversal, Block contracts, lazy renderer registry                    |
+| 4     | Complete | Forms, Pages, Builder projection, executable S1 slice, browser SQLite bridge                       |
+| 5     | Complete | Short Rules, Action/Condition registries, Events, snapshots, attached mutations                    |
+| 6     | Complete | Membership ACL, `others`, attenuation, explicit re-share, spawn policy, S3 proof                   |
 
 Later phases remain intentionally unimplemented; their entries below are the source of truth for scope.
 
@@ -233,6 +235,8 @@ semantics continue in Phase 6.
 **Out:** recursive ACLs; generic topology engine; every spawn flag and invitation UI; writable overlays; rolling refresh.
 
 **Tests:** complete all eight S3 minimum-proof assertions. In particular, target permission cannot elevate origin `others`, derived rights cannot exceed received rights, the candidate cannot enumerate HR, Jane's current permission is checked for `runAs`, and revocation invalidates the live Source.
+
+**Delivered:** five local rights (`read`, `create`, `update`, `delete`, `manage`) are persisted on Memberships and bounded by Workspace `members` access. Attachment-mediated access is additionally bounded by the origin's current `others` access and declared Attachment rights. Initial and derived rights attenuate; derived filters are conjunctive; re-sharing requires both target Workspace policy and explicit permission on the received Attachment. Revoking any Attachment in the provenance chain invalidates its derived live Sources. Direct origin members may use an attached Source as a binding while their current origin Membership—not the narrower mediated right—authorizes the resource operation. Workspace policy independently gates child spawning, local Actor creation, and re-sharing. Root-wide discovery requires `manage`; ordinary rosters remain issuance- or Membership-scoped. No Workspace ancestry is consulted for authorization.
 
 ### Phase 7 — Durable Rules and ActorRequest
 

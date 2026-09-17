@@ -206,6 +206,10 @@ describe("Source contract", () => {
       user: { name: "Jane" },
     });
     const origin = { workspaceId: space.id, actorId: user.id };
+    await kernel.updateWorkspaceAccess(origin, {
+      members: ["read", "create", "update", "delete", "manage"],
+      others: ["read"],
+    });
     const { workspace: app } = await kernel.createWorkspace(origin, { name: "Billing" });
     const target = { ...origin, workspaceId: app.id };
     await kernel.applySpec(origin, {
