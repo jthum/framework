@@ -19,6 +19,10 @@
       "types": "./dist/blocks/index.d.mts",
       "import": "./dist/blocks/index.mjs"
     },
+    "./client": {
+      "types": "./dist/client/index.d.mts",
+      "import": "./dist/client/index.mjs"
+    },
     "./errors": {
       "types": "./dist/errors/index.d.mts",
       "import": "./dist/errors/index.mjs"

@@ -16,6 +16,7 @@ export default defineConfig({
     entry: [
       "src/index.ts",
       "src/blocks/index.ts",
+      "src/client/index.ts",
       "src/errors/index.ts",
       "src/kernel/index.ts",
       "src/persistence/index.ts",
