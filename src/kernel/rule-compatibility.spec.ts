@@ -10,6 +10,7 @@ describe("Rule runtime compatibility", () => {
       label: "Browser",
       actions: new Set(["records.update"]),
       events: new Set(["record.field_changed"]),
+      conditions: new Set(["context.equals"]),
       capabilities: {
         retries: "emulated",
         compensation: "supported",
@@ -39,6 +40,7 @@ describe("Rule runtime compatibility", () => {
       label: "Minimal runtime",
       actions: new Set(),
       events: new Set(),
+      conditions: new Set(),
       capabilities: {},
     });
 
@@ -47,6 +49,7 @@ describe("Rule runtime compatibility", () => {
       expect.arrayContaining([
         expect.objectContaining({ kind: "event", key: "record.field_changed" }),
         expect.objectContaining({ kind: "action", key: "records.update" }),
+        expect.objectContaining({ kind: "condition", key: "context.equals" }),
       ]),
     );
   });

@@ -36,10 +36,25 @@ semantic Actor-binding key are explicit overrides. A concrete User ID does not b
 Spec.
 
 Structural validation and runtime compatibility are separate. A Spec remains valid when a host
-does not install one of its Action or Event adapters. `checkRuleCompatibility` derives required
-Actions and extensible capability keys and reports unsupported or emulated behavior before any
-side effect. Unknown executable semantics must never be silently skipped.
+does not install one of its Action, Condition, or Event contracts. `checkRuleCompatibility`
+derives the required contracts and extensible capability keys. The Kernel's short runner performs
+that preflight—including nested Rules—before the first side effect. Unknown executable semantics
+are errors, even when they sit in a branch that would not have run.
 
-The current checkpoint defines and validates the portable contract, Studio translation, and
-compatibility preflight. Action execution, Event dispatch, and short-run Rule execution land in
-the next Kernel slice; durable waits remain a later phase.
+`Kernel.runRule` calls a Rule by key. `Kernel.dispatchEvent` runs enabled matching Rules in stable
+priority order. Source inputs accept a record ID and resolve through the unified Source boundary,
+so attached records remain valid Rule inputs. Built-in `records.create`, `records.get`,
+`records.list`, `records.update`, and `records.delete` Actions deliberately call the same Kernel
+CRUD methods as direct consumers; validation and authorization therefore cannot drift. Custom
+Actions and Conditions are installed when the Kernel opens.
+
+The execution Actor is inherited by Actions and nested Rules. The built-in `system` binding uses a
+System Actor that is actually a member of the active Workspace; a host may install a resolver for
+other semantic bindings. The resolved Actor is passed back through ordinary context and Action
+authorization rather than becoming a permission shortcut.
+
+The short runner bounds nesting, steps, loops, and repeats. Retries are process-local, parallel
+branches use deterministic in-process emulation, and successful compensations capture their
+resolved input before later work can mutate the scope. Delay and signal waits fail preflight as
+unsupported: durable Rule execution, persisted traces, automatic record/Form Event publication,
+and snapshot Actions remain later Phase 5 slices rather than hidden approximations.

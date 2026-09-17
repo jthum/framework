@@ -10,7 +10,8 @@ export interface AuthorizationResource {
     | "attachment"
     | "view"
     | "form"
-    | "page";
+    | "page"
+    | "rule";
   readonly id: string;
   readonly workspaceId?: string;
   readonly collectionId?: string;

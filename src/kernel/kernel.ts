@@ -13,6 +13,7 @@ import type { CollectionRecord, RecordValues } from "../persistence/records.ts";
 import {
   createEmptySpec,
   type CollectionDefinition,
+  type JsonValue,
   type SourceQueryDefinition,
   type Spec,
 } from "../spec/model.ts";
@@ -31,12 +32,26 @@ import {
 import { LOCAL_BROWSER_ENVIRONMENT, type EnvironmentProfile } from "./environment.ts";
 import { FormService, type SubmitFormInput } from "./forms.ts";
 import { PageService } from "./pages.ts";
+import { ActionRegistry, type ActionDefinition } from "./action-registry.ts";
+import {
+  ConditionRegistry,
+  coreConditions,
+  type ConditionDefinition,
+} from "./condition-registry.ts";
 import {
   prepareCreateValues,
   prepareMigratedValues,
   prepareUpdateValues,
 } from "./record-values.ts";
 import type { Actor, ActorKind, ExecutionContext, Membership, Workspace } from "./model.ts";
+import {
+  RuleService,
+  type ActorBindingRequest,
+  type ActorBindingResolver,
+  type RuleEvent,
+  type RuleServiceOptions,
+  type RunRuleInput,
+} from "./rules.ts";
 
 export interface KernelOptions {
   readonly persistence: PersistenceAdapter;
@@ -44,6 +59,10 @@ export interface KernelOptions {
   readonly ids?: IdGenerator;
   readonly clock?: Clock;
   readonly environment?: EnvironmentProfile;
+  readonly actions?: readonly ActionDefinition[];
+  readonly conditions?: readonly ConditionDefinition[];
+  readonly resolveActorBinding?: ActorBindingResolver;
+  readonly ruleExecution?: RuleServiceOptions;
 }
 
 export interface CreateRootWorkspaceInput {
@@ -77,6 +96,7 @@ export class Kernel {
   private readonly views: ViewService;
   private readonly forms: FormService;
   private readonly pages: PageService;
+  private readonly rules: RuleService;
   private constructor(
     private readonly persistence: PersistenceSession,
     private readonly catalog: CatalogRepository,
@@ -84,6 +104,10 @@ export class Kernel {
     private readonly ids: IdGenerator,
     private readonly clock: Clock,
     readonly environment: EnvironmentProfile,
+    actions: readonly ActionDefinition[],
+    conditions: readonly ConditionDefinition[],
+    resolveActorBinding: ActorBindingResolver | undefined,
+    ruleExecution: RuleServiceOptions | undefined,
   ) {
     this.attachments = new AttachmentService(
       catalog,
@@ -123,6 +147,17 @@ export class Kernel {
       catalog,
       (context) => this.assertContext(context),
       (request) => this.assertAuthorized(request),
+    );
+    this.rules = new RuleService(
+      catalog,
+      new ActionRegistry([...this.recordActions(), ...actions]),
+      new ConditionRegistry([...coreConditions(), ...conditions]),
+      this,
+      (context) => this.assertContext(context),
+      (request) => this.assertAuthorized(request),
+      (context, sourceId, value) => this.resolveRuleSourceInput(context, sourceId, value),
+      resolveActorBinding ?? ((request) => this.resolveRuleActor(request)),
+      ruleExecution,
     );
   }
 
@@ -179,6 +214,21 @@ export class Kernel {
   getPage(context: ExecutionContext, key: string) {
     return this.pages.get(context, key);
   }
+  runRule(context: ExecutionContext, key: string, input?: RunRuleInput) {
+    return this.rules.run(context, key, input);
+  }
+  dispatchEvent(context: ExecutionContext, event: RuleEvent) {
+    return this.rules.dispatch(context, event);
+  }
+  listActionKeys() {
+    return this.rules.actionKeys();
+  }
+  listConditionKeys() {
+    return this.rules.conditionKeys();
+  }
+  getRuleRuntimeProfile(events?: ReadonlySet<string>) {
+    return this.rules.profile(events);
+  }
 
   static async open(options: KernelOptions): Promise<Kernel> {
     const persistence = await options.persistence.open();
@@ -189,6 +239,10 @@ export class Kernel {
       options.ids ?? new NanoIdGenerator(),
       options.clock ?? new SystemClock(),
       options.environment ?? LOCAL_BROWSER_ENVIRONMENT,
+      options.actions ?? [],
+      options.conditions ?? [],
+      options.resolveActorBinding,
+      options.ruleExecution,
     );
   }
 
@@ -562,6 +616,117 @@ export class Kernel {
     });
   }
 
+  private recordActions(): readonly ActionDefinition[] {
+    return [
+      {
+        key: "records.create",
+        run: async ({ context, input, runtime }) => {
+          const collectionKey = await this.actionCollectionKey(context, input);
+          const values = actionValues(input.values, "values");
+          return recordValue(await runtime.createRecord(context, collectionKey, values));
+        },
+      },
+      {
+        key: "records.get",
+        run: async ({ context, input, runtime }) => {
+          const target = await this.actionRecordTarget(context, input);
+          const record = await runtime.getRecord(context, target.collectionKey, target.recordId);
+          return record ? recordValue(record) : null;
+        },
+      },
+      {
+        key: "records.list",
+        run: async ({ context, input, runtime }) => {
+          const collectionKey = await this.actionCollectionKey(context, input);
+          return (await runtime.listRecords(context, collectionKey)).map(recordValue);
+        },
+      },
+      {
+        key: "records.update",
+        run: async ({ context, input, runtime }) => {
+          const target = await this.actionRecordTarget(context, input);
+          const values = actionValues(input.values, "values");
+          return recordValue(
+            await runtime.updateRecord(context, target.collectionKey, target.recordId, values),
+          );
+        },
+      },
+      {
+        key: "records.delete",
+        run: async ({ context, input, runtime }) => {
+          const target = await this.actionRecordTarget(context, input);
+          await runtime.deleteRecord(context, target.collectionKey, target.recordId);
+          return { id: target.recordId };
+        },
+      },
+    ];
+  }
+
+  private async actionCollectionKey(
+    context: ExecutionContext,
+    input: Readonly<Record<string, JsonValue>>,
+  ): Promise<string> {
+    const collectionId =
+      typeof input.collectionId === "string"
+        ? input.collectionId
+        : actionRecord(input.record)?.sourceId;
+    if (!collectionId)
+      throw actionInputError("A record Action requires collectionId or a record sourceId.");
+    const workspace = await this.requireWorkspace(context.workspaceId);
+    const collection = workspace.spec.collections.find(
+      (candidate) => candidate.id === collectionId,
+    );
+    if (!collection) throw resourceNotFound("Collection", collectionId);
+    return collection.key;
+  }
+
+  private async actionRecordTarget(
+    context: ExecutionContext,
+    input: Readonly<Record<string, JsonValue>>,
+  ): Promise<{ collectionKey: string; recordId: string }> {
+    const record = actionRecord(input.record);
+    const recordId = typeof input.recordId === "string" ? input.recordId : record?.id;
+    if (!recordId) throw actionInputError("A record Action requires recordId or a record value.");
+    return { collectionKey: await this.actionCollectionKey(context, input), recordId };
+  }
+
+  private async resolveRuleSourceInput(
+    context: ExecutionContext,
+    sourceId: string,
+    value: JsonValue,
+  ): Promise<JsonValue> {
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      const record = actionRecord(value);
+      if (record?.id && record.sourceId === sourceId) return structuredClone(value);
+    }
+    if (typeof value !== "string")
+      throw actionInputError("A Source Rule input must be a record ID or resolved record value.");
+    const workspace = await this.requireWorkspace(context.workspaceId);
+    const source = sourceDefinition(workspace.spec, sourceId);
+    if (!source) throw resourceNotFound("Source", sourceId);
+    const record = await this.sources.get(context, source.key, value);
+    if (!record) throw resourceNotFound("Record", value);
+    return { ...record.values, id: record.id, sourceId, values: { ...record.values } };
+  }
+
+  private async resolveRuleActor(request: ActorBindingRequest): Promise<string> {
+    if (request.binding !== "system")
+      throw new FrameworkError({
+        code: ERROR_CODES.persistenceUnsupported,
+        message: `The ${request.binding} Actor binding is not installed in this runtime.`,
+        details: { binding: request.binding },
+      });
+    const system = (await this.catalog.listMembers(request.context.workspaceId)).find(
+      (actor) => actor.kind === "system",
+    );
+    if (!system)
+      throw new FrameworkError({
+        code: ERROR_CODES.permissionDenied,
+        message: "This Workspace has no System Actor membership.",
+      });
+    return system.id;
+  }
+
   private async authorizeActorRead(
     context: ExecutionContext,
     operation: string,
@@ -781,4 +946,37 @@ function requiredName(value: string, kind: string): string {
   const name = value.trim();
   if (!name) throw resourceConflict(`${kind} name is required.`);
   return name;
+}
+
+function actionRecord(
+  value: JsonValue | undefined,
+): { id?: string; sourceId?: string } | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  return {
+    ...(typeof value.id === "string" ? { id: value.id } : {}),
+    ...(typeof value.sourceId === "string" ? { sourceId: value.sourceId } : {}),
+  };
+}
+
+function actionValues(value: JsonValue | undefined, name: string): RecordValues {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw actionInputError(`A record Action requires an object at ${name}.`);
+  return value;
+}
+
+function recordValue(record: CollectionRecord): JsonValue {
+  return {
+    id: record.id,
+    sourceId: record.collectionId,
+    values: { ...record.values },
+    ...record.values,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    createdBy: record.createdBy,
+    updatedBy: record.updatedBy,
+  };
+}
+
+function actionInputError(message: string): FrameworkError {
+  return new FrameworkError({ code: ERROR_CODES.validationInvalidInput, message });
 }

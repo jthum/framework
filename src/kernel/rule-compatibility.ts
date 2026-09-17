@@ -11,11 +11,13 @@ export interface RuleRuntimeProfile {
   readonly actions: ReadonlySet<string>;
   /** Event contract keys this runtime can publish or subscribe to. */
   readonly events: ReadonlySet<string>;
+  /** Predicate contract keys installed in this runtime. */
+  readonly conditions: ReadonlySet<string>;
   readonly notes?: Readonly<Record<string, string>>;
 }
 
 export interface RuleCompatibilityDiagnostic {
-  readonly kind: "capability" | "action" | "event";
+  readonly kind: "capability" | "action" | "event" | "condition";
   readonly key: string;
   readonly support: RuleCapabilitySupport;
   readonly message: string;
@@ -25,6 +27,7 @@ export interface RuleCompatibility {
   readonly compatible: boolean;
   readonly requiredCapabilities: readonly string[];
   readonly requiredActions: readonly string[];
+  readonly requiredConditions: readonly string[];
   readonly diagnostics: readonly RuleCompatibilityDiagnostic[];
 }
 
@@ -40,12 +43,19 @@ export function requiredRuleActions(rule: RuleDefinition): string[] {
   return [...actions];
 }
 
+export function requiredRuleConditions(rule: RuleDefinition): string[] {
+  const conditions = new Set<string>();
+  collectConditions(rule.steps, conditions);
+  return [...conditions];
+}
+
 export function checkRuleCompatibility(
   rule: RuleDefinition,
   profile: RuleRuntimeProfile,
 ): RuleCompatibility {
   const requiredCapabilities = requiredRuleCapabilities(rule);
   const requiredActions = requiredRuleActions(rule);
+  const requiredConditions = requiredRuleConditions(rule);
   const diagnostics: RuleCompatibilityDiagnostic[] = [];
   if (rule.trigger && !profile.events.has(rule.trigger.event))
     diagnostics.push({
@@ -62,6 +72,14 @@ export function checkRuleCompatibility(
         support: "unsupported",
         message: `${profile.label} does not provide the ${key} Action.`,
       });
+  for (const key of requiredConditions)
+    if (!profile.conditions.has(key))
+      diagnostics.push({
+        kind: "condition",
+        key,
+        support: "unsupported",
+        message: `${profile.label} does not provide the ${key} Condition.`,
+      });
   for (const key of requiredCapabilities) {
     const support = profile.capabilities[key] ?? "unsupported";
     if (support !== "supported")
@@ -76,8 +94,47 @@ export function checkRuleCompatibility(
     compatible: diagnostics.every((diagnostic) => diagnostic.support !== "unsupported"),
     requiredCapabilities,
     requiredActions,
+    requiredConditions,
     diagnostics,
   };
+}
+
+function collectConditions(steps: readonly RuleStep[], conditions: Set<string>): void {
+  for (const step of steps) {
+    if ("gate" in step) {
+      collectPredicateConditions(step.gate.predicate, conditions);
+      collectConditions(step.gate.pass ?? [], conditions);
+      collectConditions(step.gate.fail ?? [], conditions);
+    } else if ("foreach" in step) collectConditions(step.foreach.steps, conditions);
+    else if ("repeat" in step) collectConditions(step.repeat.steps, conditions);
+    else if ("parallel" in step)
+      for (const branch of step.parallel.branches) collectConditions(branch.steps, conditions);
+    else if ("wait" in step) {
+      collectConditions(step.wait.onSignal ?? [], conditions);
+      collectConditions(step.wait.onTimeout ?? [], conditions);
+    }
+  }
+}
+
+function collectPredicateConditions(
+  predicate: import("../spec/model.ts").RulePredicate,
+  conditions: Set<string>,
+): void {
+  if ("all" in predicate && Array.isArray(predicate.all))
+    for (const child of predicate.all) collectPredicateConditions(child, conditions);
+  else if ("any" in predicate && Array.isArray(predicate.any))
+    for (const child of predicate.any) collectPredicateConditions(child, conditions);
+  else if (
+    "not" in predicate &&
+    predicate.not &&
+    typeof predicate.not === "object" &&
+    !Array.isArray(predicate.not)
+  )
+    collectPredicateConditions(
+      predicate.not as import("../spec/model.ts").RulePredicate,
+      conditions,
+    );
+  else if ("op" in predicate && typeof predicate.op === "string") conditions.add(predicate.op);
 }
 
 function collectRequirements(

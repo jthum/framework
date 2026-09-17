@@ -212,6 +212,13 @@ Actions during the cutover.
 
 **Tests:** S1 record Rules; S2 event trigger; nested Rule inherits execution Actor; a fake authorizer denies the candidate's upstream write and allows the explicit `runAs` binding resolved to Jane. Full origin ACL policy and origin-resource assertions complete in Phase 6.
 
+**Short-run checkpoint:** the executable Action and Condition registries, callable Rules, explicit
+Event dispatch, compatibility preflight, bounded nested execution, inherited Actor context,
+semantic Actor resolution, retries, and compensation now live in the Kernel. Built-in record
+Actions reuse authorized CRUD. Automatic record/Form Event publication, snapshot Action, and the
+delegated-workspace authorization proof remain in this phase; durable delay/signal execution stays
+in Phase 7.
+
 ### Phase 6 — ACL, `others`, spawn policy, and narrow S3 proof
 
 **Goal:** Implement the people-world semantics demanded by delegated Workspaces without building the whole product.
