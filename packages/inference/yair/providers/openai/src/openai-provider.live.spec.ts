@@ -13,8 +13,10 @@ import {
 import { yair } from "@jthum/yair";
 import { openAI } from "./openai-provider.ts";
 
-const apiKey = process.env.YAIR_OPENAI_API_KEY ?? process.env.MINIMAX_API_KEY;
-const liveIt = process.env.YAIR_LIVE === "1" && apiKey ? it : it.skip;
+const apiKey = process.env.YAIR_OPENAI_API_KEY;
+const model = process.env.YAIR_OPENAI_MODEL;
+const liveIt = process.env.YAIR_LIVE === "1" && apiKey && model ? it : it.skip;
+const expectReasoning = process.env.YAIR_OPENAI_EXPECT_REASONING === "1";
 
 describe("OpenAIProvider live contract", () => {
   liveIt(
@@ -40,13 +42,17 @@ describe("OpenAIProvider live contract", () => {
       expect(calls).toEqual([{ toolId: "read_marker", input: { reference: "alpha-7" } }]);
       expect(first).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ type: "reasoning_delta" }),
           expect.objectContaining({ type: "text_delta" }),
           expect.objectContaining({ type: "tool_call", toolId: "read_marker" }),
           expect.objectContaining({ type: "tool_result", output: { marker: "marker-one-7q" } }),
         ]),
       );
-      expect(requests.some(hasAssistantReasoning)).toBe(true);
+      if (expectReasoning) {
+        expect(first).toEqual(
+          expect.arrayContaining([expect.objectContaining({ type: "reasoning_delta" })]),
+        );
+        expect(requests.some(hasAssistantReasoning)).toBe(true);
+      }
       expect(firstMessage.content).not.toContain("<think>");
       expect(firstMessage.content).toContain("marker-one-7q");
 
@@ -232,7 +238,9 @@ const restrictedTool: InferenceTool = {
 function liveRuntime(onRequest?: (request: Record<string, unknown>) => void) {
   return yair({
     provider: openAI({
-      baseUrl: process.env.YAIR_OPENAI_BASE_URL ?? "https://api.minimax.io/v1",
+      ...(process.env.YAIR_OPENAI_BASE_URL === undefined
+        ? {}
+        : { baseUrl: process.env.YAIR_OPENAI_BASE_URL }),
       ...(apiKey === undefined ? {} : { apiKey }),
       includeUsage: true,
       ...(onRequest === undefined
@@ -253,7 +261,10 @@ function hasAssistantReasoning(request: Record<string, unknown>): boolean {
   return request.messages.some((message) => {
     if (!message || typeof message !== "object" || Array.isArray(message)) return false;
     const record = message as Record<string, unknown>;
-    return record.role === "assistant" && Array.isArray(record.reasoning_details);
+    return (
+      record.role === "assistant" &&
+      (Array.isArray(record.reasoning_details) || typeof record.reasoning_content === "string")
+    );
   });
 }
 
@@ -280,16 +291,25 @@ function context(
     messages,
     model: {
       provider: "openai-compatible",
-      model: process.env.YAIR_OPENAI_MODEL ?? "MiniMax-M3",
-      settings: {
-        temperature: 0,
-        reasoning_split: thinking,
-        thinking: { type: thinking ? "adaptive" : "disabled" },
-        max_completion_tokens: thinking ? 2048 : 512,
-      },
+      model: model ?? "live-test-model",
+      settings: providerSettings(thinking),
     },
     tools,
   };
+}
+
+function providerSettings(thinking: boolean): Readonly<Record<string, JsonValue>> {
+  const base = process.env.YAIR_OPENAI_SETTINGS;
+  const reasoning = thinking ? process.env.YAIR_OPENAI_REASONING_SETTINGS : undefined;
+  return { ...parseSettings(base), ...parseSettings(reasoning) };
+}
+
+function parseSettings(value: string | undefined): Record<string, JsonValue> {
+  if (value === undefined) return {};
+  const parsed: unknown = JSON.parse(value);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+    throw new Error("Live provider settings must be a JSON object.");
+  return parsed as Record<string, JsonValue>;
 }
 
 function fixedTools(

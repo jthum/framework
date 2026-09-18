@@ -22,18 +22,20 @@ Run the opt-in live contract against any compatible provider:
 
 ```bash
 YAIR_LIVE=1 \
-MINIMAX_API_KEY=... \
-YAIR_OPENAI_BASE_URL=https://api.minimax.io/v1 \
-YAIR_OPENAI_MODEL=MiniMax-M3 \
+YAIR_OPENAI_API_KEY=... \
+YAIR_OPENAI_BASE_URL=https://your-provider.example/v1 \
+YAIR_OPENAI_MODEL=your-model \
 vp test src/openai-provider.live.spec.ts
 ```
 
 The live suite exercises streamed thinking/text, tool calls across two user turns, dynamic tool
-discovery, and recovery from a structured tool error. `YAIR_OPENAI_API_KEY` overrides
-`MINIMAX_API_KEY`. These are opt-in behavioral checks, separate from deterministic protocol tests.
+discovery, and recovery from a structured tool error. A key and model are required; the base URL
+defaults to OpenAI. These are opt-in behavioral checks, separate from deterministic protocol tests.
 
-Provider settings are passed through `ModelConfig.settings`. For MiniMax M3, use
-`reasoning_split: true` and `thinking: { type: "adaptive" }` to separate thinking from answer text.
+Provider settings are passed through `ModelConfig.settings`. Configure live tests through JSON
+objects in `YAIR_OPENAI_SETTINGS` (all requests) and `YAIR_OPENAI_REASONING_SETTINGS` (thinking
+scenarios). Set `YAIR_OPENAI_EXPECT_REASONING=1` to require streamed reasoning and its replay.
+This is opt-in because compatible endpoints differ in their thinking settings and capabilities.
 The provider emits `reasoning_delta` and preserves `reasoning_details` or `reasoning_content` in
 assistant `providerState` for replay. YAIR returns the full replayable history as
 `completed.messages`; append the next user message to it for subsequent turns. Providers without
