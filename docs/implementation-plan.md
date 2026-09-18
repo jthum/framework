@@ -186,8 +186,12 @@ persist in Framework; appearance remains a host-owned Spec metadata convention.
 App listing, selection, renaming, and deletion now use the canonical catalog too. Selection is
 only a local navigation preference; context resolution still checks persisted Memberships. Stale
 App selections fall back to an existing App without recreating deleted starter definitions.
-Breadcrumbs follow canonical definitions. Builder still uses its old Host for template App
-creation, Space lifecycle, diagnostics, and WebMCP projection; those are the remaining cutover
+Breadcrumbs follow canonical definitions. Blank and template App creation now install through
+Framework too, reusing canonical shared Collections and seeding example records through clients.
+Template content still has a one-way definition projection pending its canonical format conversion.
+Installation comprises multiple transactional Kernel operations, not one atomic recipe; failures
+can leave installed definitions or partially seeded examples. Builder still uses its old Host for
+Space lifecycle, diagnostics, and WebMCP projection; those are the remaining cutover
 boundary before the old projection and persisted shape can be deleted.
 
 **Phase 4 Studio extraction checkpoint:** Framework owns the semantic Svelte theme,
