@@ -3,8 +3,10 @@ import {
   ATTACHMENT_PERMISSIONS,
   PERMISSIONS,
   type Actor,
+  type AgentConfig,
   type Attachment,
   type Membership,
+  type ModelConfig,
   type Workspace,
 } from "../kernel/model.ts";
 import { assertValidFieldCondition } from "../spec/validate.ts";
@@ -67,6 +69,53 @@ export function assertActorIdentityUnchanged(previous: Actor, next: Actor): void
     throw resourceConflict("Actor identity cannot be changed after creation.");
 }
 
+export async function assertModelConfigIntegrity(
+  catalog: CatalogReader,
+  config: ModelConfig,
+): Promise<void> {
+  if (!(await catalog.getWorkspace(config.workspaceId)))
+    throw resourceNotFound("Workspace", config.workspaceId);
+  assertNonEmpty(config.name, "ModelConfig name");
+  assertNonEmpty(config.provider, "ModelConfig provider");
+  assertNonEmpty(config.model, "ModelConfig model");
+  if (config.credentialRef !== undefined)
+    assertNonEmpty(config.credentialRef, "ModelConfig credential reference");
+}
+
+export function assertModelConfigIdentityUnchanged(previous: ModelConfig, next: ModelConfig): void {
+  if (
+    previous.id !== next.id ||
+    previous.workspaceId !== next.workspaceId ||
+    previous.createdAt !== next.createdAt
+  )
+    throw resourceConflict("ModelConfig identity cannot be changed after creation.");
+}
+
+export async function assertAgentConfigIntegrity(
+  catalog: CatalogReader,
+  config: AgentConfig,
+): Promise<void> {
+  const actor = await catalog.getActor(config.actorId);
+  if (!actor) throw resourceNotFound("Actor", config.actorId);
+  if (actor.kind !== "agent") throw resourceConflict("AgentConfig requires an Agent Actor.");
+  const model = await catalog.getModelConfig(config.modelConfigId);
+  if (!model) throw resourceNotFound("ModelConfig", config.modelConfigId);
+  if (model.workspaceId !== actor.originId)
+    throw resourceConflict("An Agent must use a ModelConfig from its issuing Workspace.");
+  assertNonEmpty(config.instructions, "Agent instructions");
+  if (typeof config.tools.search !== "boolean")
+    throw resourceConflict("Agent tool search policy must be a boolean.");
+  assertUniqueStrings(config.tools.include, "Agent included tools");
+  assertUniqueStrings(config.tools.exclude, "Agent excluded tools");
+  if (config.tools.include?.some((id) => config.tools.exclude?.includes(id)))
+    throw resourceConflict("An Agent tool cannot be both included and excluded.");
+}
+
+export function assertAgentConfigIdentityUnchanged(previous: AgentConfig, next: AgentConfig): void {
+  if (previous.actorId !== next.actorId || previous.createdAt !== next.createdAt)
+    throw resourceConflict("AgentConfig identity cannot be changed after creation.");
+}
+
 export async function assertMembershipIntegrity(
   catalog: CatalogReader,
   membership: Membership,
@@ -98,6 +147,16 @@ function assertPermissions(permissions: readonly string[], kind: string): void {
     )
   )
     throw resourceConflict(`${kind} permissions must be a unique set of supported permissions.`);
+}
+
+function assertNonEmpty(value: string, kind: string): void {
+  if (!value.trim()) throw resourceConflict(`${kind} must be non-empty.`);
+}
+
+function assertUniqueStrings(values: readonly string[] | undefined, kind: string): void {
+  if (values === undefined) return;
+  if (new Set(values).size !== values.length || values.some((value) => !value.trim()))
+    throw resourceConflict(`${kind} must be a unique set of non-empty IDs.`);
 }
 
 export async function assertAttachmentIntegrity(

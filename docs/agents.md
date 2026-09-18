@@ -58,6 +58,35 @@ An Agent Actor is persisted identity and authority. Inference is the reasoning o
 them separate supports chat, generation, extraction, and structured decisions without inventing an
 Actor for every model call.
 
+## Agent configuration
+
+`AgentConfig` is one-to-one with an Agent Actor and stores its system instructions, selected
+`ModelConfig`, and tool-selection policy. `ModelConfig` belongs to the Agent's issuing Workspace and
+stores a provider key, model key, optional provider settings, and an opaque `credentialRef`. The
+referenced secret stays in trusted host infrastructure.
+
+The compact creation path is atomic:
+
+```ts
+const planner = await kernel.createAgent(context, {
+  name: "Planner",
+  instructions: "Plan and prioritize the team's work.",
+  provider: "openai",
+  model: "reasoning-model",
+  credentialRef: "secret/openai/team",
+  permissions: ["read", "create", "update"],
+});
+```
+
+It creates the Actor, local Membership, ModelConfig, and AgentConfig together. Advanced hosts can
+create reusable ModelConfigs and connect them with `configureAgent`. Agent configuration is
+instance state rather than portable Spec: exporting the Spec does not export identities,
+credentials, or deployment choices.
+
+`InferenceRegistry` is an optional router for hosts with multiple provider adapters. Its keys match
+`ModelConfig.provider`. A single adapter can instead handle routing itself or be passed directly as
+`KernelOptions.inference`.
+
 ## Dynamic tools
 
 Tools are resolved before every model step and remain stable for that provider request. This makes
@@ -96,6 +125,10 @@ default. When discoverable tools exist, Framework offers `search_tools`; matches
 the next model step. Eager tools remain attached without requiring discovery. The resolver runs on
 every step, but stable ordering and definitions produce the same serialized tool prefix, preserving
 provider caching when the effective set has not changed.
+
+An Agent's persisted tool policy can include or exclude stable tool IDs and enable or disable
+discovery. It only narrows the currently eligible catalog; it never grants a permission. When
+discovery is disabled, eligible discoverable tools are attached directly.
 
 A resolved `AgentToolSet` is a bound snapshot. The model can call only a tool offered in that step.
 Immediately before execution, the Kernel resolves current availability and re-enters authorization.

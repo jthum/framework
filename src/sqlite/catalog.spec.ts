@@ -128,6 +128,28 @@ describe("SQLite catalog adapter", () => {
     await second.close();
   });
 
+  it("persists Agent and model configuration across kernel instances", async () => {
+    const path = join(await makeTemporaryDirectory(), "agents.sqlite");
+    const first = await openKernel(path);
+    const root = await first.createRootWorkspace({ name: "Acme", user: { name: "Jane" } });
+    const owner = { workspaceId: root.workspace.id, actorId: root.user.id };
+    const created = await first.createAgent(owner, {
+      name: "Planner",
+      instructions: "Plan and prioritize work.",
+      provider: "example",
+      model: "reasoning-model",
+      credentialRef: "secret/provider",
+      settings: { temperature: 0.2 },
+      tools: { exclude: ["action:records.delete"], search: true },
+    });
+    await first.close();
+
+    const second = await openKernel(path);
+    expect(await second.getAgentConfig(owner, created.actor.id)).toEqual(created.config);
+    expect(await second.listModelConfigs(owner)).toEqual([created.model]);
+    await second.close();
+  });
+
   it("persists Collection schemas and records across sessions", async () => {
     expect.hasAssertions();
     const directory = await makeTemporaryDirectory();
@@ -181,7 +203,7 @@ describe("SQLite catalog adapter", () => {
 
     await expect(persistence.open()).rejects.toMatchObject({
       code: ERROR_CODES.persistenceUnsupported,
-      details: { actualVersion: 99, supportedVersion: 9 },
+      details: { actualVersion: 99, supportedVersion: 10 },
     });
 
     await expect(database.get("SELECT 1")).rejects.toThrow();

@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vite-plus/test";
 import { ERROR_CODES } from "../errors/error.ts";
-import type { Actor, Attachment, Membership, Workspace } from "../kernel/model.ts";
+import type {
+  Actor,
+  AgentConfig,
+  Attachment,
+  Membership,
+  ModelConfig,
+  Workspace,
+} from "../kernel/model.ts";
 import type { PersistenceAdapter } from "./catalog.ts";
 
 export function catalogAdapterContract(
@@ -60,6 +67,52 @@ export function catalogAdapterContract(
           transaction.updateActor({ ...fixture.actor, createdAt: "2026-02-01T00:00:00.000Z" }),
         ),
       ).rejects.toMatchObject({ code: ERROR_CODES.resourceConflict });
+      await persistence.close();
+    });
+
+    it("persists model and Agent configuration with referential integrity", async () => {
+      const persistence = await createAdapter().open();
+      const catalog = persistence.catalog;
+      const fixture = catalogFixture();
+      const agent: Actor = { ...fixture.actor, id: "agent", kind: "agent", name: "Planner" };
+      const model: ModelConfig = {
+        id: "model-config",
+        workspaceId: fixture.workspace.id,
+        name: "Planning model",
+        provider: "example",
+        model: "reasoning-model",
+        credentialRef: "secret/model-provider",
+        settings: { temperature: 0.2 },
+        createdAt: fixture.workspace.createdAt,
+        updatedAt: fixture.workspace.updatedAt,
+      };
+      const config: AgentConfig = {
+        actorId: agent.id,
+        modelConfigId: model.id,
+        instructions: "Plan the team's work.",
+        tools: { include: ["action:records.list"], search: true },
+        createdAt: fixture.workspace.createdAt,
+        updatedAt: fixture.workspace.updatedAt,
+      };
+      await catalog.transaction(async (transaction) => {
+        await transaction.insertWorkspace(fixture.workspace);
+        await transaction.insertActor(agent);
+        await transaction.insertModelConfig(model);
+        await transaction.insertAgentConfig(config);
+      });
+
+      expect(await catalog.getAgentConfig(agent.id)).toEqual(config);
+      expect(await catalog.listModelConfigs(fixture.workspace.id)).toEqual([model]);
+      await expect(
+        catalog.transaction((transaction) => transaction.deleteModelConfig(model.id)),
+      ).rejects.toMatchObject({ code: ERROR_CODES.resourceConflict });
+      const updated = {
+        ...config,
+        instructions: "Plan and prioritize the team's work.",
+        updatedAt: "2026-01-02T00:00:00.000Z",
+      };
+      await catalog.transaction((transaction) => transaction.updateAgentConfig(updated));
+      expect(await catalog.getAgentConfig(agent.id)).toEqual(updated);
       await persistence.close();
     });
 

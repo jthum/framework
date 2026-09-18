@@ -55,6 +55,14 @@ export interface AgentUsage {
   readonly totalTokens?: number;
 }
 
+export interface AgentModel {
+  readonly configId?: string;
+  readonly provider: string;
+  readonly model: string;
+  readonly credentialRef?: string;
+  readonly settings?: Readonly<Record<string, JsonValue>>;
+}
+
 export type InferenceFinishReason = "stop" | "tool_calls" | "length" | "refusal" | "content_filter";
 
 /** Events emitted by one provider/model request. */
@@ -70,6 +78,7 @@ export type InferenceEvent =
 export interface InferenceInput {
   readonly messages: readonly AgentMessage[];
   readonly tools: readonly AgentTool[];
+  readonly model?: AgentModel;
   readonly instructions?: string;
   readonly metadata?: Readonly<Record<string, JsonValue>>;
   readonly signal?: AbortSignal;
@@ -113,6 +122,8 @@ export type AgentEvent =
 export interface AgentInput {
   readonly messages: readonly AgentMessage[];
   readonly instructions?: string;
+  /** Model selection for User/System inference. Agent Actors use their persisted configuration. */
+  readonly model?: AgentModel;
   readonly metadata?: Readonly<Record<string, JsonValue>>;
   readonly signal?: AbortSignal;
 }
@@ -222,6 +233,7 @@ export class DefaultAgentRuntime implements AgentRuntime {
       for await (const event of this.inference.infer({
         messages,
         tools: toolSet.tools,
+        ...(context.model === undefined ? {} : { model: structuredClone(context.model) }),
         ...(context.instructions === undefined ? {} : { instructions: context.instructions }),
         ...(context.metadata === undefined ? {} : { metadata: context.metadata }),
         ...(context.signal === undefined ? {} : { signal: context.signal }),
@@ -297,7 +309,7 @@ export class DefaultAgentRuntime implements AgentRuntime {
     yield {
       type: "failed",
       error: {
-        code: ERROR_CODES.internalUnexpected,
+        code: ERROR_CODES.agentStepLimit,
         message: `Agent turn exceeded its ${this.maxSteps}-step limit.`,
       },
       ...(usage ? { usage } : {}),
@@ -316,7 +328,7 @@ export async function collectAgentRun(events: AsyncIterable<AgentEvent>): Promis
   if (terminal.type === "completed") return terminal.output;
   if (terminal.type === "failed") throw new FrameworkError(terminal.error);
   throw new FrameworkError({
-    code: ERROR_CODES.internalUnexpected,
+    code: terminal.type === "refused" ? ERROR_CODES.inferenceRefused : ERROR_CODES.agentCancelled,
     message: terminal.type === "refused" ? "Inference was refused." : "Agent run was cancelled.",
   });
 }
@@ -375,5 +387,5 @@ function activateDiscoveredTools(
 }
 
 function invalidRuntime(message: string): FrameworkError {
-  return new FrameworkError({ code: ERROR_CODES.internalUnexpected, message });
+  return new FrameworkError({ code: ERROR_CODES.agentInvalidStream, message });
 }

@@ -54,6 +54,11 @@ describe("AgentRuntime", () => {
     expect(runtime.requests[0]?.actor).toMatchObject({ id: agent.actorId, kind: "agent" });
     expect(runtime.requests[0]?.execution).toEqual(agent);
     expect(runtime.requests[0]?.metadata).toEqual({ requestId: "request-1" });
+    expect(runtime.requests[0]?.instructions).toBe("Help the team.");
+    expect(runtime.requests[0]?.model).toMatchObject({
+      provider: "test",
+      model: "test-model",
+    });
     const listed = await kernel.listAgentTools(agent);
     expect(listed.map((tool) => tool.id)).toEqual(
       expect.arrayContaining([
@@ -110,6 +115,44 @@ describe("AgentRuntime", () => {
     await kernel.close();
   });
 
+  it("uses persisted Agent tool policy to narrow the dynamic catalog", async () => {
+    const runtime = new RecordingAgentRuntime(async (context) => {
+      const set = await context.tools.resolve({
+        execution: context.execution,
+        actor: context.actor,
+        messages: context.messages,
+        step: 1,
+        activeToolIds: new Set(),
+      });
+      return { tools: set.tools.map((tool) => tool.id) };
+    });
+    const kernel = await Kernel.open({
+      persistence: new MemoryPersistenceAdapter(),
+      environment: defineEnvironmentProfile({ ...LOCAL_BROWSER_ENVIRONMENT, agentRuntime: true }),
+      agentRuntime: runtime,
+      actions: [echoAction],
+    });
+    const root = await kernel.createRootWorkspace({ name: "Space", user: { name: "Jane" } });
+    const owner = { workspaceId: root.workspace.id, actorId: root.user.id };
+    const created = await kernel.createAgent(owner, {
+      name: "Focused assistant",
+      instructions: "Only echo.",
+      provider: "test",
+      model: "small-model",
+      permissions: ["read"],
+      tools: { include: ["action:tests.echo"], search: false },
+    });
+    const agent = { ...owner, actorId: created.actor.id };
+
+    await expect(collectAgentRun(await kernel.runAgent(agent, { messages: [] }))).resolves.toEqual({
+      tools: ["action:tests.echo"],
+    });
+    await expect(kernel.listAgentTools(agent)).resolves.toEqual([
+      expect.objectContaining({ id: "action:tests.echo" }),
+    ]);
+    await kernel.close();
+  });
+
   it("keeps tool invocation inside the underlying authorization boundary", async () => {
     const runtime = new RecordingAgentRuntime((context) =>
       context.tools
@@ -161,13 +204,14 @@ describe("AgentRuntime", () => {
     });
     const root = await kernel.createRootWorkspace({ name: "Space", user: { name: "Jane" } });
     const owner = { workspaceId: root.workspace.id, actorId: root.user.id };
-    const actor = await kernel.createActor(owner, { kind: "agent", name: "Assistant" });
-    agentId = actor.id;
-    await kernel.addMembership(owner, {
-      actorId: actor.id,
-      workspaceId: root.workspace.id,
-      permissions: ["read"],
+    const created = await kernel.createAgent(owner, {
+      name: "Assistant",
+      instructions: "Help the team.",
+      provider: "test",
+      model: "test-model",
     });
+    const actor = created.actor;
+    agentId = actor.id;
     await kernel.applySpec(owner, {
       ...createEmptySpec({ id: "spec-rule-agent", key: "rule_agent", label: "Rule agent" }),
       rules: [
@@ -206,10 +250,10 @@ describe("AgentRuntime", () => {
       yield { type: "completed", output: "second" };
     }
     await expect(collectAgentRun(incomplete())).rejects.toMatchObject({
-      code: ERROR_CODES.internalUnexpected,
+      code: ERROR_CODES.agentInvalidStream,
     });
     await expect(collectAgentRun(duplicate())).rejects.toMatchObject({
-      code: ERROR_CODES.internalUnexpected,
+      code: ERROR_CODES.agentInvalidStream,
     });
   });
 
@@ -382,12 +426,14 @@ async function bootstrap(runtime: AgentRuntime, actions: readonly ActionDefiniti
   });
   const root = await kernel.createRootWorkspace({ name: "Space", user: { name: "Jane" } });
   const owner = { workspaceId: root.workspace.id, actorId: root.user.id };
-  const actor = await kernel.createActor(owner, { kind: "agent", name: "Assistant" });
-  await kernel.addMembership(owner, {
-    actorId: actor.id,
-    workspaceId: root.workspace.id,
+  const created = await kernel.createAgent(owner, {
+    name: "Assistant",
+    instructions: "Help the team.",
+    provider: "test",
+    model: "test-model",
     permissions: ["read", "create", "update", "delete", "manage"],
   });
+  const actor = created.actor;
   return {
     kernel,
     owner,

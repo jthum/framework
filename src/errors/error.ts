@@ -1,8 +1,12 @@
 import type { JsonValue } from "../spec/model.ts";
 
 export const ERROR_CODES = {
+  agentCancelled: "AGENT.CANCELLED",
+  agentInvalidStream: "AGENT.INVALID_STREAM",
+  agentStepLimit: "AGENT.STEP_LIMIT",
   environmentCapabilityUnavailable: "ENVIRONMENT.CAPABILITY_UNAVAILABLE",
   internalUnexpected: "INTERNAL.UNEXPECTED",
+  inferenceRefused: "INFERENCE.REFUSED",
   permissionDenied: "PERMISSION.DENIED",
   persistenceUnsupported: "PERSISTENCE.UNSUPPORTED",
   resourceConflict: "RESOURCE.CONFLICT",

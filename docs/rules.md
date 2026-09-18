@@ -91,8 +91,9 @@ authorization rather than becoming a permission shortcut.
 
 `agents.run` calls an installed AgentRuntime and collects its final JSON result. It inherits the
 Rule's current Actor; a semantic Agent binding in `runAs` is optional when the work needs an
-independent identity. Model/provider selection and conversation storage remain host concerns. See
-[Agents](agents.md).
+independent identity. Agent Actors use their persisted instructions and ModelConfig; User/System
+inference can supply a model selection or use an adapter default. Conversation storage remains host
+state. See [Inference and Agents](agents.md).
 
 The short runner bounds nesting, cascaded steps, loops, and repeats. Retries are process-local, parallel
 branches use deterministic in-process emulation, and successful compensations capture their

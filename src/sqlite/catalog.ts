@@ -4,7 +4,15 @@ import {
   resourceConflict,
   resourceNotFound,
 } from "../errors/error.ts";
-import type { Actor, ActorKind, Attachment, Membership, Workspace } from "../kernel/model.ts";
+import type {
+  Actor,
+  ActorKind,
+  AgentConfig,
+  Attachment,
+  Membership,
+  ModelConfig,
+  Workspace,
+} from "../kernel/model.ts";
 import type {
   CatalogRepository,
   CatalogTransaction,
@@ -16,10 +24,14 @@ import { SqliteExecutionStore } from "./executions.ts";
 import {
   assertActorIntegrity,
   assertActorIdentityUnchanged,
+  assertAgentConfigIdentityUnchanged,
+  assertAgentConfigIntegrity,
   assertAttachmentIntegrity,
   assertAttachmentRevocation,
   assertMembershipIdentityUnchanged,
   assertMembershipIntegrity,
+  assertModelConfigIdentityUnchanged,
+  assertModelConfigIntegrity,
   assertWorkspaceIntegrity,
   assertWorkspaceTopologyUnchanged,
 } from "../persistence/catalog-integrity.ts";
@@ -76,7 +88,7 @@ export class SqlitePersistenceAdapter implements PersistenceAdapter {
   }
 }
 
-export const SQLITE_CATALOG_SCHEMA_VERSION = 9;
+export const SQLITE_CATALOG_SCHEMA_VERSION = 10;
 
 export class SqliteCatalogRepository implements CatalogRepository {
   constructor(private readonly database: SqliteDatabase) {}
@@ -120,6 +132,18 @@ export class SqliteCatalogRepository implements CatalogRepository {
 
   listActorsByRoot(rootId: string): Promise<Actor[]> {
     return reader(this.database).listActorsByRoot(rootId);
+  }
+
+  getModelConfig(id: string): Promise<ModelConfig | null> {
+    return reader(this.database).getModelConfig(id);
+  }
+
+  listModelConfigs(workspaceId: string): Promise<ModelConfig[]> {
+    return reader(this.database).listModelConfigs(workspaceId);
+  }
+
+  getAgentConfig(actorId: string): Promise<AgentConfig | null> {
+    return reader(this.database).getAgentConfig(actorId);
   }
 
   listMembers(workspaceId: string): Promise<Actor[]> {
@@ -216,6 +240,18 @@ class SqliteCatalogTransaction implements CatalogTransaction {
     return reader(this.connection).listActorsByRoot(rootId);
   }
 
+  getModelConfig(id: string): Promise<ModelConfig | null> {
+    return reader(this.connection).getModelConfig(id);
+  }
+
+  listModelConfigs(workspaceId: string): Promise<ModelConfig[]> {
+    return reader(this.connection).listModelConfigs(workspaceId);
+  }
+
+  getAgentConfig(actorId: string): Promise<AgentConfig | null> {
+    return reader(this.connection).getAgentConfig(actorId);
+  }
+
   listMembers(workspaceId: string): Promise<Actor[]> {
     return reader(this.connection).listMembers(workspaceId);
   }
@@ -273,6 +309,79 @@ class SqliteCatalogTransaction implements CatalogTransaction {
     await this.connection.run(
       "UPDATE actors SET name = ?, email = ?, updated_at = ? WHERE id = ?",
       [actor.name, actor.email ?? null, actor.updatedAt, actor.id],
+    );
+  }
+
+  async insertModelConfig(config: ModelConfig): Promise<void> {
+    await assertModelConfigIntegrity(this, config);
+    await insert(this.connection, "model_configs", [
+      config.id,
+      config.workspaceId,
+      config.name,
+      config.provider,
+      config.model,
+      config.credentialRef ?? null,
+      config.settings === undefined ? null : JSON.stringify(config.settings),
+      config.createdAt,
+      config.updatedAt,
+    ]);
+  }
+
+  async updateModelConfig(config: ModelConfig): Promise<void> {
+    const current = await this.getModelConfig(config.id);
+    if (!current) throw resourceNotFound("ModelConfig", config.id);
+    assertModelConfigIdentityUnchanged(current, config);
+    await assertModelConfigIntegrity(this, config);
+    await this.connection.run(
+      "UPDATE model_configs SET name = ?, provider = ?, model = ?, credential_ref = ?, settings_json = ?, updated_at = ? WHERE id = ?",
+      [
+        config.name,
+        config.provider,
+        config.model,
+        config.credentialRef ?? null,
+        config.settings === undefined ? null : JSON.stringify(config.settings),
+        config.updatedAt,
+        config.id,
+      ],
+    );
+  }
+
+  async deleteModelConfig(id: string): Promise<void> {
+    if (!(await this.getModelConfig(id))) throw resourceNotFound("ModelConfig", id);
+    try {
+      await this.connection.run("DELETE FROM model_configs WHERE id = ?", [id]);
+    } catch (error) {
+      if (isConstraintError(error)) throw resourceConflict("ModelConfig is used by an Agent.");
+      throw error;
+    }
+  }
+
+  async insertAgentConfig(config: AgentConfig): Promise<void> {
+    await assertAgentConfigIntegrity(this, config);
+    await insert(this.connection, "agent_configs", [
+      config.actorId,
+      config.modelConfigId,
+      config.instructions,
+      JSON.stringify(config.tools),
+      config.createdAt,
+      config.updatedAt,
+    ]);
+  }
+
+  async updateAgentConfig(config: AgentConfig): Promise<void> {
+    const current = await this.getAgentConfig(config.actorId);
+    if (!current) throw resourceNotFound("AgentConfig", config.actorId);
+    assertAgentConfigIdentityUnchanged(current, config);
+    await assertAgentConfigIntegrity(this, config);
+    await this.connection.run(
+      "UPDATE agent_configs SET model_config_id = ?, instructions = ?, tools_json = ?, updated_at = ? WHERE actor_id = ?",
+      [
+        config.modelConfigId,
+        config.instructions,
+        JSON.stringify(config.tools),
+        config.updatedAt,
+        config.actorId,
+      ],
     );
   }
 
@@ -424,6 +533,31 @@ class SqliteCatalogReader {
     ).map(actorFromRow);
   }
 
+  async getModelConfig(id: string): Promise<ModelConfig | null> {
+    const row = await this.connection.get<ModelConfigRow>(
+      "SELECT * FROM model_configs WHERE id = ?",
+      [id],
+    );
+    return row ? modelConfigFromRow(row) : null;
+  }
+
+  async listModelConfigs(workspaceId: string): Promise<ModelConfig[]> {
+    return (
+      await this.connection.all<ModelConfigRow>(
+        "SELECT * FROM model_configs WHERE workspace_id = ? ORDER BY created_at, id",
+        [workspaceId],
+      )
+    ).map(modelConfigFromRow);
+  }
+
+  async getAgentConfig(actorId: string): Promise<AgentConfig | null> {
+    const row = await this.connection.get<AgentConfigRow>(
+      "SELECT * FROM agent_configs WHERE actor_id = ?",
+      [actorId],
+    );
+    return row ? agentConfigFromRow(row) : null;
+  }
+
   async listMembers(workspaceId: string): Promise<Actor[]> {
     return (
       await this.connection.all<ActorRow>(
@@ -518,6 +652,31 @@ async function initializeCatalog(database: SqliteDatabase): Promise<void> {
     CREATE INDEX IF NOT EXISTS actors_origin_id ON actors(origin_id);
     CREATE INDEX IF NOT EXISTS actors_root_id ON actors(root_id);
 
+    CREATE TABLE IF NOT EXISTS model_configs (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      model TEXT NOT NULL,
+      credential_ref TEXT,
+      settings_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS model_configs_workspace_id ON model_configs(workspace_id);
+
+    CREATE TABLE IF NOT EXISTS agent_configs (
+      actor_id TEXT PRIMARY KEY REFERENCES actors(id) ON DELETE CASCADE,
+      model_config_id TEXT NOT NULL REFERENCES model_configs(id) ON DELETE RESTRICT,
+      instructions TEXT NOT NULL,
+      tools_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS agent_configs_model_config_id ON agent_configs(model_config_id);
+
     CREATE TABLE IF NOT EXISTS memberships (
       id TEXT PRIMARY KEY,
       actor_id TEXT NOT NULL REFERENCES actors(id) ON DELETE CASCADE,
@@ -569,6 +728,10 @@ const insertStatements = {
     "INSERT INTO workspaces (id, is_root, parent_id, root_id, name, created_by, access_json, policy_json, spec_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   actors:
     "INSERT INTO actors (id, origin_id, root_id, kind, name, email, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+  model_configs:
+    "INSERT INTO model_configs (id, workspace_id, name, provider, model, credential_ref, settings_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  agent_configs:
+    "INSERT INTO agent_configs (actor_id, model_config_id, instructions, tools_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
   memberships:
     "INSERT INTO memberships (id, actor_id, workspace_id, roles_json, permissions_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
 } as const;
@@ -590,7 +753,8 @@ function isConstraintError(error: unknown): boolean {
   return (
     error instanceof Error &&
     (error.message.includes("UNIQUE constraint failed") ||
-      error.message.includes("PRIMARY KEY constraint failed"))
+      error.message.includes("PRIMARY KEY constraint failed") ||
+      error.message.includes("FOREIGN KEY constraint failed"))
   );
 }
 
@@ -659,6 +823,27 @@ interface ActorRow {
   updated_at: string;
 }
 
+interface ModelConfigRow {
+  id: string;
+  workspace_id: string;
+  name: string;
+  provider: string;
+  model: string;
+  credential_ref: string | null;
+  settings_json: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface AgentConfigRow {
+  actor_id: string;
+  model_config_id: string;
+  instructions: string;
+  tools_json: string;
+  created_at: string;
+  updated_at: string;
+}
+
 interface MembershipRow {
   id: string;
   actor_id: string;
@@ -693,6 +878,33 @@ function actorFromRow(row: ActorRow): Actor {
     kind: row.kind,
     name: row.name,
     ...(row.email === null ? {} : { email: row.email }),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function modelConfigFromRow(row: ModelConfigRow): ModelConfig {
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    name: row.name,
+    provider: row.provider,
+    model: row.model,
+    ...(row.credential_ref === null ? {} : { credentialRef: row.credential_ref }),
+    ...(row.settings_json === null
+      ? {}
+      : { settings: JSON.parse(row.settings_json) as NonNullable<ModelConfig["settings"]> }),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function agentConfigFromRow(row: AgentConfigRow): AgentConfig {
+  return {
+    actorId: row.actor_id,
+    modelConfigId: row.model_config_id,
+    instructions: row.instructions,
+    tools: JSON.parse(row.tools_json) as AgentConfig["tools"],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

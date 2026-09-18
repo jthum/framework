@@ -6,6 +6,7 @@ export * from "./defaults.ts";
 export * from "./condition-registry.ts";
 export * from "./environment.ts";
 export * from "./forms.ts";
+export * from "./inference.ts";
 export * from "./kernel.ts";
 export * from "./model.ts";
 export * from "./pages.ts";

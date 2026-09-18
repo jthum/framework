@@ -32,7 +32,7 @@ The host owns:
 - persistence adapter and deployment environment;
 - routes, navigation, layout, product vocabulary, and error presentation;
 - application-specific Actions, Conditions, Sources, Blocks, and modules;
-- Agent provider/model adapters, credentials, conversation storage, and stream transport;
+- Agent provider adapters, credential resolution, conversation storage, and stream transport;
 - Spec import/export envelope and validation of host extensions;
 - catalogs, template installation, registry trust, and optional library UI.
 

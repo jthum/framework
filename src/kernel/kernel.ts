@@ -75,8 +75,11 @@ import {
   PERMISSIONS,
   type Actor,
   type ActorKind,
+  type AgentConfig,
+  type AgentToolPolicy,
   type ExecutionContext,
   type Membership,
+  type ModelConfig,
   type Permission,
   type Workspace,
   type WorkspaceAccess,
@@ -130,9 +133,45 @@ export interface CreateWorkspaceInput {
 }
 
 export interface CreateActorInput {
-  readonly kind: Exclude<ActorKind, "system">;
+  readonly kind: Exclude<ActorKind, "system" | "agent">;
   readonly name: string;
   readonly email?: string;
+}
+
+export interface CreateModelConfigInput {
+  readonly name: string;
+  readonly provider: string;
+  readonly model: string;
+  readonly credentialRef?: string;
+  readonly settings?: Readonly<Record<string, JsonValue>>;
+}
+
+export type UpdateModelConfigInput = CreateModelConfigInput;
+
+export interface ConfigureAgentInput {
+  readonly modelConfigId: string;
+  readonly instructions: string;
+  readonly tools?: Partial<AgentToolPolicy>;
+}
+
+export interface CreateAgentInput {
+  readonly name: string;
+  readonly email?: string;
+  readonly instructions: string;
+  readonly provider: string;
+  readonly model: string;
+  readonly credentialRef?: string;
+  readonly settings?: Readonly<Record<string, JsonValue>>;
+  readonly tools?: Partial<AgentToolPolicy>;
+  readonly roles?: readonly string[];
+  readonly permissions?: readonly Permission[];
+}
+
+export interface AgentBootstrap {
+  readonly actor: Actor;
+  readonly membership: Membership;
+  readonly config: AgentConfig;
+  readonly model: ModelConfig;
 }
 
 export interface UpdateActorInput {
@@ -467,11 +506,13 @@ export class Kernel {
   async listAgentTools(context: ExecutionContext): Promise<readonly AgentTool[]> {
     const actor = await this.requireAgentRuntimeContext(context);
     await this.assertAgentRuntime();
+    const policy = await this.agentPolicy(actor);
     return (
       await this.projectAgentTools(
         context,
         { execution: context, actor, messages: [], step: 1, activeToolIds: new Set() },
         true,
+        policy,
       )
     ).tools;
   }
@@ -479,15 +520,57 @@ export class Kernel {
   async runAgent(context: ExecutionContext, input: AgentInput): Promise<AsyncIterable<AgentEvent>> {
     const actor = await this.requireAgentRuntimeContext(context);
     const runtime = await this.assertAgentRuntime();
+    const configured = await this.agentExecution(actor);
     return runtime.run({
       execution: { ...context },
       actor,
       messages: input.messages.map((message) => structuredClone(message)),
-      ...(input.instructions === undefined ? {} : { instructions: input.instructions }),
+      ...(configured?.instructions === undefined
+        ? input.instructions === undefined
+          ? {}
+          : { instructions: input.instructions }
+        : {
+            instructions:
+              input.instructions === undefined
+                ? configured.instructions
+                : `${configured.instructions}\n\n${input.instructions}`,
+          }),
+      ...(configured?.model === undefined
+        ? input.model === undefined
+          ? {}
+          : { model: structuredClone(input.model) }
+        : { model: configured.model }),
       ...(input.metadata === undefined ? {} : { metadata: structuredClone(input.metadata) }),
       ...(input.signal === undefined ? {} : { signal: input.signal }),
-      tools: this.agentToolGateway(context),
+      tools: this.agentToolGateway(context, configured?.tools ?? defaultAgentToolPolicy()),
     });
+  }
+
+  private async agentExecution(actor: Actor): Promise<{
+    readonly instructions: string;
+    readonly model: NonNullable<AgentInput["model"]>;
+    readonly tools: AgentToolPolicy;
+  } | null> {
+    if (actor.kind !== "agent") return null;
+    const config = await this.catalog.getAgentConfig(actor.id);
+    if (!config) throw resourceNotFound("AgentConfig", actor.id);
+    const model = await this.catalog.getModelConfig(config.modelConfigId);
+    if (!model) throw resourceNotFound("ModelConfig", config.modelConfigId);
+    return {
+      instructions: config.instructions,
+      model: {
+        configId: model.id,
+        provider: model.provider,
+        model: model.model,
+        ...(model.credentialRef === undefined ? {} : { credentialRef: model.credentialRef }),
+        ...(model.settings === undefined ? {} : { settings: structuredClone(model.settings) }),
+      },
+      tools: config.tools,
+    };
+  }
+
+  private async agentPolicy(actor: Actor): Promise<AgentToolPolicy> {
+    return (await this.agentExecution(actor))?.tools ?? defaultAgentToolPolicy();
   }
 
   private async requireAgentRuntimeContext(context: ExecutionContext): Promise<Actor> {
@@ -510,9 +593,9 @@ export class Kernel {
     return this.agentRuntime;
   }
 
-  private agentToolGateway(context: ExecutionContext): AgentToolGateway {
+  private agentToolGateway(context: ExecutionContext, policy: AgentToolPolicy): AgentToolGateway {
     return {
-      resolve: (toolContext) => this.projectAgentTools(context, toolContext, false),
+      resolve: (toolContext) => this.projectAgentTools(context, toolContext, false, policy),
     };
   }
 
@@ -520,6 +603,7 @@ export class Kernel {
     context: ExecutionContext,
     toolContext: AgentToolContext,
     includeDiscoverable: boolean,
+    policy: AgentToolPolicy,
   ): Promise<{
     tools: readonly AgentTool[];
     execute: (call: AgentToolCall) => Promise<JsonValue>;
@@ -543,6 +627,7 @@ export class Kernel {
       )
         continue;
       const id = `action:${action.key}`;
+      if (!agentToolAllowed(policy, id)) continue;
       const { availability = "eager", keywords = [], ...tool } = structuredClone(action.tool);
       const projected = { id, ...tool };
       if (availability === "discoverable") discoverable.push({ ...projected, keywords });
@@ -561,6 +646,7 @@ export class Kernel {
       )
         continue;
       const id = `rule:${rule.id}`;
+      if (!agentToolAllowed(policy, id)) continue;
       discoverable.push({
         id,
         label: rule.label,
@@ -591,6 +677,7 @@ export class Kernel {
 
     for (const provider of this.agentTools) {
       for (const definition of await provider.resolve(toolContext)) {
+        if (!agentToolAllowed(policy, definition.id)) continue;
         const { availability = "eager", keywords = [] } = definition;
         if (executors.has(definition.id))
           throw resourceConflict(`Agent tool ${definition.id} is already registered.`);
@@ -608,12 +695,14 @@ export class Kernel {
       }
     }
 
-    const visibleDiscoverable = includeDiscoverable
-      ? discoverable
-      : discoverable.filter((tool) => toolContext.activeToolIds.has(tool.id));
+    const visibleDiscoverable =
+      includeDiscoverable || !policy.search
+        ? discoverable
+        : discoverable.filter((tool) => toolContext.activeToolIds.has(tool.id));
     const tools: AgentTool[] = [...eager, ...visibleDiscoverable];
-    if (!includeDiscoverable && discoverable.length > visibleDiscoverable.length)
+    if (policy.search && !includeDiscoverable && discoverable.length > visibleDiscoverable.length)
       tools.push(searchToolsDefinition());
+    tools.sort((left, right) => left.id.localeCompare(right.id));
 
     const offered = new Set(tools.map((tool) => tool.id));
     return {
@@ -626,6 +715,7 @@ export class Kernel {
           context,
           { ...toolContext, activeToolIds: new Set([call.toolId]) },
           false,
+          policy,
         );
         const currentTool = current.tools.find((tool) => tool.id === call.toolId);
         if (!currentTool) throw resourceNotFound("AgentTool", call.toolId);
@@ -804,6 +894,188 @@ export class Kernel {
     };
     await this.catalog.transaction((transaction) => transaction.insertActor(actor));
     return actor;
+  }
+
+  async createAgent(context: ExecutionContext, input: CreateAgentInput): Promise<AgentBootstrap> {
+    await this.assertContext(context);
+    const workspace = await this.requireWorkspace(context.workspaceId);
+    await this.assertAuthorized({
+      context,
+      operation: "agents.create",
+      resource: { kind: "workspace", id: workspace.id, workspaceId: workspace.id },
+    });
+    if (!workspace.policy.createActors)
+      throw new FrameworkError({
+        code: ERROR_CODES.permissionDenied,
+        message: "This Workspace does not permit creating local Actors.",
+      });
+    const stamp = this.clock.now();
+    const name = requiredName(input.name, "Agent");
+    const actor: Actor = {
+      id: this.ids.create("actor"),
+      originId: workspace.id,
+      rootId: workspace.rootId,
+      kind: "agent",
+      name,
+      ...(input.email === undefined ? {} : { email: input.email }),
+      createdAt: stamp,
+      updatedAt: stamp,
+    };
+    const model: ModelConfig = {
+      id: this.ids.create("model_config"),
+      workspaceId: workspace.id,
+      name: `${name} model`,
+      provider: requiredName(input.provider, "Provider"),
+      model: requiredName(input.model, "Model"),
+      ...(input.credentialRef === undefined
+        ? {}
+        : { credentialRef: requiredName(input.credentialRef, "Credential reference") }),
+      ...(input.settings === undefined ? {} : { settings: structuredClone(input.settings) }),
+      createdAt: stamp,
+      updatedAt: stamp,
+    };
+    const config: AgentConfig = {
+      actorId: actor.id,
+      modelConfigId: model.id,
+      instructions: requiredName(input.instructions, "Agent instructions"),
+      tools: agentToolPolicy(input.tools),
+      createdAt: stamp,
+      updatedAt: stamp,
+    };
+    const agentMembership = membership(
+      this.ids,
+      stamp,
+      actor.id,
+      workspace.id,
+      input.roles ?? ["agent"],
+      input.permissions ?? ["read"],
+    );
+    await this.catalog.transaction(async (transaction) => {
+      await transaction.insertActor(actor);
+      await transaction.insertModelConfig(model);
+      await transaction.insertAgentConfig(config);
+      await transaction.insertMembership(agentMembership);
+    });
+    return { actor, membership: agentMembership, config, model };
+  }
+
+  async createModelConfig(
+    context: ExecutionContext,
+    input: CreateModelConfigInput,
+  ): Promise<ModelConfig> {
+    await this.assertContext(context);
+    await this.assertAuthorized({
+      context,
+      operation: "model_configs.create",
+      resource: { kind: "workspace", id: context.workspaceId, workspaceId: context.workspaceId },
+    });
+    const stamp = this.clock.now();
+    const config: ModelConfig = {
+      id: this.ids.create("model_config"),
+      workspaceId: context.workspaceId,
+      name: requiredName(input.name, "ModelConfig"),
+      provider: requiredName(input.provider, "Provider"),
+      model: requiredName(input.model, "Model"),
+      ...(input.credentialRef === undefined
+        ? {}
+        : { credentialRef: requiredName(input.credentialRef, "Credential reference") }),
+      ...(input.settings === undefined ? {} : { settings: structuredClone(input.settings) }),
+      createdAt: stamp,
+      updatedAt: stamp,
+    };
+    await this.catalog.transaction((transaction) => transaction.insertModelConfig(config));
+    return config;
+  }
+
+  async listModelConfigs(context: ExecutionContext): Promise<readonly ModelConfig[]> {
+    await this.assertContext(context);
+    await this.assertAuthorized({
+      context,
+      operation: "model_configs.manage",
+      resource: { kind: "workspace", id: context.workspaceId, workspaceId: context.workspaceId },
+    });
+    return this.catalog.listModelConfigs(context.workspaceId);
+  }
+
+  async updateModelConfig(
+    context: ExecutionContext,
+    id: string,
+    input: UpdateModelConfigInput,
+  ): Promise<ModelConfig> {
+    await this.assertContext(context);
+    const current = await this.catalog.getModelConfig(id);
+    if (!current) throw resourceNotFound("ModelConfig", id);
+    await this.assertAuthorized({
+      context,
+      operation: "model_configs.update",
+      resource: { kind: "workspace", id: current.workspaceId, workspaceId: current.workspaceId },
+    });
+    const config: ModelConfig = {
+      id: current.id,
+      workspaceId: current.workspaceId,
+      name: requiredName(input.name, "ModelConfig"),
+      provider: requiredName(input.provider, "Provider"),
+      model: requiredName(input.model, "Model"),
+      ...(input.credentialRef === undefined
+        ? {}
+        : { credentialRef: requiredName(input.credentialRef, "Credential reference") }),
+      ...(input.settings === undefined ? {} : { settings: structuredClone(input.settings) }),
+      createdAt: current.createdAt,
+      updatedAt: this.clock.now(),
+    };
+    await this.catalog.transaction((transaction) => transaction.updateModelConfig(config));
+    return config;
+  }
+
+  async deleteModelConfig(context: ExecutionContext, id: string): Promise<void> {
+    await this.assertContext(context);
+    const current = await this.catalog.getModelConfig(id);
+    if (!current) throw resourceNotFound("ModelConfig", id);
+    await this.assertAuthorized({
+      context,
+      operation: "model_configs.delete",
+      resource: { kind: "workspace", id: current.workspaceId, workspaceId: current.workspaceId },
+    });
+    await this.catalog.transaction((transaction) => transaction.deleteModelConfig(id));
+  }
+
+  async getAgentConfig(context: ExecutionContext, actorId: string): Promise<AgentConfig | null> {
+    await this.assertContext(context);
+    const actor = await this.requireActor(actorId);
+    await this.assertAuthorized({
+      context,
+      operation: "agent_configs.manage",
+      resource: { kind: "actor", id: actor.id, workspaceId: actor.originId },
+    });
+    return this.catalog.getAgentConfig(actorId);
+  }
+
+  async configureAgent(
+    context: ExecutionContext,
+    actorId: string,
+    input: ConfigureAgentInput,
+  ): Promise<AgentConfig> {
+    await this.assertContext(context);
+    const actor = await this.requireActor(actorId);
+    await this.assertAuthorized({
+      context,
+      operation: "agent_configs.update",
+      resource: { kind: "actor", id: actor.id, workspaceId: actor.originId },
+    });
+    const current = await this.catalog.getAgentConfig(actorId);
+    const stamp = this.clock.now();
+    const config: AgentConfig = {
+      actorId,
+      modelConfigId: input.modelConfigId,
+      instructions: requiredName(input.instructions, "Agent instructions"),
+      tools: agentToolPolicy(input.tools),
+      createdAt: current?.createdAt ?? stamp,
+      updatedAt: stamp,
+    };
+    await this.catalog.transaction((transaction) =>
+      current ? transaction.updateAgentConfig(config) : transaction.insertAgentConfig(config),
+    );
+    return config;
   }
 
   async updateActor(
@@ -2089,6 +2361,24 @@ function actionAgentInput(input: Readonly<Record<string, JsonValue>>): AgentInpu
     ...(input.instructions === undefined ? {} : { instructions: input.instructions as string }),
     ...(metadata === undefined ? {} : { metadata }),
   };
+}
+
+function defaultAgentToolPolicy(): AgentToolPolicy {
+  return { search: true };
+}
+
+function agentToolPolicy(input: Partial<AgentToolPolicy> | undefined): AgentToolPolicy {
+  return {
+    ...(input?.include === undefined ? {} : { include: [...input.include] }),
+    ...(input?.exclude === undefined ? {} : { exclude: [...input.exclude] }),
+    search: input?.search ?? true,
+  };
+}
+
+function agentToolAllowed(policy: AgentToolPolicy, id: string): boolean {
+  return (
+    (policy.include === undefined || policy.include.includes(id)) && !policy.exclude?.includes(id)
+  );
 }
 
 function actionInputError(message: string): FrameworkError {

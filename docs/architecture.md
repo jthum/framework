@@ -310,7 +310,7 @@ development.
 
 - exact optional View default-presentation contract;
 - `wait.signal` versus a dedicated Actor step inside a Rule;
-- embedded AgentRuntime library;
+- optional concrete InferenceAdapter packages and their behavioral evals;
 - whether later Form presentation needs anything beyond the current success title/description;
 - future rolling Materialization semantics;
 - cross-root guest identity;
@@ -348,7 +348,10 @@ ActorRequest        wait for a User
 Membership          persisted Actor participation in a Workspace
 ACL                 member permissions plus others ceiling
 Attachment          cross-Workspace Source access with narrowed permissions
-AgentRuntime        how an Agent reasons
+ModelConfig         instance provider/model selection; secrets stay behind credentialRef
+AgentConfig         instructions and tool policy attached to an Agent Actor
+InferenceAdapter    one provider/model request
+AgentRuntime        complete inference/tool turn
 Kernel              TypeScript reference engine
 Module              domain code
 PersistenceAdapter  storage implementation

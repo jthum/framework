@@ -1,4 +1,4 @@
-import type { FieldCondition, Spec } from "../spec/model.ts";
+import type { FieldCondition, JsonValue, Spec } from "../spec/model.ts";
 
 export const ACTOR_KINDS = ["user", "agent", "system"] as const;
 export type ActorKind = (typeof ACTOR_KINDS)[number];
@@ -40,6 +40,36 @@ export interface Actor {
   readonly kind: ActorKind;
   readonly name: string;
   readonly email?: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+/** Instance configuration for one reusable provider/model selection. Credentials remain external. */
+export interface ModelConfig {
+  readonly id: string;
+  readonly workspaceId: string;
+  readonly name: string;
+  readonly provider: string;
+  readonly model: string;
+  readonly credentialRef?: string;
+  readonly settings?: Readonly<Record<string, JsonValue>>;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+/** Selection policy only; it can narrow eligible tools but never grant authority. */
+export interface AgentToolPolicy {
+  readonly include?: readonly string[];
+  readonly exclude?: readonly string[];
+  readonly search: boolean;
+}
+
+/** Instance configuration attached one-to-one to an Agent Actor. */
+export interface AgentConfig {
+  readonly actorId: string;
+  readonly modelConfigId: string;
+  readonly instructions: string;
+  readonly tools: AgentToolPolicy;
   readonly createdAt: string;
   readonly updatedAt: string;
 }

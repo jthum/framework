@@ -169,8 +169,9 @@ runtime supports dynamic authorized tools while SDK details remain outside the K
 - deterministic contract tests and agent evals kept separate.
 
 The event model, default sequential tool loop, Action/Rule projection, contextual providers,
-discovery, context-bound client, and deterministic tests are in place. Persisted Agent and model
-configuration, provider composition, one concrete adapter, and behavioral evals remain.
+discovery, persisted Agent and model configuration, provider routing, context-bound client, and
+deterministic tests are in place. One optional concrete provider adapter and behavioral evals remain;
+they do not add a provider SDK to the Kernel package.
 
 **Out:** mandatory schema-library or agent-SDK dependency in the Spec/Kernel; implicit authority;
 conversation history as the Agent's only mode; multiple speculative adapters.

@@ -1,6 +1,13 @@
 import { resourceConflict, resourceNotFound } from "../errors/error.ts";
 import { MemoryExecutionStore } from "./executions.ts";
-import type { Actor, Attachment, Membership, Workspace } from "../kernel/model.ts";
+import type {
+  Actor,
+  AgentConfig,
+  Attachment,
+  Membership,
+  ModelConfig,
+  Workspace,
+} from "../kernel/model.ts";
 import type { CollectionDefinition } from "../spec/model.ts";
 import type {
   CatalogRepository,
@@ -12,10 +19,14 @@ import type { CollectionRecord, RecordStore } from "./records.ts";
 import {
   assertActorIntegrity,
   assertActorIdentityUnchanged,
+  assertAgentConfigIdentityUnchanged,
+  assertAgentConfigIntegrity,
   assertAttachmentIntegrity,
   assertAttachmentRevocation,
   assertMembershipIdentityUnchanged,
   assertMembershipIntegrity,
+  assertModelConfigIdentityUnchanged,
+  assertModelConfigIntegrity,
   assertWorkspaceIntegrity,
   assertWorkspaceTopologyUnchanged,
 } from "./catalog-integrity.ts";
@@ -23,6 +34,8 @@ import {
 interface MemoryState {
   workspaces: Map<string, Workspace>;
   actors: Map<string, Actor>;
+  modelConfigs: Map<string, ModelConfig>;
+  agentConfigs: Map<string, AgentConfig>;
   memberships: Map<string, Membership>;
   attachments: Map<string, Attachment>;
 }
@@ -93,7 +106,12 @@ export class MemoryCatalogRepository implements CatalogRepository, CatalogTransa
       if (attachment.originId === id || attachment.targetId === id)
         this.state.attachments.delete(key);
     for (const [key, actor] of this.state.actors)
-      if (actor.originId === id) this.state.actors.delete(key);
+      if (actor.originId === id) {
+        this.state.actors.delete(key);
+        this.state.agentConfigs.delete(key);
+      }
+    for (const [key, config] of this.state.modelConfigs)
+      if (config.workspaceId === id) this.state.modelConfigs.delete(key);
   }
 
   async getWorkspace(id: string): Promise<Workspace | null> {
@@ -122,6 +140,18 @@ export class MemoryCatalogRepository implements CatalogRepository, CatalogTransa
 
   async listActorsByRoot(rootId: string): Promise<Actor[]> {
     return cloneValues(this.state.actors).filter((item) => item.rootId === rootId);
+  }
+
+  async getModelConfig(id: string): Promise<ModelConfig | null> {
+    return cloneOptional(this.state.modelConfigs.get(id));
+  }
+
+  async listModelConfigs(workspaceId: string): Promise<ModelConfig[]> {
+    return cloneValues(this.state.modelConfigs).filter((item) => item.workspaceId === workspaceId);
+  }
+
+  async getAgentConfig(actorId: string): Promise<AgentConfig | null> {
+    return cloneOptional(this.state.agentConfigs.get(actorId));
   }
 
   async listMembers(workspaceId: string): Promise<Actor[]> {
@@ -199,6 +229,40 @@ export class MemoryCatalogRepository implements CatalogRepository, CatalogTransa
     assertActorIdentityUnchanged(previous, actor);
     await assertActorIntegrity(this, actor);
     this.state.actors.set(actor.id, clone(actor));
+  }
+
+  async insertModelConfig(config: ModelConfig): Promise<void> {
+    await assertModelConfigIntegrity(this, config);
+    insertUnique(this.state.modelConfigs, config, "ModelConfig");
+  }
+
+  async updateModelConfig(config: ModelConfig): Promise<void> {
+    const previous = this.state.modelConfigs.get(config.id);
+    if (!previous) throw resourceNotFound("ModelConfig", config.id);
+    assertModelConfigIdentityUnchanged(previous, config);
+    await assertModelConfigIntegrity(this, config);
+    this.state.modelConfigs.set(config.id, clone(config));
+  }
+
+  async deleteModelConfig(id: string): Promise<void> {
+    if ([...this.state.agentConfigs.values()].some((config) => config.modelConfigId === id))
+      throw resourceConflict("ModelConfig is used by an Agent.");
+    if (!this.state.modelConfigs.delete(id)) throw resourceNotFound("ModelConfig", id);
+  }
+
+  async insertAgentConfig(config: AgentConfig): Promise<void> {
+    await assertAgentConfigIntegrity(this, config);
+    if (this.state.agentConfigs.has(config.actorId))
+      throw resourceConflict("AgentConfig already exists.");
+    this.state.agentConfigs.set(config.actorId, clone(config));
+  }
+
+  async updateAgentConfig(config: AgentConfig): Promise<void> {
+    const previous = this.state.agentConfigs.get(config.actorId);
+    if (!previous) throw resourceNotFound("AgentConfig", config.actorId);
+    assertAgentConfigIdentityUnchanged(previous, config);
+    await assertAgentConfigIntegrity(this, config);
+    this.state.agentConfigs.set(config.actorId, clone(config));
   }
 
   async insertMembership(membership: Membership): Promise<void> {
@@ -361,6 +425,8 @@ function emptyState(): MemoryState {
   return {
     workspaces: new Map(),
     actors: new Map(),
+    modelConfigs: new Map(),
+    agentConfigs: new Map(),
     memberships: new Map(),
     attachments: new Map(),
   };
@@ -379,6 +445,8 @@ function cloneState(state: MemoryState): MemoryState {
   return {
     workspaces: cloneMap(state.workspaces),
     actors: cloneMap(state.actors),
+    modelConfigs: cloneMap(state.modelConfigs),
+    agentConfigs: cloneMap(state.agentConfigs),
     memberships: cloneMap(state.memberships),
     attachments: cloneMap(state.attachments),
   };

@@ -43,7 +43,7 @@ dependency direction remains visible.
 | Persistence port                 | `PersistenceAdapter`, `PersistenceSession`, `CatalogRepository`                  | [`src/persistence/catalog.ts`](../src/persistence/catalog.ts)         |
 | Record port                      | `RecordStore`, `CollectionRecord`, `RecordValues`                                | [`src/persistence/records.ts`](../src/persistence/records.ts)         |
 | Rule extensions                  | `ActionDefinition`, `ConditionDefinition`, `RuleRuntimeProfile`                  | [`src/kernel`](../src/kernel)                                         |
-| Inference and Agent execution    | `InferenceAdapter`, `AgentRuntime`, `AgentToolProvider`, `AgentEvent`            | [`src/kernel/agent-runtime.ts`](../src/kernel/agent-runtime.ts)       |
+| Inference and Agent execution    | `InferenceAdapter`, `InferenceRegistry`, `AgentRuntime`, `AgentConfig`           | [`src/kernel`](../src/kernel)                                         |
 | Block loading                    | `BlockDefinition`, `BlockRegistry`, `BlockInput`                                 | [`src/blocks`](../src/blocks)                                         |
 | Catalog discovery                | `Catalog`, `CatalogSource`, `CatalogEntry`                                       | [`src/catalog`](../src/catalog)                                       |
 

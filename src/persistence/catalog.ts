@@ -1,4 +1,11 @@
-import type { Actor, Attachment, Membership, Workspace } from "../kernel/model.ts";
+import type {
+  Actor,
+  AgentConfig,
+  Attachment,
+  Membership,
+  ModelConfig,
+  Workspace,
+} from "../kernel/model.ts";
 import type { RecordStore } from "./records.ts";
 import type { CollectionRecord } from "./records.ts";
 import type { CollectionDefinition } from "../spec/model.ts";
@@ -17,6 +24,9 @@ export interface CatalogReader {
   getActor(id: string): Promise<Actor | null>;
   listActorsByOrigin(originId: string): Promise<Actor[]>;
   listActorsByRoot(rootId: string): Promise<Actor[]>;
+  getModelConfig(id: string): Promise<ModelConfig | null>;
+  listModelConfigs(workspaceId: string): Promise<ModelConfig[]>;
+  getAgentConfig(actorId: string): Promise<AgentConfig | null>;
   listMembers(workspaceId: string): Promise<Actor[]>;
   getMembership(actorId: string, workspaceId: string): Promise<Membership | null>;
   listMembershipsForActor(actorId: string): Promise<Membership[]>;
@@ -31,6 +41,11 @@ export interface CatalogTransaction extends CatalogReader {
   insertWorkspace(workspace: Workspace): Promise<void>;
   insertActor(actor: Actor): Promise<void>;
   updateActor(actor: Actor): Promise<void>;
+  insertModelConfig(config: ModelConfig): Promise<void>;
+  updateModelConfig(config: ModelConfig): Promise<void>;
+  deleteModelConfig(id: string): Promise<void>;
+  insertAgentConfig(config: AgentConfig): Promise<void>;
+  updateAgentConfig(config: AgentConfig): Promise<void>;
   insertMembership(membership: Membership): Promise<void>;
   updateMembership(membership: Membership): Promise<void>;
   updateWorkspace(workspace: Workspace): Promise<void>;
