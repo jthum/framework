@@ -5,6 +5,7 @@ import { createEmptySpec, type JsonValue, type Spec } from "../spec/model.ts";
 import type { ActionDefinition } from "./action-registry.ts";
 import {
   collectAgentRun,
+  DefaultAgentRuntime,
   type AgentEvent,
   type AgentRuntime,
   type AgentContext,
@@ -377,6 +378,100 @@ describe("AgentRuntime", () => {
     });
     await kernel.close();
   });
+
+  it("executes calls from one inference step sequentially in emitted order", async () => {
+    const executionOrder: string[] = [];
+    const inference = new ScriptedInference((_input, step) =>
+      step === 1
+        ? [
+            { type: "tool_call", id: "first-call", toolId: "first", input: {} },
+            { type: "tool_call", id: "second-call", toolId: "second", input: {} },
+            { type: "finished", reason: "tool_calls" },
+          ]
+        : [{ type: "finished", reason: "stop" }],
+    );
+    const kernel = await Kernel.open({
+      persistence: new MemoryPersistenceAdapter(),
+      environment: defineEnvironmentProfile({ ...LOCAL_BROWSER_ENVIRONMENT, agentRuntime: true }),
+      inference,
+      agentTools: [
+        {
+          resolve: () => [
+            tool("first", () => {
+              executionOrder.push("first");
+              return { position: 1 };
+            }),
+            tool("second", () => {
+              executionOrder.push("second");
+              return { position: 2 };
+            }),
+          ],
+        },
+      ],
+    });
+    const root = await kernel.createRootWorkspace({ name: "Space", user: { name: "Jane" } });
+    const owner = { workspaceId: root.workspace.id, actorId: root.user.id };
+
+    await collectAgentRun(await kernel.runAgent(owner, { messages: [] }));
+
+    expect(executionOrder).toEqual(["first", "second"]);
+    expect(inference.requests[1]?.messages.slice(-2)).toMatchObject([
+      { role: "tool", callId: "first-call", output: { position: 1 } },
+      { role: "tool", callId: "second-call", output: { position: 2 } },
+    ]);
+    await kernel.close();
+  });
+
+  it("preserves normalized refusal and cancellation terminals", async () => {
+    const refused = new DefaultAgentRuntime(
+      new ScriptedInference(() => [
+        { type: "usage", usage: { inputTokens: 7, outputTokens: 1, totalTokens: 8 } },
+        { type: "finished", reason: "refusal", message: "Request declined by provider policy." },
+      ]),
+    );
+    const cancelled = new DefaultAgentRuntime(new ScriptedInference(() => [{ type: "cancelled" }]));
+
+    const refusedEvents = collect(refused.run(runtimeContext()));
+    await expect(refusedEvents).resolves.toEqual(
+      expect.arrayContaining([
+        {
+          type: "refused",
+          reason: "Request declined by provider policy.",
+          usage: { inputTokens: 7, outputTokens: 1, totalTokens: 8 },
+        },
+      ]),
+    );
+    await expect(collectAgentRun(refused.run(runtimeContext()))).rejects.toMatchObject({
+      code: ERROR_CODES.inferenceRefused,
+      message: "Request declined by provider policy.",
+    });
+    await expect(collectAgentRun(cancelled.run(runtimeContext()))).rejects.toMatchObject({
+      code: ERROR_CODES.agentCancelled,
+    });
+  });
+
+  it("rejects malformed inference terminals and stops at the configured step limit", async () => {
+    const malformed = new DefaultAgentRuntime(
+      new ScriptedInference(() => [
+        { type: "tool_call", id: "unexpected", toolId: "noop", input: {} },
+        { type: "finished", reason: "stop" },
+      ]),
+    );
+    const looping = new DefaultAgentRuntime(
+      new ScriptedInference(() => [
+        { type: "tool_call", id: "again", toolId: "noop", input: {} },
+        { type: "finished", reason: "tool_calls" },
+      ]),
+      { maxSteps: 1 },
+    );
+
+    await expect(collectAgentRun(malformed.run(runtimeContext()))).rejects.toMatchObject({
+      code: ERROR_CODES.agentInvalidStream,
+    });
+    await expect(collectAgentRun(looping.run(runtimeContext()))).rejects.toMatchObject({
+      code: ERROR_CODES.agentStepLimit,
+    });
+  });
 });
 
 class ScriptedInference implements InferenceAdapter {
@@ -396,6 +491,46 @@ async function collect<T>(events: AsyncIterable<T>): Promise<T[]> {
   const result: T[] = [];
   for await (const event of events) result.push(event);
   return result;
+}
+
+function tool(id: string, execute: () => JsonValue) {
+  return {
+    id,
+    label: id,
+    description: `${id} test tool.`,
+    input: { type: "object" as const, additionalProperties: false },
+    execute,
+  };
+}
+
+function runtimeContext(): AgentContext {
+  const execution = { workspaceId: "workspace-test", actorId: "actor-test" };
+  return {
+    execution,
+    actor: {
+      id: execution.actorId,
+      kind: "user",
+      originId: execution.workspaceId,
+      rootId: execution.workspaceId,
+      name: "Test user",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    },
+    messages: [],
+    tools: {
+      resolve: async () => ({
+        tools: [
+          {
+            id: "noop",
+            label: "No operation",
+            description: "Continue the test loop.",
+            input: { type: "object", additionalProperties: false },
+          },
+        ],
+        execute: async () => null,
+      }),
+    },
+  };
 }
 
 class RecordingAgentRuntime implements AgentRuntime {

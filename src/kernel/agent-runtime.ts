@@ -343,7 +343,10 @@ export async function collectAgentRun(events: AsyncIterable<AgentEvent>): Promis
   if (terminal.type === "failed") throw new FrameworkError(terminal.error);
   throw new FrameworkError({
     code: terminal.type === "refused" ? ERROR_CODES.inferenceRefused : ERROR_CODES.agentCancelled,
-    message: terminal.type === "refused" ? "Inference was refused." : "Agent run was cancelled.",
+    message:
+      terminal.type === "refused"
+        ? (terminal.reason ?? "Inference was refused.")
+        : "Agent run was cancelled.",
   });
 }
 
