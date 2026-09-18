@@ -18,10 +18,12 @@ export default defineConfig({
         find: /^@jthum\/framework$/,
         replacement: fileURLToPath(new URL("./src/index.ts", import.meta.url)),
       },
-      ...["client", "kernel", "spec", "errors", "persistence", "blocks", "sqlite"].map((key) => ({
-        find: new RegExp(`^@jthum/framework/${key}$`),
-        replacement: fileURLToPath(new URL(`./src/${key}/index.ts`, import.meta.url)),
-      })),
+      ...["client", "kernel", "spec", "errors", "persistence", "blocks", "catalog", "sqlite"].map(
+        (key) => ({
+          find: new RegExp(`^@jthum/framework/${key}$`),
+          replacement: fileURLToPath(new URL(`./src/${key}/index.ts`, import.meta.url)),
+        }),
+      ),
     ],
     expect: { requireAssertions: true },
     environment: "node",
@@ -31,6 +33,7 @@ export default defineConfig({
     entry: [
       "src/index.ts",
       "src/blocks/index.ts",
+      "src/catalog/index.ts",
       "src/client/index.ts",
       "src/errors/index.ts",
       "src/kernel/index.ts",

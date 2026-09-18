@@ -20,6 +20,10 @@
       "types": "./dist/blocks/index.d.mts",
       "import": "./dist/blocks/index.mjs"
     },
+    "./catalog": {
+      "types": "./dist/catalog/index.d.mts",
+      "import": "./dist/catalog/index.mjs"
+    },
     "./client": {
       "types": "./dist/client/index.d.mts",
       "import": "./dist/client/index.mjs"

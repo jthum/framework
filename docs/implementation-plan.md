@@ -337,6 +337,14 @@ than silently skipping its wait. Deterministic coverage proves Action publicatio
 persisted discovery, resume, Actor preservation, and mixed short/durable delivery. Phase 7 is closed;
 external schedule, webhook, deadline, and signal delivery remain host responsibilities as planned.
 
+**Catalog checkpoint:** `@jthum/framework/catalog` now provides a small read-only discovery
+primitive for host-selected sources of inert entries. Source provenance is explicit; overlapping
+entry keys do not shadow one another; filtering and pagination are deterministic; and returned data
+is isolated from catalog state. Installation remains resource- and host-specific. Builder.run uses
+the contract for App templates, Collection/Field templates, and Block metadata while keeping lazy
+renderer functions in its executable Block registry. This does not make Templates Kernel nodes,
+require a library UI, load remote code, or couple an exported installation to its source catalog.
+
 ### Phase 8 — AgentRuntime
 
 **Goal:** Agent is an Actor; Rules and UI call an AgentRuntime port; SDK details stay outside the Kernel.
@@ -366,7 +374,7 @@ external schedule, webhook, deadline, and signal delivery remain host responsibi
 - ACP AgentRuntime;
 - complete Builder invitation UX;
 - production Teamloop and Workspaces hosts;
-- Template registry semantics;
+- remote catalog trust and template installation semantics;
 - independent package splitting and registry publication before a second consumer is real.
 
 ---
