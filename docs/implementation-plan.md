@@ -12,16 +12,16 @@ No compatibility with the current Spec, `Host`, `TypeDef`, `WorkflowDef`, widget
 
 ## Progress
 
-| Phase | Status      | Delivered                                                                                               |
-| ----- | ----------- | ------------------------------------------------------------------------------------------------------- |
-| 0     | Complete    | Package boundary, Kernel, Workspace/Actor/Membership, authorization, environment, SQLite                |
-| 1     | Complete    | Collection/Field Spec, runtime validation, RecordStore contracts, CRUD, schema materialization          |
-| 2     | Complete    | Persisted live Attachments, semantic binding, filtered reads, origin schema, permissions and revocation |
-| 3     | Complete    | Sources, Views, relationship traversal, Block contracts, lazy renderer registry                         |
-| 4     | Complete    | Forms, Pages, Builder projection, executable S1 slice, browser SQLite bridge                            |
-| 5     | Complete    | Short Rules, Action/Condition registries, Events, snapshots, attached mutations                         |
-| 6     | Complete    | Membership ACL, `others`, attenuation, explicit re-share, spawn policy, S3 proof                        |
-| 7     | In progress | Durable waits/User requests, context-bound client and reusable execution UI; host cutover still pending |
+| Phase | Status      | Delivered                                                                                                     |
+| ----- | ----------- | ------------------------------------------------------------------------------------------------------------- |
+| 0     | Complete    | Package boundary, Kernel, Workspace/Actor/Membership, authorization, environment, SQLite                      |
+| 1     | Complete    | Collection/Field Spec, runtime validation, RecordStore contracts, CRUD, schema materialization                |
+| 2     | Complete    | Persisted live Attachments, semantic binding, filtered reads, origin schema, permissions and revocation       |
+| 3     | Complete    | Sources, Views, relationship traversal, Block contracts, lazy renderer registry                               |
+| 4     | Complete    | Forms, Pages, reusable Svelte Studio, canonical Builder cutover, browser SQLite bridge                        |
+| 5     | Complete    | Short Rules, Action/Condition registries, Events, snapshots, attached mutations                               |
+| 6     | Complete    | Membership ACL, `others`, attenuation, explicit re-share, spawn policy, S3 proof                              |
+| 7     | In progress | Durable waits/User requests, context-bound client and reusable execution UI; automatic durable Events pending |
 
 Later phases remain intentionally unimplemented; their entries below are the source of truth for scope.
 
@@ -169,7 +169,7 @@ Phase 6 subsequently adds attached updates/deletes, derived re-sharing, current 
 
 **Current checkpoints delivered:** Forms are a discriminated create/edit/standalone primitive. Collection Forms reference stable Collection and Field IDs and submit through the existing record CRUD authorization spine. Standalone Forms own the same Field definitions, apply defaults, conditions, validation, and attached-reference checks, and return an event-ready value payload without inventing a storage model. Pages own stable Block/Group layout-node IDs; Groups carry layout only and are not registry Blocks. Page and Form read/submit services expose cloned portable definitions.
 
-Builder now has an explicit old-Spec-to-framework projection whose unsupported semantics are reported rather than dropped. An executable S1 integration proves a root Space, child App, attached shared Contact Collection, local Invoice Form, related View, and Page without copying shared records. Builder's low-level browser/Node SQLite gateway is bridged to `SqlitePersistenceAdapter` with queued transaction boundaries and single-session ownership; the new Kernel does not import the old Host, catalog, or record services. Its composition root uses trusted persistence reads to discover an existing locally issued User and accessible App, seeds only an empty catalog, and reopens the same topology and records after Kernel restart. Builder Page layout nodes and lifecycle transitions retain stable IDs instead of deriving identity from position or editable keys.
+An executable S1 integration proves a root Space, child App, attached shared Contact Collection, local Invoice Form, related View, and Page without copying shared records. Builder's low-level browser/Node SQLite gateway is bridged to `SqlitePersistenceAdapter` with queued transaction boundaries and single-session ownership; the Kernel does not import product services. Its composition root uses trusted persistence reads to discover an existing locally issued User and accessible App, seeds only an empty catalog, and reopens the same topology and records after Kernel restart. Page layout nodes and lifecycle transitions retain stable IDs instead of deriving identity from position or editable keys. The temporary old-Spec conversion used during earlier slices has been removed.
 
 The context-bound `WorkspaceClient` contract and in-process adapter now provide the injectable interface boundary for Spec, records, Sources, Views, Forms, and Pages. Builder exposes separate Space and App clients and its executable S1 integration consumes them. Builder's composition layer also creates and lists selectable Apps using child Workspaces, current Actor Memberships, projected Specs, and explicit Attachments—without adding an App concept to the Kernel. The adapter does not own Kernel lifetime or cache permissions; every operation retains the Kernel authorization spine. Server hosts may implement the same client contract over their transport with Actor identity derived from authentication. See [Workspace client](./workspace-client.md).
 
@@ -188,19 +188,23 @@ only a local navigation preference; context resolution still checks persisted Me
 App selections fall back to an existing App without recreating deleted starter definitions.
 Breadcrumbs follow canonical definitions. Blank and template App creation now install through
 Framework too, reusing canonical shared Collections and seeding example records through clients.
-Template content still has a one-way definition projection pending its canonical format conversion.
+Official templates now contain canonical Specs, with fresh definition identities per installation
+and explicit Attachments for shared Collections. Stable Field-keyed Action inputs are remapped
+alongside definition references; opaque metadata, defaults and Block configuration remain intact.
 Installation comprises multiple transactional Kernel operations, not one atomic recipe; failures
-can leave installed definitions or partially seeded examples. Builder still uses its old Host for
-Space lifecycle, diagnostics, and WebMCP projection; those are the remaining cutover
-boundary before the old projection and persisted shape can be deleted.
+can leave installed definitions or partially seeded examples. Failed child definition/binding
+installation attempts remove the newly created App; the overall template recipe is not atomic.
+Space lifecycle, diagnostics and WebMCP now use the canonical Kernel too. The old Host, persisted
+Spec model, conversion path, duplicated record/Rule services and obsolete tests have been deleted.
+There is no legacy importer, fallback database, or dual-write synchronization.
 
 **Phase 4 Studio extraction checkpoint:** Framework owns the semantic Svelte theme,
 shadcn-Svelte primitives, editor actions, form-purpose choices, vertical drag interaction,
 catalog-driven Block picker/settings, canonical Page listing/editor, and recursive Page
 content. Page authoring receives explicit callbacks and renderer snippets, without host
 registry, session, persistence, or SvelteKit imports. Builder's Page components now supply
-host routing, lazy renderers, and data queries. A temporary host adapter maps the existing
-Page storage shape to canonical definitions; it is not a supported legacy import format.
+host routing, lazy renderers, and data queries. A non-persisted Page presentation context supplies
+the existing Block catalog; it is not a second App Spec or a supported import format.
 **Collection/View/Form/Rule extraction checkpoint:** all four full editor interfaces and
 their field, lifecycle, predicate, value-binding and nested-step controls now live in
 Framework Svelte Studio. Builder.run supplies thin wrappers for routing, queries, previews,
@@ -214,7 +218,7 @@ than losing them. Rule authoring maps losslessly into the canonical nested Rule
 contract: stable step/branch IDs, stable Source/Form/Rule references, Actions, triggers, bindings,
 predicates, retries, compensation, waits, loops, parallel branches and run-as intent are validated.
 Runtime compatibility is a separate preflight over installed Event/Action contracts and extensible
-capabilities. Action execution and Event dispatch remain Phase 5 work.
+capabilities. Action execution and Event dispatch are implemented in Phase 5.
 
 **Identity-safe Rule authoring checkpoint:** persisted built-in record Actions now key their value
 maps by stable Field ID, and typed record predicates use stable field bindings. Studio continues to
@@ -223,14 +227,13 @@ the authorized editor context. Renaming a local or attached Collection Field the
 friendly projection without rewriting consuming Rule Specs. Custom Action inputs remain opaque to
 the framework, while direct record and Form APIs remain key-oriented.
 
-This does **not** close Phase 4: the main session still opens Host alongside Framework for product
-lifecycle and the remaining projections, and the old projection/storage path has not been deleted.
-Studio authoring and operational record interaction are no longer dual-write or fallback-based.
-
-**Cutover rule before deleting Host:** canonical Rule definitions, Studio translation, the
-Action/Event execution spine, and Builder record interaction are complete. Move each remaining
-product concern to its canonical owner and delete its Host path in the same slice; do not introduce
-dual-write synchronization or compatibility aliases.
+**Phase 4 closure:** the main shell opens only Framework's canonical `runtime.db`. App and Space
+selection, profile/settings, templates, record surfaces, Studio editors, Pages, diagnostics and
+generic/optional typed WebMCP tools consume that runtime. Local bootstrap discovers locally issued
+Actors only in this trusted single-user browser host; it is not server authentication. Server hosts
+provide an authenticated Actor explicitly when resolving their Workspace context. Deterministic
+integration tests cover reopening, lifecycle isolation, shared relations, template View queries,
+manual starter Rules and tool registry updates. Browser/visual acceptance has not been run.
 
 ### Phase 5 — Primitive Actions, Rules, and snapshots
 
@@ -294,16 +297,15 @@ frames private; history is bounded and Actor/Workspace-scoped. Canonical Field c
 condition evaluation and runtime validation, with optional host reference-picker snippets.
 Builder.run exposes `/build/automations/runs` against its canonical Framework catalog and an
 explicit, independent approval example. Deterministic tests cover submit, SQLite reopen, User
-response, preserved execution Actor, and approval/decline results. This is explicitly a Framework
-runtime preview: current Host editor/data changes are not synchronized. Full Host-to-Kernel
-adoption and global assigned-task discovery are not silently implied.
+response, preserved execution Actor, and approval/decline results. The editor and business-record
+surfaces now share this canonical runtime. Global assigned-task discovery is not implied.
 
 **Authoring checkpoint:** Studio opts into “Ask a user” through `actorRequests`, reusing the
 canonical wait request, shared field sheet and conditional/validation controls. Response fields
 are selectable by later steps. Canonical field IDs/options/defaults and constraints not exposed
 by the sheet are retained. Existing JSON fields are preserved read-only, not silently converted.
-Builder.run can edit its independent approval example in the Framework run preview; its Host
-business-record editor remains outside this cutover. No new workflow format or task store added.
+Builder.run can edit its independent approval example in the Framework run preview; business-record
+editors also use the canonical store. No new workflow format or task store added.
 
 **Record-backed cutover checkpoint:** the context-bound client exposes short Rule and Action
 execution. Studio create/update steps and compensation translate to the executable stable-ID
@@ -312,17 +314,16 @@ shares Action mutation publication, including conditional hidden-field clearing,
 Form-submission Event. Deterministic Builder.run tests author a record approval, create the
 record through an Action, pause/reopen SQLite, respond, and update that original record with a
 short Event-triggered follow-up as the original Actor. This proves one canonical record/execution
-store, not the main shell cutover. Host removal and automatic durable Event subscribers remain
-pending; no dual-write or old-database migration bridge introduced.
+store. The main shell cutover and Host removal are complete; automatic durable Event subscribers
+remain pending. No dual-write or old-database migration bridge introduced.
 
 **Query authoring checkpoint:** Studio's friendly record query compiles to the canonical
 `records.list` or `views.query` Action, with stable Source/View identities and validated field or
 declared-parameter inputs. Both built-ins execute through the authorized Source/View services.
 `editorContextFromSpec` now derives the full key-oriented Studio context from a canonical Spec and
 optional attached Source schemas, rejecting shapes the current editors cannot preserve. Query-step
-translation is therefore complete. Host removal and automatic durable Event subscribers remain
-pending; Builder's old app selector cannot become authoritative until the complete canonical App
-lifecycle moves with it.
+translation is therefore complete. The canonical App selector and complete App lifecycle are
+authoritative. Automatic durable Event subscribers remain pending.
 
 ### Phase 8 — AgentRuntime
 
