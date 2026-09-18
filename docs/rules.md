@@ -89,9 +89,10 @@ System Actor that is actually a member of the active Workspace; a host may insta
 other semantic bindings. The resolved Actor is passed back through ordinary context and Action
 authorization rather than becoming a permission shortcut.
 
-`agents.run` calls an installed AgentRuntime and collects its final JSON result. It requires an
-Agent execution Actor, so an ordinary Rule uses a semantic Agent binding in `runAs`. Model/provider
-selection and conversation storage remain host concerns. See [Agents](agents.md).
+`agents.run` calls an installed AgentRuntime and collects its final JSON result. It inherits the
+Rule's current Actor; a semantic Agent binding in `runAs` is optional when the work needs an
+independent identity. Model/provider selection and conversation storage remain host concerns. See
+[Agents](agents.md).
 
 The short runner bounds nesting, cascaded steps, loops, and repeats. Retries are process-local, parallel
 branches use deterministic in-process emulation, and successful compensations capture their

@@ -32,7 +32,7 @@ describe("AgentRuntime", () => {
     const output = await collectAgentRun(events);
 
     expect(runtime.requests).toHaveLength(1);
-    expect(runtime.requests[0]?.agent).toMatchObject({ id: agent.actorId, kind: "agent" });
+    expect(runtime.requests[0]?.actor).toMatchObject({ id: agent.actorId, kind: "agent" });
     expect(runtime.requests[0]?.context).toEqual(agent);
     expect(runtime.requests[0]?.metadata).toEqual({ requestId: "request-1" });
     expect(runtime.requests[0]?.tools.map((tool) => tool.id)).toEqual(
@@ -69,12 +69,15 @@ describe("AgentRuntime", () => {
     await kernel.close();
   });
 
-  it("requires an Agent Actor and an enabled runtime capability", async () => {
-    const runtime = new RecordingAgentRuntime(async () => null);
+  it("allows a User Actor while requiring an enabled runtime capability", async () => {
+    const runtime = new RecordingAgentRuntime(async (request) => ({
+      actorId: request.actor.id,
+      actorKind: request.actor.kind,
+    }));
     const enabled = await bootstrap(runtime);
-    await expect(enabled.kernel.runAgent(enabled.owner, { messages: [] })).rejects.toMatchObject({
-      code: ERROR_CODES.permissionDenied,
-    });
+    await expect(
+      collectAgentRun(await enabled.kernel.runAgent(enabled.owner, { messages: [] })),
+    ).resolves.toEqual({ actorId: enabled.owner.actorId, actorKind: "user" });
     await enabled.kernel.close();
 
     const kernel = await Kernel.open({
@@ -83,11 +86,9 @@ describe("AgentRuntime", () => {
     });
     const root = await kernel.createRootWorkspace({ name: "Space", user: { name: "Jane" } });
     const owner = { workspaceId: root.workspace.id, actorId: root.user.id };
-    const actor = await kernel.createActor(owner, { kind: "agent", name: "Assistant" });
-    await kernel.addMembership(owner, { actorId: actor.id, workspaceId: root.workspace.id });
-    await expect(
-      kernel.runAgent({ ...owner, actorId: actor.id }, { messages: [] }),
-    ).rejects.toMatchObject({ code: ERROR_CODES.environmentCapabilityUnavailable });
+    await expect(kernel.runAgent(owner, { messages: [] })).rejects.toMatchObject({
+      code: ERROR_CODES.environmentCapabilityUnavailable,
+    });
     await kernel.close();
   });
 
@@ -116,7 +117,7 @@ describe("AgentRuntime", () => {
 
   it("lets a Rule call the same runtime through an explicit Agent binding", async () => {
     const runtime = new RecordingAgentRuntime(async (request) => ({
-      actorId: request.agent.id,
+      actorId: request.actor.id,
       answer: "Ready",
     }));
     let agentId = "";

@@ -65,8 +65,8 @@ frames. History lists only runs started by the bound Actor in the bound Workspac
 page size of 20 and an enforced maximum of 100. Inspecting another Actor's execution still requires
 management permission. Request responses return the request, never the initiating Actor's run data.
 
-`AgentClient` is the smaller Agent-only contract implemented by `WorkspaceClient`. Its bound Actor
-must have `kind: "agent"`. `listAgentTools` exposes the current projected capabilities and
+`AgentClient` is the smaller inference contract implemented by `WorkspaceClient`. Its bound User,
+Agent, or System Actor supplies the authority for every tool call. `listAgentTools` exposes the current projected capabilities and
 `runAgent` returns a provider-neutral async event stream. A remote implementation may frame that
 stream as server-sent events, WebSocket messages, or another transport without changing the Kernel
 contract. See [Agents](agents.md).

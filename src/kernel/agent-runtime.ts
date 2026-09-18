@@ -78,7 +78,8 @@ export interface AgentRunInput {
 
 export interface AgentRuntimeRequest extends AgentRunInput {
   readonly context: ExecutionContext;
-  readonly agent: Actor & { readonly kind: "agent" };
+  /** Effective Actor whose current authority applies to every tool invocation. */
+  readonly actor: Actor;
   readonly tools: readonly AgentTool[];
   readonly invokeTool: (
     toolId: string,
@@ -86,7 +87,10 @@ export interface AgentRuntimeRequest extends AgentRunInput {
   ) => Promise<JsonValue>;
 }
 
-/** Provider-neutral model/tool loop. Provider SDKs belong in optional adapters. */
+/**
+ * Provider-neutral model/tool loop. The name describes the machinery, not the kind of its
+ * execution Actor. Provider SDKs belong in optional adapters.
+ */
 export interface AgentRuntime {
   run(request: AgentRuntimeRequest): AsyncIterable<AgentRunEvent>;
 }

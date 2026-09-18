@@ -22,7 +22,7 @@ canonical path.
 | 5     | Complete    | Actions, Conditions, Events, short Rules, snapshots, and attached mutations                 |
 | 6     | Complete    | Membership ACL, `others`, explicit re-share, spawn policy, delegated-Workspace proof        |
 | 7     | Complete    | Durable Rules, waits, User requests, execution UI, and durable Event subscriptions          |
-| 8     | In progress | Provider-neutral AgentRuntime, Agent Actor integration, and authorized tool projection      |
+| 8     | In progress | Provider-neutral AgentRuntime, execution Actor propagation, and authorized tool projection  |
 | 9     | Planned     | Module scope binding                                                                        |
 
 ## Conformance scenarios
@@ -164,7 +164,7 @@ outside the Kernel.
 
 - transport-neutral AgentRuntime contract;
 - tools projected from authorized primitive Actions and callable Rules;
-- Agent execution Actor propagation;
+- User, Agent, and System execution Actor propagation;
 - deterministic contract tests and agent evals kept separate.
 
 The Kernel contract, Action/Rule projection, context-bound client, and deterministic tests are in

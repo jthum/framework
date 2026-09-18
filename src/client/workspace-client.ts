@@ -25,7 +25,7 @@ export interface RuleExecutionClient {
   ): Promise<ActorRequest>;
 }
 
-/** Context-bound Agent operations. The bound Actor must have kind `agent`. */
+/** Context-bound inference operations using the bound Actor's current authority. */
 export interface AgentClient {
   listAgentTools(): Promise<readonly AgentTool[]>;
   runAgent(input: AgentRunInput): Promise<AsyncIterable<AgentRunEvent>>;

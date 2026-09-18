@@ -33,7 +33,7 @@ Framework is greenfield and pre-release. The implemented surface includes:
 - create, edit, and standalone Forms;
 - Page layout trees and lazily loaded Blocks;
 - short and durable Rules, Events, waits, and User requests;
-- provider-neutral Agent execution with authorized Action and Rule tools;
+- provider-neutral AI-assisted execution with authorized Action and Rule tools;
 - interchangeable memory and SQLite persistence;
 - reusable Svelte editors for Collections, Views, Forms, Rules, and Pages;
 - inert catalogs for host-owned template and resource discovery.

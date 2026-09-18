@@ -134,7 +134,7 @@ describe("WorkspaceClient", () => {
   it("streams Agent operations through the bound Agent context", async () => {
     const runtime: AgentRuntime = {
       async *run(request) {
-        yield { type: "completed", output: { actorId: request.agent.id } };
+        yield { type: "completed", output: { actorId: request.actor.id } };
       },
     };
     const kernel = await Kernel.open({
@@ -145,17 +145,11 @@ describe("WorkspaceClient", () => {
     try {
       const root = await kernel.createRootWorkspace({ name: "Space", user: { name: "Jane" } });
       const owner = { workspaceId: root.workspace.id, actorId: root.user.id };
-      const agent = await kernel.createActor(owner, { kind: "agent", name: "Assistant" });
-      await kernel.addMembership(owner, {
-        actorId: agent.id,
-        workspaceId: root.workspace.id,
-        permissions: ["read"],
-      });
-      const client = await createWorkspaceClient(kernel, { ...owner, actorId: agent.id });
+      const client = await createWorkspaceClient(kernel, owner);
 
       await expect(client.listAgentTools()).resolves.toEqual(expect.any(Array));
       const events = await client.runAgent({ messages: [{ role: "user", content: "Hello" }] });
-      await expect(collectAgentRun(events)).resolves.toEqual({ actorId: agent.id });
+      await expect(collectAgentRun(events)).resolves.toEqual({ actorId: root.user.id });
     } finally {
       await kernel.close();
     }

@@ -454,7 +454,7 @@ export class Kernel {
   }
 
   async listAgentTools(context: ExecutionContext): Promise<readonly AgentTool[]> {
-    await this.requireAgentContext(context);
+    await this.requireAgentRuntimeContext(context);
     await this.assertAgentRuntime();
     return (await this.projectAgentTools(context)).tools;
   }
@@ -463,12 +463,12 @@ export class Kernel {
     context: ExecutionContext,
     input: AgentRunInput,
   ): Promise<AsyncIterable<AgentRunEvent>> {
-    const agent = await this.requireAgentContext(context);
+    const actor = await this.requireAgentRuntimeContext(context);
     const runtime = await this.assertAgentRuntime();
     const projected = await this.projectAgentTools(context);
     return runtime.run({
       context: { ...context },
-      agent,
+      actor,
       messages: input.messages.map((message) => ({ ...message })),
       ...(input.instructions === undefined ? {} : { instructions: input.instructions }),
       ...(input.metadata === undefined ? {} : { metadata: structuredClone(input.metadata) }),
@@ -478,22 +478,15 @@ export class Kernel {
     });
   }
 
-  private async requireAgentContext(
-    context: ExecutionContext,
-  ): Promise<Actor & { readonly kind: "agent" }> {
+  private async requireAgentRuntimeContext(context: ExecutionContext): Promise<Actor> {
     await this.assertContext(context);
     const actor = await this.requireActor(context.actorId);
-    if (actor.kind !== "agent")
-      throw new FrameworkError({
-        code: ERROR_CODES.permissionDenied,
-        message: "AgentRuntime requires an Agent execution Actor.",
-      });
     await this.assertAuthorized({
       context,
       operation: "agents.run",
       resource: { kind: "actor", id: actor.id, workspaceId: context.workspaceId },
     });
-    return { ...actor, kind: "agent" };
+    return actor;
   }
 
   private async assertAgentRuntime(): Promise<AgentRuntime> {

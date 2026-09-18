@@ -1,8 +1,12 @@
 # Agents
 
-An Agent is an ordinary `Actor` with `kind: "agent"`. `AgentRuntime` is the provider-neutral port
-that lets that Actor reason, stream output, and invoke authorized Framework operations. Model SDKs,
-provider credentials, and tool-loop implementations remain optional adapter concerns.
+`AgentRuntime` is the provider-neutral inference and tool-loop port. It runs as the current
+execution Actor, which may be a User, Agent, or System. Model SDKs, provider credentials, and
+tool-loop implementations remain optional adapter concerns.
+
+An Agent Actor is therefore an identity choice, not a requirement for using inference. A personal
+assistant normally runs as its User. Create an Agent Actor only when the work needs an independent
+identity, Membership, permission ceiling, or autonomous lifecycle.
 
 ## Code map
 
@@ -16,7 +20,7 @@ provider credentials, and tool-loop implementations remain optional adapter conc
 
 Framework owns:
 
-- Agent identity, Workspace Membership, and authorization;
+- execution Actor identity, Workspace Membership, and authorization;
 - compact tool projection from opted-in Actions and `expose: ["agent"]` Rules;
 - stable tool IDs and a small JSON-compatible input-schema vocabulary;
 - routing tool calls back through ordinary Action, Rule, record, Source, and View checks;
@@ -69,10 +73,15 @@ because a runtime object was accidentally present. `Kernel.runAgent` and `AgentC
 return an `AsyncIterable<AgentRunEvent>` so embedded and server transports can preserve streaming.
 `collectAgentRun` is the convenience for callers, such as Rules, that need one final JSON value.
 
-## Bind identity and authority
+## Choose the execution Actor
 
-Create an Agent Actor and add an ordinary Membership. The Membership—not the model, prompt, or
-runtime adapter—defines its ceiling. `runAgent` rejects User and System Actors.
+For a user-facing assistant, bind `AgentClient` to the current User exactly like the rest of the
+interface. Tool calls are authorized and attributed to that User. No extra Actor or Membership is
+required.
+
+For autonomous or separately permissioned work, create an Agent Actor and add an ordinary
+Membership. That Membership—not the model, prompt, or runtime adapter—defines its ceiling. System
+Actors may also run inference when a host deliberately uses one for system-owned work.
 
 The projected tool list is not an authority grant. Every invocation re-enters the existing Kernel
 path. For example, `records.create` still checks create permission for its concrete Collection. A
@@ -129,8 +138,9 @@ inside the model call.
 
 ## Call an Agent from a Rule
 
-`agents.run` is a built-in Action. Since Rules inherit their triggering Actor, a Rule that needs an
-Agent uses an explicit semantic `runAs` binding:
+`agents.run` is a built-in Action. It inherits the Rule's current Actor by default, so a
+user-triggered Rule can ask for inference and keep acting as that User. A Rule uses an explicit
+semantic `runAs` binding only when it should run as an independent Agent:
 
 ```ts
 {
@@ -147,14 +157,14 @@ Agent uses an explicit semantic `runAs` binding:
 ```
 
 The host resolves `support_agent` to an Agent Actor in that Workspace. Current Membership and
-operation permissions are checked at execution time. The semantic binding keeps concrete Actor IDs
-out of the portable Spec.
+operation permissions are checked at execution time. Omitting `runAs` keeps the triggering Actor;
+using the semantic binding keeps concrete Actor IDs out of the portable Spec.
 
 ## Streaming and remote hosts
 
 For an embedded host, `createWorkspaceClient` forwards the stream directly. For a remote host, a
 trusted server resolves `{ workspaceId, actorId }`, calls the Kernel, and translates events to its
-streaming transport. A browser must never select a trusted Agent Actor ID by itself.
+streaming transport. A browser must never select a trusted execution Actor ID by itself.
 
 `tool_call` and `tool_result` events are observational stream events emitted by the adapter. The
 only authorized invocation path is the `request.invokeTool` callback supplied by the Kernel.
