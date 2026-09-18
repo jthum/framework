@@ -61,7 +61,8 @@ export function assertActorIdentityUnchanged(previous: Actor, next: Actor): void
     previous.id !== next.id ||
     previous.originId !== next.originId ||
     previous.rootId !== next.rootId ||
-    previous.kind !== next.kind
+    previous.kind !== next.kind ||
+    previous.createdAt !== next.createdAt
   )
     throw resourceConflict("Actor identity cannot be changed after creation.");
 }

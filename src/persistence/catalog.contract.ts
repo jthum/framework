@@ -55,6 +55,11 @@ export function catalogAdapterContract(
           transaction.updateActor({ ...fixture.actor, originId: "somewhere-else" }),
         ),
       ).rejects.toMatchObject({ code: ERROR_CODES.resourceConflict });
+      await expect(
+        catalog.transaction((transaction) =>
+          transaction.updateActor({ ...fixture.actor, createdAt: "2026-02-01T00:00:00.000Z" }),
+        ),
+      ).rejects.toMatchObject({ code: ERROR_CODES.resourceConflict });
       await persistence.close();
     });
 

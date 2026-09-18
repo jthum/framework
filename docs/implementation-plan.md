@@ -180,8 +180,10 @@ lists, create/edit Forms, record details, related records, lifecycle moves, manu
 deletion now use the same canonical record and execution stores. Template records are seeded
 separately by the host and remain outside the portable Spec. Navigation, Spec inspection, and Page
 rendering now read canonical definitions too; the existing block catalog receives a one-way,
-non-persisted presentation projection. Builder still uses its old Host for app/Space lifecycle,
-profile/settings mutations, diagnostics, and WebMCP projection; those are the remaining cutover
+non-persisted presentation projection. Actor profile updates now pass through the canonical
+client, Kernel authorization, and catalog adapter. Space names and appearance preferences also
+persist in Framework; appearance remains a host-owned Spec metadata convention. Builder still
+uses its old Host for app/Space lifecycle, diagnostics, and WebMCP projection; those are the remaining cutover
 boundary before the old projection and persisted shape can be deleted.
 
 **Phase 4 Studio extraction checkpoint:** Framework owns the semantic Svelte theme,
