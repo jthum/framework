@@ -154,4 +154,43 @@ describe("WorkspaceClient", () => {
       await kernel.close();
     }
   });
+
+  it("manages Agent and model configuration through the bound client", async () => {
+    const kernel = await Kernel.open({ persistence: new MemoryPersistenceAdapter() });
+    try {
+      const root = await kernel.createRootWorkspace({ name: "Space", user: { name: "Jane" } });
+      const client = await createWorkspaceClient(kernel, {
+        workspaceId: root.workspace.id,
+        actorId: root.user.id,
+      });
+      const created = await client.createAgent({
+        name: "Planner",
+        instructions: "Plan work.",
+        provider: "example",
+        model: "model-1",
+      });
+      const alternate = await client.createModelConfig({
+        name: "Alternate",
+        provider: "example",
+        model: "model-2",
+      });
+
+      await expect(client.listAgents()).resolves.toEqual([created.actor]);
+      await expect(client.getModelConfig(alternate.id)).resolves.toEqual(alternate);
+      await expect(
+        client.configureAgent(created.actor.id, {
+          modelConfigId: alternate.id,
+          instructions: "Plan carefully.",
+          tools: { search: false },
+        }),
+      ).resolves.toMatchObject({
+        actorId: created.actor.id,
+        modelConfigId: alternate.id,
+        instructions: "Plan carefully.",
+      });
+      await expect(client.deleteModelConfig(created.model.id)).resolves.toBeUndefined();
+    } finally {
+      await kernel.close();
+    }
+  });
 });

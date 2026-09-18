@@ -1,4 +1,6 @@
 export * from "./authorization.ts";
+export * from "./agent-config.ts";
+export * from "./agent-tools.ts";
 export * from "./agent-runtime.ts";
 export * from "./action-registry.ts";
 export * from "./attachments.ts";

@@ -66,9 +66,14 @@ page size of 20 and an enforced maximum of 100. Inspecting another Actor's execu
 management permission. Request responses return the request, never the initiating Actor's run data.
 
 `AgentClient` is the smaller inference contract implemented by `WorkspaceClient`. Its bound User,
-Agent, or System Actor supplies the authority for every tool call. `listAgentTools` exposes the current projected capabilities and
-`runAgent` returns a provider-neutral async event stream. A remote implementation may frame that
-stream as server-sent events, WebSocket messages, or another transport without changing the Kernel
-contract. See [Agents](agents.md).
+Agent, or System Actor supplies the authority for every tool call. `listAgentTools` exposes the
+current projected capabilities and `runAgent` returns a provider-neutral async event stream. A
+remote implementation may frame that stream as server-sent events, WebSocket messages, or another
+transport without changing the Kernel contract.
+
+`AgentManagementClient` is the context-bound settings contract for listing and creating local
+Agents, configuring their instructions and tool policy, and managing ModelConfigs. The same
+authorization checks apply locally and across a remote implementation. See
+[Inference and Agents](agents.md).
 
 This layer does not translate legacy definitions or add another mutation implementation. UI editors can accept the interface rather than importing a concrete Kernel, persistence adapter, or global application session.

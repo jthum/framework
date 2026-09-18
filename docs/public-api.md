@@ -39,7 +39,7 @@ dependency direction remains visible.
 | Runtime composition              | `Kernel`, `KernelOptions`                                                        | [`src/kernel/kernel.ts`](../src/kernel/kernel.ts)                     |
 | Identity and execution context   | `Workspace`, `Actor`, `Membership`, `ExecutionContext`                           | [`src/kernel/model.ts`](../src/kernel/model.ts)                       |
 | Authorization                    | `Authorizer`, `WorkspaceAuthorizer`, `AuthorizationRequest`                      | [`src/kernel/authorization.ts`](../src/kernel/authorization.ts)       |
-| UI/transport boundary            | `WorkspaceClient`, `RuleExecutionClient`, `AgentClient`, `createWorkspaceClient` | [`src/client/workspace-client.ts`](../src/client/workspace-client.ts) |
+| UI/transport boundary            | `WorkspaceClient`, `RuleExecutionClient`, `AgentClient`, `AgentManagementClient` | [`src/client/workspace-client.ts`](../src/client/workspace-client.ts) |
 | Persistence port                 | `PersistenceAdapter`, `PersistenceSession`, `CatalogRepository`                  | [`src/persistence/catalog.ts`](../src/persistence/catalog.ts)         |
 | Record port                      | `RecordStore`, `CollectionRecord`, `RecordValues`                                | [`src/persistence/records.ts`](../src/persistence/records.ts)         |
 | Rule extensions                  | `ActionDefinition`, `ConditionDefinition`, `RuleRuntimeProfile`                  | [`src/kernel`](../src/kernel)                                         |

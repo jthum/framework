@@ -1,5 +1,12 @@
 import type { FormSubmission, SubmitFormInput } from "../kernel/forms.ts";
 import type { AgentEvent, AgentInput, AgentTool } from "../kernel/agent-runtime.ts";
+import type {
+  AgentBootstrap,
+  ConfigureAgentInput,
+  CreateAgentInput,
+  CreateModelConfigInput,
+  UpdateModelConfigInput,
+} from "../kernel/agent-config.ts";
 import type { Kernel, UpdateActorInput } from "../kernel/kernel.ts";
 import type {
   ActorRequest,
@@ -7,6 +14,13 @@ import type {
   RuleExecutionDetails,
   RuleExecutionSummary,
 } from "../kernel/durable-rules.ts";
+import type {
+  Actor,
+  AgentConfig,
+  ExecutionContext,
+  ModelConfig,
+  Workspace,
+} from "../kernel/model.ts";
 import type { RunRuleInput, RuleRun } from "../kernel/rules.ts";
 import type { JsonValue, RuleDefinition } from "../spec/model.ts";
 
@@ -30,7 +44,19 @@ export interface AgentClient {
   listAgentTools(): Promise<readonly AgentTool[]>;
   runAgent(input: AgentInput): Promise<AsyncIterable<AgentEvent>>;
 }
-import type { Actor, ExecutionContext, Workspace } from "../kernel/model.ts";
+
+/** Context-bound management operations for Agent settings surfaces. */
+export interface AgentManagementClient {
+  listAgents(): Promise<readonly Actor[]>;
+  createAgent(input: CreateAgentInput): Promise<AgentBootstrap>;
+  getAgentConfig(actorId: string): Promise<AgentConfig | null>;
+  configureAgent(actorId: string, input: ConfigureAgentInput): Promise<AgentConfig>;
+  listModelConfigs(): Promise<readonly ModelConfig[]>;
+  getModelConfig(id: string): Promise<ModelConfig | null>;
+  createModelConfig(input: CreateModelConfigInput): Promise<ModelConfig>;
+  updateModelConfig(id: string, input: UpdateModelConfigInput): Promise<ModelConfig>;
+  deleteModelConfig(id: string): Promise<void>;
+}
 import type { SourceDescriptor, SourceResult, SourceRow } from "../kernel/sources.ts";
 import type { ViewQueryResult } from "../kernel/views.ts";
 import type { CollectionRecord, RecordValues } from "../persistence/records.ts";
@@ -50,7 +76,7 @@ import type {
  * A browser host can bind this directly to an in-process Kernel. A server or remote host can
  * implement the same contract over its transport without exposing Kernel lifecycle to the UI.
  */
-export interface WorkspaceClient extends RuleExecutionClient, AgentClient {
+export interface WorkspaceClient extends RuleExecutionClient, AgentClient, AgentManagementClient {
   getWorkspace(): Promise<Workspace>;
   getActor(id: string): Promise<Actor | null>;
   updateActor(id: string, input: UpdateActorInput): Promise<Actor>;
@@ -118,6 +144,44 @@ class LocalWorkspaceClient implements WorkspaceClient {
 
   runAgent(input: AgentInput) {
     return this.kernel.runAgent(this.context, input);
+  }
+
+  async listAgents() {
+    return (await this.kernel.listActorsByOrigin(this.context)).filter(
+      (actor) => actor.kind === "agent",
+    );
+  }
+
+  createAgent(input: CreateAgentInput) {
+    return this.kernel.createAgent(this.context, input);
+  }
+
+  getAgentConfig(actorId: string) {
+    return this.kernel.getAgentConfig(this.context, actorId);
+  }
+
+  configureAgent(actorId: string, input: ConfigureAgentInput) {
+    return this.kernel.configureAgent(this.context, actorId, input);
+  }
+
+  listModelConfigs() {
+    return this.kernel.listModelConfigs(this.context);
+  }
+
+  getModelConfig(id: string) {
+    return this.kernel.getModelConfig(this.context, id);
+  }
+
+  createModelConfig(input: CreateModelConfigInput) {
+    return this.kernel.createModelConfig(this.context, input);
+  }
+
+  updateModelConfig(id: string, input: UpdateModelConfigInput) {
+    return this.kernel.updateModelConfig(this.context, id, input);
+  }
+
+  deleteModelConfig(id: string) {
+    return this.kernel.deleteModelConfig(this.context, id);
   }
 
   async listRules(): Promise<readonly RuleDefinition[]> {

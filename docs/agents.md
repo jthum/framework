@@ -7,7 +7,9 @@ an Agent Actor with its own Membership and permission ceiling.
 ## Code map
 
 - Contracts and default loop: [`src/kernel/agent-runtime.ts`](../src/kernel/agent-runtime.ts)
-- Kernel composition and tool gateway: [`src/kernel/kernel.ts`](../src/kernel/kernel.ts)
+- Persisted Agent settings: [`src/kernel/agent-config.ts`](../src/kernel/agent-config.ts)
+- Dynamic tool gateway: [`src/kernel/agent-tools.ts`](../src/kernel/agent-tools.ts)
+- Kernel composition: [`src/kernel/kernel.ts`](../src/kernel/kernel.ts)
 - Action tool metadata: [`src/kernel/action-registry.ts`](../src/kernel/action-registry.ts)
 - Context-bound client: [`src/client/workspace-client.ts`](../src/client/workspace-client.ts)
 - Deterministic contract tests: [`src/kernel/agent-runtime.spec.ts`](../src/kernel/agent-runtime.spec.ts)

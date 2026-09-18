@@ -55,7 +55,7 @@ export interface AgentUsage {
   readonly totalTokens?: number;
 }
 
-export interface AgentModel {
+export interface ModelSelection {
   readonly configId?: string;
   readonly provider: string;
   readonly model: string;
@@ -71,14 +71,14 @@ export type InferenceEvent =
   | { readonly type: "structured_output"; readonly output: JsonValue }
   | ({ readonly type: "tool_call" } & AgentToolCall)
   | { readonly type: "usage"; readonly usage: AgentUsage }
-  | { readonly type: "finished"; readonly reason: InferenceFinishReason }
+  | { readonly type: "finished"; readonly reason: InferenceFinishReason; readonly message?: string }
   | { readonly type: "failed"; readonly error: ErrorEnvelope }
   | { readonly type: "cancelled" };
 
 export interface InferenceInput {
   readonly messages: readonly AgentMessage[];
   readonly tools: readonly AgentTool[];
-  readonly model?: AgentModel;
+  readonly model?: ModelSelection;
   readonly instructions?: string;
   readonly metadata?: Readonly<Record<string, JsonValue>>;
   readonly signal?: AbortSignal;
@@ -115,7 +115,7 @@ export type AgentEvent =
       readonly reason: InferenceFinishReason;
     }
   | { readonly type: "completed"; readonly output: JsonValue; readonly usage?: AgentUsage }
-  | { readonly type: "refused"; readonly usage?: AgentUsage }
+  | { readonly type: "refused"; readonly reason?: string; readonly usage?: AgentUsage }
   | { readonly type: "failed"; readonly error: ErrorEnvelope; readonly usage?: AgentUsage }
   | { readonly type: "cancelled"; readonly usage?: AgentUsage };
 
@@ -123,7 +123,7 @@ export interface AgentInput {
   readonly messages: readonly AgentMessage[];
   readonly instructions?: string;
   /** Model selection for User/System inference. Agent Actors use their persisted configuration. */
-  readonly model?: AgentModel;
+  readonly model?: ModelSelection;
   readonly metadata?: Readonly<Record<string, JsonValue>>;
   readonly signal?: AbortSignal;
 }
@@ -228,6 +228,7 @@ export class DefaultAgentRuntime implements AgentRuntime {
       let text = "";
       let structured: JsonValue | undefined;
       let finish: InferenceFinishReason | undefined;
+      let finishMessage: string | undefined;
       let terminal = false;
 
       for await (const event of this.inference.infer({
@@ -246,10 +247,14 @@ export class DefaultAgentRuntime implements AgentRuntime {
             yield { type: "text_delta", step, delta: event.delta };
             break;
           case "structured_output":
+            if (structured !== undefined)
+              throw invalidRuntime("InferenceAdapter emitted more than one structured output.");
             structured = structuredClone(event.output);
             yield { type: "structured_output", step, output: structuredClone(event.output) };
             break;
           case "tool_call":
+            if (calls.some((call) => call.id === event.id))
+              throw invalidRuntime(`InferenceAdapter reused tool call ID ${event.id}.`);
             calls.push(cloneCall(event));
             yield { type: "tool_call", step, ...cloneCall(event) };
             break;
@@ -259,6 +264,7 @@ export class DefaultAgentRuntime implements AgentRuntime {
           case "finished":
             terminal = true;
             finish = event.reason;
+            finishMessage = event.message;
             break;
           case "failed":
             terminal = true;
@@ -277,9 +283,17 @@ export class DefaultAgentRuntime implements AgentRuntime {
 
       if (!terminal || !finish)
         throw invalidRuntime("InferenceAdapter ended without a terminal event.");
+      if (finish !== "tool_calls" && calls.length > 0)
+        throw invalidRuntime(
+          `InferenceAdapter emitted tool calls but finished the step with ${finish}.`,
+        );
       yield { type: "step_finished", step, reason: finish };
       if (finish === "refusal" || finish === "content_filter") {
-        yield terminalWithUsage("refused", usage);
+        yield {
+          type: "refused",
+          ...(finishMessage === undefined ? {} : { reason: finishMessage }),
+          ...(usage ? { usage } : {}),
+        };
         return;
       }
       if (finish !== "tool_calls") {
