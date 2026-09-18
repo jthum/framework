@@ -1,4 +1,5 @@
 import type { FormSubmission, SubmitFormInput } from "../kernel/forms.ts";
+import type { AgentRunEvent, AgentRunInput, AgentTool } from "../kernel/agent-runtime.ts";
 import type { Kernel, UpdateActorInput } from "../kernel/kernel.ts";
 import type {
   ActorRequest,
@@ -23,6 +24,12 @@ export interface RuleExecutionClient {
     values: Readonly<Record<string, JsonValue>>,
   ): Promise<ActorRequest>;
 }
+
+/** Context-bound Agent operations. The bound Actor must have kind `agent`. */
+export interface AgentClient {
+  listAgentTools(): Promise<readonly AgentTool[]>;
+  runAgent(input: AgentRunInput): Promise<AsyncIterable<AgentRunEvent>>;
+}
 import type { Actor, ExecutionContext, Workspace } from "../kernel/model.ts";
 import type { SourceDescriptor, SourceResult, SourceRow } from "../kernel/sources.ts";
 import type { ViewQueryResult } from "../kernel/views.ts";
@@ -43,7 +50,7 @@ import type {
  * A browser host can bind this directly to an in-process Kernel. A server or remote host can
  * implement the same contract over its transport without exposing Kernel lifecycle to the UI.
  */
-export interface WorkspaceClient extends RuleExecutionClient {
+export interface WorkspaceClient extends RuleExecutionClient, AgentClient {
   getWorkspace(): Promise<Workspace>;
   getActor(id: string): Promise<Actor | null>;
   updateActor(id: string, input: UpdateActorInput): Promise<Actor>;
@@ -103,6 +110,14 @@ class LocalWorkspaceClient implements WorkspaceClient {
 
   updateActor(id: string, input: UpdateActorInput) {
     return this.kernel.updateActor(this.context, id, input);
+  }
+
+  listAgentTools() {
+    return this.kernel.listAgentTools(this.context);
+  }
+
+  runAgent(input: AgentRunInput) {
+    return this.kernel.runAgent(this.context, input);
   }
 
   async listRules(): Promise<readonly RuleDefinition[]> {

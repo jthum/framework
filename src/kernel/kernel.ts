@@ -16,6 +16,7 @@ import {
   type CollectionDefinition,
   type FieldDefinition,
   type JsonValue,
+  type RuleInputDefinition,
   type SourceQueryDefinition,
   type Spec,
 } from "../spec/model.ts";
@@ -44,6 +45,16 @@ import { LOCAL_BROWSER_ENVIRONMENT, type EnvironmentProfile } from "./environmen
 import { FormService, type SubmitFormInput } from "./forms.ts";
 import { PageService } from "./pages.ts";
 import { ActionRegistry, type ActionDefinition } from "./action-registry.ts";
+import {
+  collectAgentRun,
+  type AgentRunInput,
+  type AgentRunEvent,
+  type AgentMessage,
+  type AgentRuntime,
+  type AgentTool,
+  type AgentToolInputSchema,
+  type AgentToolValueSchema,
+} from "./agent-runtime.ts";
 import {
   ConditionRegistry,
   coreConditions,
@@ -74,6 +85,7 @@ import {
   type RunRuleInput,
 } from "./rules.ts";
 import type { DurableRuleService, ResumeRuleInput } from "./durable-rules.ts";
+import { requiresDurableExecution } from "./rule-compatibility.ts";
 
 export interface KernelOptions {
   readonly persistence: PersistenceAdapter;
@@ -83,6 +95,7 @@ export interface KernelOptions {
   readonly environment?: EnvironmentProfile;
   readonly actions?: readonly ActionDefinition[];
   readonly conditions?: readonly ConditionDefinition[];
+  readonly agentRuntime?: AgentRuntime;
   readonly resolveActorBinding?: ActorBindingResolver;
   readonly ruleExecution?: RuleServiceOptions;
 }
@@ -150,6 +163,7 @@ export class Kernel {
   private readonly pages: PageService;
   private readonly rules: RuleService;
   private readonly durableRules: DurableRuleService;
+  private readonly actions: ActionRegistry;
   private constructor(
     private readonly persistence: PersistenceSession,
     private readonly catalog: CatalogRepository,
@@ -159,6 +173,7 @@ export class Kernel {
     readonly environment: EnvironmentProfile,
     actions: readonly ActionDefinition[],
     conditions: readonly ConditionDefinition[],
+    private readonly agentRuntime: AgentRuntime | undefined,
     resolveActorBinding: ActorBindingResolver | undefined,
     ruleExecution: RuleServiceOptions | undefined,
   ) {
@@ -225,10 +240,11 @@ export class Kernel {
       (context) => this.assertContext(context),
       (request) => this.assertAuthorized(request),
     );
+    this.actions = new ActionRegistry([...this.coreActions(), ...actions]);
     this.rules = new RuleService(
       catalog,
       clock,
-      new ActionRegistry([...this.coreActions(), ...actions]),
+      this.actions,
       new ConditionRegistry([...coreConditions(), ...conditions]),
       this,
       (context) => this.assertContext(context),
@@ -437,6 +453,136 @@ export class Kernel {
     return this.rules.profile(events);
   }
 
+  async listAgentTools(context: ExecutionContext): Promise<readonly AgentTool[]> {
+    await this.requireAgentContext(context);
+    await this.assertAgentRuntime();
+    return (await this.projectAgentTools(context)).tools;
+  }
+
+  async runAgent(
+    context: ExecutionContext,
+    input: AgentRunInput,
+  ): Promise<AsyncIterable<AgentRunEvent>> {
+    const agent = await this.requireAgentContext(context);
+    const runtime = await this.assertAgentRuntime();
+    const projected = await this.projectAgentTools(context);
+    return runtime.run({
+      context: { ...context },
+      agent,
+      messages: input.messages.map((message) => ({ ...message })),
+      ...(input.instructions === undefined ? {} : { instructions: input.instructions }),
+      ...(input.metadata === undefined ? {} : { metadata: structuredClone(input.metadata) }),
+      ...(input.signal === undefined ? {} : { signal: input.signal }),
+      tools: projected.tools,
+      invokeTool: projected.invoke,
+    });
+  }
+
+  private async requireAgentContext(
+    context: ExecutionContext,
+  ): Promise<Actor & { readonly kind: "agent" }> {
+    await this.assertContext(context);
+    const actor = await this.requireActor(context.actorId);
+    if (actor.kind !== "agent")
+      throw new FrameworkError({
+        code: ERROR_CODES.permissionDenied,
+        message: "AgentRuntime requires an Agent execution Actor.",
+      });
+    await this.assertAuthorized({
+      context,
+      operation: "agents.run",
+      resource: { kind: "actor", id: actor.id, workspaceId: context.workspaceId },
+    });
+    return { ...actor, kind: "agent" };
+  }
+
+  private async assertAgentRuntime(): Promise<AgentRuntime> {
+    if (!this.environment.agentRuntime || !this.agentRuntime)
+      throw new FrameworkError({
+        code: ERROR_CODES.environmentCapabilityUnavailable,
+        message: "This environment does not enable an AgentRuntime.",
+      });
+    return this.agentRuntime;
+  }
+
+  private async projectAgentTools(context: ExecutionContext): Promise<{
+    tools: readonly AgentTool[];
+    invoke: (toolId: string, input: Readonly<Record<string, JsonValue>>) => Promise<JsonValue>;
+  }> {
+    const workspace = await this.requireWorkspace(context.workspaceId);
+    const executors = new Map<
+      string,
+      (input: Readonly<Record<string, JsonValue>>) => Promise<JsonValue>
+    >();
+    const tools: AgentTool[] = [];
+
+    for (const action of this.actions.list()) {
+      if (!action.tool) continue;
+      if (
+        !(await this.isAuthorized({
+          context,
+          operation: "actions.execute",
+          resource: { kind: "action", id: action.key, workspaceId: context.workspaceId },
+        }))
+      )
+        continue;
+      const id = `action:${action.key}`;
+      tools.push({ id, ...structuredClone(action.tool) });
+      executors.set(id, (input) => this.executeAction(context, action.key, input));
+    }
+
+    for (const rule of workspace.spec.rules) {
+      if (rule.enabled === false || !rule.expose?.includes("agent")) continue;
+      if (
+        !(await this.isAuthorized({
+          context,
+          operation: "rules.run",
+          resource: { kind: "rule", id: rule.id, workspaceId: context.workspaceId },
+        }))
+      )
+        continue;
+      const id = `rule:${rule.id}`;
+      tools.push({
+        id,
+        label: rule.label,
+        description: rule.description ?? `Run the ${rule.label} Rule.`,
+        input: ruleInputSchema(rule.input),
+      });
+      executors.set(id, async (input) => {
+        if (requiresDurableExecution(rule, workspace.spec.rules)) {
+          const execution = await this.startRule(context, rule.key, { input });
+          return {
+            mode: "durable",
+            executionId: execution.id,
+            status: execution.status,
+          };
+        }
+        const run = await this.runRule(context, rule.key, { input });
+        return {
+          mode: "short",
+          ruleId: run.ruleId,
+          ruleKey: run.ruleKey,
+          status: run.status,
+          vars: { ...run.vars },
+          trace: run.trace.map((item) => ({ ...item })),
+        };
+      });
+    }
+
+    return {
+      tools,
+      invoke: async (toolId, input) => {
+        const execute = executors.get(toolId);
+        if (!execute) throw resourceNotFound("AgentTool", toolId);
+        return execute(structuredClone(input));
+      },
+    };
+  }
+
+  private async isAuthorized(request: AuthorizationRequest): Promise<boolean> {
+    return (await this.authorizer.authorize(request)).allowed;
+  }
+
   static async open(options: KernelOptions): Promise<Kernel> {
     const persistence = await options.persistence.open();
     return new Kernel(
@@ -448,6 +594,7 @@ export class Kernel {
       options.environment ?? LOCAL_BROWSER_ENVIRONMENT,
       options.actions ?? [],
       options.conditions ?? [],
+      options.agentRuntime,
       options.resolveActorBinding,
       options.ruleExecution,
     );
@@ -996,7 +1143,64 @@ export class Kernel {
   private coreActions(): readonly ActionDefinition[] {
     return [
       {
+        key: "sources.list",
+        tool: actionTool(
+          "List sources",
+          "Discover available Sources, their stable IDs, and Field schemas before using record tools.",
+          {},
+        ),
+        run: async ({ context }) =>
+          (await this.sources.list(context)).map((source) => ({
+            id: source.schema.id,
+            key: source.key,
+            label: source.label,
+            kind: source.kind,
+            fields: source.schema.fields.map((field) => ({
+              id: field.id,
+              key: field.key,
+              label: field.label,
+              type: field.type,
+              required: field.required ?? false,
+            })),
+            capabilities: { ...source.capabilities },
+          })),
+      },
+      {
+        key: "views.list",
+        tool: actionTool(
+          "List views",
+          "Discover saved Views and their stable IDs before querying them.",
+          {},
+        ),
+        run: async ({ context }) =>
+          (await this.views.list(context)).map((view) => ({
+            id: view.id,
+            key: view.key,
+            label: view.label,
+            description: view.description ?? null,
+            source: view.source,
+            parameters: (view.parameters ?? []).map((parameter) => ({
+              key: parameter.key,
+              label: parameter.label ?? parameter.key,
+              required: parameter.required ?? false,
+            })),
+          })),
+      },
+      {
         key: "records.create",
+        tool: actionTool(
+          "Create record",
+          "Create a record in a local Collection using stable Source and Field IDs.",
+          {
+            sourceId: { type: "string", description: "Stable local Collection ID." },
+            values: {
+              type: "object",
+              description: "Values keyed by stable Field ID.",
+              additionalProperties: true,
+            },
+          },
+          ["sourceId", "values"],
+        ),
         run: async ({ context, input, publish }) => {
           const result = await this.createActionRecord(context, input, publish);
           return recordValue(result.record, result.collection);
@@ -1004,6 +1208,15 @@ export class Kernel {
       },
       {
         key: "records.get",
+        tool: actionTool(
+          "Get record",
+          "Read one record from a local or attached Source.",
+          {
+            sourceId: { type: "string", description: "Stable Source ID." },
+            recordId: { type: "string", description: "Runtime record ID." },
+          },
+          ["sourceId", "recordId"],
+        ),
         run: async ({ context, input, runtime }) => {
           const target = await this.actionRecordTarget(context, input);
           const record = await runtime.getSourceRecord(context, target.source.key, target.recordId);
@@ -1014,6 +1227,15 @@ export class Kernel {
       },
       {
         key: "records.list",
+        tool: actionTool(
+          "List records",
+          "Query records from a local or attached Source.",
+          {
+            sourceId: { type: "string", description: "Stable Source ID." },
+            query: { type: "json", description: "Optional canonical Source query." },
+          },
+          ["sourceId"],
+        ),
         run: async ({ context, input }) => {
           const source = await this.actionSource(context, input);
           const query = optionalActionObject(input.query, "query") as
@@ -1026,6 +1248,20 @@ export class Kernel {
       },
       {
         key: "records.update",
+        tool: actionTool(
+          "Update record",
+          "Update one record in a local or writable attached Source.",
+          {
+            sourceId: { type: "string", description: "Stable Source ID." },
+            recordId: { type: "string", description: "Runtime record ID." },
+            values: {
+              type: "object",
+              description: "Values keyed by stable Field ID.",
+              additionalProperties: true,
+            },
+          },
+          ["sourceId", "recordId", "values"],
+        ),
         run: async ({ context, input, publish }) => {
           const result = await this.updateActionRecord(context, input, publish);
           return recordValue(result.record, result.schema, result.sourceId);
@@ -1033,6 +1269,15 @@ export class Kernel {
       },
       {
         key: "records.delete",
+        tool: actionTool(
+          "Delete record",
+          "Delete one record from a local or writable attached Source.",
+          {
+            sourceId: { type: "string", description: "Stable Source ID." },
+            recordId: { type: "string", description: "Runtime record ID." },
+          },
+          ["sourceId", "recordId"],
+        ),
         run: async ({ context, input, runtime, publish }) => {
           const target = await this.actionRecordTarget(context, input);
           const record = await runtime.getSourceRecord(context, target.source.key, target.recordId);
@@ -1056,6 +1301,19 @@ export class Kernel {
       },
       {
         key: "views.query",
+        tool: actionTool(
+          "Query view",
+          "Run a saved View using its stable ID and declared parameters.",
+          {
+            viewId: { type: "string", description: "Stable View ID." },
+            parameters: {
+              type: "object",
+              description: "Values for parameters declared by the View.",
+              additionalProperties: true,
+            },
+          },
+          ["viewId"],
+        ),
         run: async ({ context, input }) => {
           const workspace = await this.requireWorkspace(context.workspaceId);
           const viewId = requiredActionString(input.viewId, "viewId");
@@ -1080,6 +1338,23 @@ export class Kernel {
       },
       {
         key: "views.snapshot",
+        tool: actionTool(
+          "Snapshot view",
+          "Create an independent local Collection from the current result of a View.",
+          {
+            viewId: { type: "string", description: "Stable View ID." },
+            label: { type: "string", description: "Label for the new Collection." },
+            key: { type: "string", description: "Optional semantic Collection key." },
+            description: { type: "string" },
+            parameters: {
+              type: "object",
+              description: "Values for parameters declared by the View.",
+              additionalProperties: true,
+            },
+            meta: { type: "json", description: "Optional Collection metadata." },
+          },
+          ["viewId", "label"],
+        ),
         run: async ({ context, input, publish }) => {
           const workspace = await this.requireWorkspace(context.workspaceId);
           const viewId = requiredActionString(input.viewId, "viewId");
@@ -1153,6 +1428,11 @@ export class Kernel {
           });
           return output;
         },
+      },
+      {
+        key: "agents.run",
+        run: async ({ context, input }) =>
+          collectAgentRun(await this.runAgent(context, actionAgentInput(input))),
       },
     ];
   }
@@ -1629,6 +1909,74 @@ function stableActionValues(
       return [field.id, value];
     }),
   );
+}
+
+function actionTool(
+  label: string,
+  description: string,
+  properties: Readonly<Record<string, AgentToolValueSchema>>,
+  required: readonly string[] = [],
+): NonNullable<ActionDefinition["tool"]> {
+  return {
+    label,
+    description,
+    input: {
+      type: "object",
+      properties,
+      ...(required.length ? { required } : {}),
+      additionalProperties: false,
+    },
+  };
+}
+
+function ruleInputSchema(
+  input: Readonly<Record<string, RuleInputDefinition>> | undefined,
+): AgentToolInputSchema {
+  const entries = Object.entries(input ?? {});
+  return {
+    type: "object",
+    properties: Object.fromEntries(
+      entries.map(([key, definition]) => [key, ruleInputValueSchema(definition)]),
+    ),
+    ...(entries.some(([, definition]) => definition.required)
+      ? {
+          required: entries.filter(([, definition]) => definition.required).map(([key]) => key),
+        }
+      : {}),
+    additionalProperties: false,
+  };
+}
+
+function ruleInputValueSchema(definition: RuleInputDefinition): AgentToolValueSchema {
+  if ("sourceId" in definition)
+    return { type: "string", description: `Record ID from Source ${definition.sourceId}.` };
+  if (definition.value === "text" || definition.value === "date") return { type: "string" };
+  if (definition.value === "number") return { type: "number" };
+  if (definition.value === "boolean") return { type: "boolean" };
+  if (definition.value === "array") return { type: "array", items: { type: "json" } };
+  return { type: "object", additionalProperties: true };
+}
+
+function actionAgentInput(input: Readonly<Record<string, JsonValue>>): AgentRunInput {
+  if (!Array.isArray(input.messages))
+    throw actionInputError("Action input messages must be an array.");
+  const messages: AgentMessage[] = input.messages.map((value, index) => {
+    if (!isJsonObject(value))
+      throw actionInputError(`Action input messages.${index} must be an object.`);
+    if (value.role !== "user" && value.role !== "assistant")
+      throw actionInputError(`Action input messages.${index}.role must be user or assistant.`);
+    if (typeof value.content !== "string" || !value.content.trim())
+      throw actionInputError(`Action input messages.${index}.content must be a non-empty string.`);
+    return { role: value.role, content: value.content };
+  });
+  if (typeof input.instructions !== "undefined" && typeof input.instructions !== "string")
+    throw actionInputError("Action input instructions must be a string.");
+  const metadata = optionalActionObject(input.metadata, "metadata");
+  return {
+    messages,
+    ...(input.instructions === undefined ? {} : { instructions: input.instructions as string }),
+    ...(metadata === undefined ? {} : { metadata }),
+  };
 }
 
 function actionInputError(message: string): FrameworkError {

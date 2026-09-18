@@ -4,6 +4,7 @@ import type { JsonValue } from "../spec/model.ts";
 import type { ExecutionContext } from "./model.ts";
 import type { RuleEvent } from "./rules.ts";
 import type { SourceRow } from "./sources.ts";
+import type { AgentToolInputSchema } from "./agent-runtime.ts";
 
 export type ActionOrigin =
   | { readonly kind: "call" }
@@ -53,6 +54,12 @@ export interface ActionExecution {
 export interface ActionDefinition {
   /** Immutable semantic contract key, for example `records.create`. */
   readonly key: string;
+  /** Optional opt-in metadata for projecting this Action as an Agent tool. */
+  readonly tool?: {
+    readonly label: string;
+    readonly description: string;
+    readonly input: AgentToolInputSchema;
+  };
   readonly run: (execution: ActionExecution) => JsonValue | void | Promise<JsonValue | void>;
 }
 
@@ -76,6 +83,10 @@ export class ActionRegistry {
 
   keys(): ReadonlySet<string> {
     return new Set(this.definitions.keys());
+  }
+
+  list(): readonly ActionDefinition[] {
+    return [...this.definitions.values()];
   }
 
   async run(key: string, execution: ActionExecution): Promise<JsonValue | null> {

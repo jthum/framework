@@ -1,6 +1,7 @@
 import type { JsonValue } from "../spec/model.ts";
 
 export const ERROR_CODES = {
+  environmentCapabilityUnavailable: "ENVIRONMENT.CAPABILITY_UNAVAILABLE",
   internalUnexpected: "INTERNAL.UNEXPECTED",
   permissionDenied: "PERMISSION.DENIED",
   persistenceUnsupported: "PERSISTENCE.UNSUPPORTED",
