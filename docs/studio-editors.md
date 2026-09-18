@@ -44,10 +44,11 @@ the cutover explicit rather than creating a lossy shadow model.
 every Source schema visible to that context. `createCollectionActions(client)` is the matching
 mutation path for the Collection editor: it reads the latest Spec for each focused change, maps
 friendly Fields and lifecycle controls back to stable definitions, and commits through the same
-context-bound client. Hosts choose the owning client (for example, an App versus its root Space)
-and receive the committed Spec through `onChange`; they do not reimplement schema transforms.
-Source descriptors through `WorkspaceClient`, then performs the same strict projection. Advanced
-hosts may fetch/cache through their own transport and call `editorContextFromSpec` directly.
+context-bound client. Hosts choose the owning client (for example, a child versus root Workspace)
+and receive the committed Spec through `onChange`; they do not reimplement schema transforms. The
+loader obtains Source descriptors through `WorkspaceClient`, then performs the same strict
+projection. Advanced hosts may fetch or cache through their own transport and call
+`editorContextFromSpec` directly.
 
 Studio consumers can style the semantic tokens and compose host preview snippets. Runtime-specific compatibility diagnostics and registries must come from the host, never an assumed browser runtime.
 

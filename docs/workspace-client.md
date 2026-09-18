@@ -23,10 +23,10 @@ operations; do not expose trusted persistence discovery APIs through a client. A
 are readable through Source operations, not writable local Collections.
 
 `executeAction(key, input)` and `runRule(key, input)` expose the same context-bound Action/short
-Rule spine. An Action-published Event runs matching short Rules; authorization is checked for
-the Action and its actual record operations. Use `startRule` for a durable wait or User request.
-Published Events still reject durable-only subscribers in the short runner; this does not imply
-automatic durable dispatch or a scheduler.
+Rule spine. An Action-published Event preflights all matching Rules, then routes each Rule to the
+short or durable runner according to its actual nested capabilities. Authorization is checked for
+the Action and its record operations. Use `startRule` to invoke a durable Rule explicitly. Automatic
+durable Event dispatch does not imply a scheduler, timer service, webhook listener, or worker.
 
 `launchRule(client, key, input)` is an optional convenience for UI/tool callers: it reads current
 definitions, follows nested invocations, and chooses the short runner or durable execution.

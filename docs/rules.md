@@ -45,9 +45,10 @@ derives the required contracts and extensible capability keys. The Kernel's shor
 that preflight—including nested Rules—before the first side effect. Unknown executable semantics
 are errors, even when they sit in a branch that would not have run.
 
-`Kernel.runRule` calls a Rule by key. `Kernel.dispatchEvent` runs enabled matching Rules in stable
-priority order. `Kernel.executeAction` is the high-level Action path. Source inputs accept a record
-ID and resolve through the unified Source boundary, so attached records remain valid Rule inputs.
+`Kernel.runRule` calls a short Rule by key. `Kernel.dispatchEvent` preflights enabled matching Rules
+and runs them in stable priority order, routing each to the short or durable runner from its actual
+nested capabilities. `Kernel.executeAction` is the high-level Action path. Source inputs accept a
+record ID and resolve through the unified Source boundary, so attached records remain valid Rule inputs.
 Built-in `records.create`, `records.get`, `records.list`, `records.update`, and `records.delete`
 Actions deliberately call the same Kernel CRUD methods as direct consumers; validation and
 authorization therefore cannot drift. Custom Actions and Conditions are installed when the Kernel
@@ -61,8 +62,8 @@ while persisted Rules survive Collection and Field key renames—including Rules
 Sources—without rewriting consumer Specs. Reads therefore work uniformly across local Collections and attached Sources. Update and
 delete may cross an Attachment only when its permission, target-side policy, resolved Actor membership,
 and origin resource policy all permit the operation. `runAs` changes only the Actor—it never
-bypasses those checks. Creating through an attached Source is deliberately unsupported until the
-Phase 6 write/filter policy is complete.
+bypasses those checks. Creating through an attached Source is deliberately unsupported because a
+filtered slice does not yet define creation membership.
 
 Record mutation Actions publish `record.created`, `record.updated`, `record.field_changed`, and
 `record.deleted`; Form submission publishes `form.submitted`. Event-triggered source inputs are
@@ -98,7 +99,8 @@ stores a `RuleExecution` and runs until a wait or completion. `resumeRule(contex
 durations are seconds; strings use `ms`, `s`, `m`, `h`, or `d` (for example `"30m"`). Unsupported
 durations and executable semantics are rejected before the first Action. An elapsed deadline wins
 over a late signal. Hosts arrange delivery/polling; the Kernel does not start timers, a scheduler,
-or webhook listeners. `dispatchEvent` and Action-published events still use the short runner.
+or webhook listeners. Event dispatch creates ordinary persisted RuleExecutions for matching
+durable Rules when the environment enables durable subscriptions.
 
 The immutable `rule` snapshot fixes the original definition. Invoked Rules are also snapshotted;
 editing the Spec while paused cannot silently replace the next steps. Persisted continuations

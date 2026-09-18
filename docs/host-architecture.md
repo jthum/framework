@@ -71,5 +71,6 @@ intentional. Block renderers and their dependencies load through `BlockRegistry`
 ## Administrative boundaries
 
 Ordinary surfaces should receive `WorkspaceClient` or a narrower interface. Trusted composition
-code may use the Kernel for Workspace creation, Memberships, Attachments, and catalog discovery.
-Do not expose persistence repositories or root-wide discovery directly to untrusted clients.
+code may use the Kernel for Workspace creation, Memberships, and Attachments, and may compose
+Catalog objects separately. Do not expose persistence repositories or root-wide discovery directly
+to untrusted clients.

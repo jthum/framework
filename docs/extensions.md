@@ -32,13 +32,17 @@ A module can contribute:
 
 - Actions and Conditions registered when opening the Kernel;
 - Event contracts used by Rules;
-- Source implementations and capability discovery;
+- host-owned data integrations, with portable Source bindings where supported;
 - Block definitions and lazy renderers;
 - host-owned module Spec and runtime state;
 - custom routes, screens, and invariants.
 
 Module entities need not become new Framework primitives. Prefer composing the small shared
 primitives and keep domain invariants in module code.
+
+Custom Source-provider registration is not yet a public Kernel extension point. A host may expose
+external data through its own client or module boundary today; a future provider contract must
+retain capability discovery and the existing View semantics.
 
 ## UI extension
 

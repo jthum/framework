@@ -20,9 +20,9 @@ const attachment = await kernel.createAttachment(hrContext, {
   filter: { fieldId: statusFieldId, operator: "eq", value: "open" },
 });
 
-const schema = await kernel.getAttachedSchema(candidateContext, "hr_openings");
-const rows = await kernel.listAttachedRecords(candidateContext, "hr_openings");
-const row = await kernel.getAttachedRecord(candidateContext, "hr_openings", recordId);
+const source = await kernel.getSource(candidateContext, "hr_openings");
+const rows = await kernel.querySource(candidateContext, "hr_openings");
+const row = await kernel.getSourceRecord(candidateContext, "hr_openings", recordId);
 
 const received = await kernel.listAttachmentsTo(recruitingContext);
 const exposed = await kernel.listAttachmentsFrom(hrContext);
@@ -40,10 +40,15 @@ Reads check `attachments.read` against the target binding and `records.schema`, 
 
 Re-sharing is explicit through `reshareAttachment`. It is disabled by default and requires both the current Workspace's `reshare` policy and `allowReshare` on the received Attachment. Derived permissions must be a subset of received permissions, added filters are combined with the inherited filter, and revoking any binding in the provenance chain invalidates downstream live Sources. Provenance traversal is a liveness check, not Workspace ACL inheritance.
 
-## Deliberate phase boundaries
+## Deliberate boundaries
 
-Phase 2 supplied live reads, persistence, isolation, and revocation. Phase 6 adds attached updates/deletes, current Membership/`others` enforcement, attenuation, and derived re-sharing. There is no implicit copy, rolling refresh, or recursive Workspace ACL implementation.
+The implemented contract includes live reads, persistence, isolation, revocation, attached
+updates/deletes, current Membership/`others` enforcement, attenuation, and derived re-sharing.
+There is no implicit copy, rolling refresh, or recursive Workspace ACL implementation.
 
 The built-in implementation evaluates Attachment filters after the origin RecordStore returns rows. The Source query contract allows adapters to push compatible predicates down later without changing Attachment semantics.
 
-Phase 3 permits a local reference Field to target an attached Source. Reference validation and terminal display traversal respect the Attachment slice and revocation. It deliberately does not make the attached record a bridge into further origin relationships. The built-in Membership authorizer now supplies the production policy baseline; `AllowAllAuthorizer` remains an explicit testing or trusted-host escape hatch.
+A local reference Field may target an attached Source. Reference validation and terminal display
+traversal respect the Attachment slice and revocation. It deliberately does not make the attached
+record a bridge into further origin relationships. The built-in Membership authorizer supplies the
+production policy baseline; `AllowAllAuthorizer` remains an explicit testing or trusted-host escape hatch.
