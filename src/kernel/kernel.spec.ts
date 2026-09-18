@@ -25,6 +25,24 @@ describe("Kernel catalog skeleton", () => {
     await kernel.close();
   });
 
+  it("allows members to update themselves but not another Actor", async () => {
+    const kernel = await Kernel.open({ persistence: new MemoryPersistenceAdapter() });
+    const root = await kernel.createRootWorkspace({ name: "Space", user: { name: "Jane" } });
+    const owner = { workspaceId: root.workspace.id, actorId: root.user.id };
+    const member = await kernel.createActor(owner, { name: "Candidate", kind: "user" });
+    await kernel.addMembership(owner, {
+      actorId: member.id,
+      workspaceId: root.workspace.id,
+      permissions: ["read"],
+    });
+    const context = { ...owner, actorId: member.id };
+    await expect(kernel.updateActor(context, member.id, { name: "New name" }))
+      .resolves.toMatchObject({ name: "New name", originId: member.originId });
+    await expect(kernel.updateActor(context, root.user.id, { name: "Not Jane" }))
+      .rejects.toMatchObject({ code: ERROR_CODES.permissionDenied });
+    await kernel.close();
+  });
+
   it("enforces explicit Workspace spawn and local Actor policy", async () => {
     expect.hasAssertions();
     const kernel = await Kernel.open({

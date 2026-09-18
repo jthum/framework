@@ -48,6 +48,12 @@ export class WorkspaceAuthorizer implements Authorizer {
   constructor(private readonly catalog: CatalogRepository) {}
 
   async authorize(request: AuthorizationRequest): Promise<AuthorizationDecision> {
+    if (
+      request.operation === "actors.update" &&
+      request.resource.kind === "actor" &&
+      request.resource.id === request.context.actorId
+    )
+      return { allowed: true };
     const workspaceId = request.resource.workspaceId ?? request.context.workspaceId;
     const workspace = await this.catalog.getWorkspace(workspaceId);
     if (!workspace) return denied("The resource Workspace does not exist.");
