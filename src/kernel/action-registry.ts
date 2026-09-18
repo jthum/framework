@@ -59,6 +59,9 @@ export interface ActionDefinition {
     readonly label: string;
     readonly description: string;
     readonly input: AgentToolInputSchema;
+    /** Discoverable tools are activated through `search_tools` instead of sent on every step. */
+    readonly availability?: "eager" | "discoverable";
+    readonly keywords?: readonly string[];
   };
   readonly run: (execution: ActionExecution) => JsonValue | void | Promise<JsonValue | void>;
 }

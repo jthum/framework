@@ -1,175 +1,165 @@
-# Agents
+# Inference and Agents
 
-`AgentRuntime` is the provider-neutral inference and tool-loop port. It runs as the current
-execution Actor, which may be a User, Agent, or System. Model SDKs, provider credentials, and
-tool-loop implementations remain optional adapter concerns.
-
-An Agent Actor is therefore an identity choice, not a requirement for using inference. By default,
-inference uses the current Actor. Choose an Agent Actor only when the work needs an independent
-identity, Membership, or permission ceiling.
+Framework separates a model request, a complete tool-using turn, and the Actor whose authority is
+used. This lets a user-facing assistant run as its current User while an autonomous Agent runs as
+an Agent Actor with its own Membership and permission ceiling.
 
 ## Code map
 
-- Runtime contract and event stream: [`src/kernel/agent-runtime.ts`](../src/kernel/agent-runtime.ts)
-- Kernel composition and tool projection: [`src/kernel/kernel.ts`](../src/kernel/kernel.ts)
-- Action opt-in metadata: [`src/kernel/action-registry.ts`](../src/kernel/action-registry.ts)
+- Contracts and default loop: [`src/kernel/agent-runtime.ts`](../src/kernel/agent-runtime.ts)
+- Kernel composition and tool gateway: [`src/kernel/kernel.ts`](../src/kernel/kernel.ts)
+- Action tool metadata: [`src/kernel/action-registry.ts`](../src/kernel/action-registry.ts)
 - Context-bound client: [`src/client/workspace-client.ts`](../src/client/workspace-client.ts)
-- Deterministic behavior tests: [`src/kernel/agent-runtime.spec.ts`](../src/kernel/agent-runtime.spec.ts)
+- Deterministic contract tests: [`src/kernel/agent-runtime.spec.ts`](../src/kernel/agent-runtime.spec.ts)
 
-## Ownership
+## Three layers
 
-Framework owns:
+`InferenceAdapter` performs one provider/model request. Its input is an immutable message and tool
+snapshot for that request. It translates provider events into `InferenceEvent` without deciding
+which tools exist or executing them.
 
-- execution Actor identity, Workspace Membership, and authorization;
-- compact tool projection from opted-in Actions and `expose: ["agent"]` Rules;
-- stable tool IDs and a small JSON-compatible input-schema vocabulary;
-- routing tool calls back through ordinary Action, Rule, record, Source, and View checks;
-- a provider-neutral event stream and context-bound client methods.
+`AgentRuntime` coordinates a complete turn. `DefaultAgentRuntime` resolves tools, calls an
+`InferenceAdapter`, executes requested tools sequentially, adds results to the messages, and repeats
+until the turn completes. A host may replace the complete runtime when a higher-level agent library
+needs to own orchestration.
 
-The host or an optional adapter owns:
+The Kernel owns execution identity, authorization, Action and Rule projection, and the dynamic tool
+gateway. Every tool execution re-enters current Kernel checks.
 
-- model and provider selection;
-- credentials and secret lookup;
-- translating Framework tool IDs and schemas to provider-specific function formats;
-- the model/tool loop, retries, token policy, and provider-specific errors;
-- conversation storage, truncation, retrieval, and user-facing chat state;
-- transport framing for remote streams.
-
-No model SDK or schema library is a dependency of the Spec or Kernel. An adapter may use either
-internally without making it part of Framework's public contract.
-
-## Install a runtime
-
-Implement the small port and inject it when opening the Kernel:
+The simple composition path is one adapter:
 
 ```ts
-import type { AgentContext, AgentEvent, AgentRuntime } from "@jthum/framework/kernel";
-import {
-  defineEnvironmentProfile,
-  Kernel,
-  LOCAL_BROWSER_ENVIRONMENT,
-} from "@jthum/framework/kernel";
-
-class RuntimeAdapter implements AgentRuntime {
-  async *run(context: AgentContext): AsyncIterable<AgentEvent> {
-    // A real adapter passes context.messages and context.tools to its provider.
-    // When the provider requests a tool, call context.invokeTool(toolId, input).
-    yield { type: "completed", output: { message: "Ready" } };
-  }
-}
-
 const kernel = await Kernel.open({
   persistence,
   environment: defineEnvironmentProfile({
     ...LOCAL_BROWSER_ENVIRONMENT,
     agentRuntime: true,
   }),
-  agentRuntime: new RuntimeAdapter(),
+  inference,
 });
 ```
 
-The explicit environment capability prevents a deployment from appearing to support Agents merely
-because a runtime object was accidentally present. `Kernel.runAgent` and `AgentClient.runAgent`
-return an `AsyncIterable<AgentEvent>` so embedded and server transports can preserve streaming.
-`collectAgentRun` is the convenience for callers, such as Rules, that need one final JSON value.
+Framework constructs `DefaultAgentRuntime`. Advanced hosts pass `agentRuntime` instead. Supplying
+both is rejected so ownership of the loop is unambiguous.
 
-## Choose the execution Actor
+No model SDK or schema library is a dependency of the Spec or Kernel. An adapter may use either
+internally.
 
-For a user-facing assistant, bind `AgentClient` to the current User exactly like the rest of the
-interface. Tool calls are authorized and attributed to that User. No extra Actor or Membership is
-required.
+## Actors
 
-For work that needs a separate identity or permission ceiling, create an Agent Actor and add an
-ordinary Membership. That Membership—not the model, prompt, or runtime adapter—defines its ceiling.
-System Actors may also run inference when a host deliberately uses one for system-owned work.
+`Kernel.runAgent(context, input)` uses the Actor in `context`:
 
-The projected tool list is not an authority grant. Every invocation re-enters the existing Kernel
-path. For example, `records.create` still checks create permission for its concrete Collection. A
-read-only Agent may discover the generic record tool but cannot use it to write.
+- A user-facing assistant normally uses the current User. Its tool calls are authorized and
+  attributed to that User.
+- An autonomous or independently permissioned Agent uses an Agent Actor and ordinary Membership.
+- A host may deliberately use a System Actor for system-owned work.
 
-Built-in compact tools include Source and View discovery, generic record operations, and View
-query/snapshot operations. `sources.list` exposes stable Source and Field IDs only when requested,
-which avoids generating CRUD tool definitions for every Collection on every turn.
+An Agent Actor is persisted identity and authority. Inference is the reasoning operation. Keeping
+them separate supports chat, generation, extraction, and structured decisions without inventing an
+Actor for every model call.
 
-## Expose custom Actions and Rules
+## Dynamic tools
 
-Custom Actions opt in with provider-neutral tool metadata:
+Tools are resolved before every model step and remain stable for that provider request. This makes
+contextual tools natural: a host tool may be available on the first message, after a particular
+result, or only in one interface. `AgentToolProvider` is the trusted host extension point.
 
 ```ts
-const actions = [
-  {
-    key: "documents.publish",
-    tool: {
-      label: "Publish document",
-      description: "Publish a reviewed document.",
-      input: {
-        type: "object",
-        properties: { documentId: { type: "string" } },
-        required: ["documentId"],
-        additionalProperties: false,
+const firstMessageTools: AgentToolProvider = {
+  resolve(context) {
+    if (context.step !== 1) return [];
+    return [
+      {
+        id: "set_title",
+        label: "Set title",
+        description: "Set the conversation title.",
+        input: {
+          type: "object",
+          properties: { title: { type: "string" } },
+          required: ["title"],
+        },
+        execute(input) {
+          return saveTitle(input.title);
+        },
       },
-    },
-    async run({ context, input }) {
-      // Validate input and authorize the concrete domain resource here.
-      return publishDocument(context, input.documentId);
+    ];
+  },
+};
+```
+
+Register trusted providers with `KernelOptions.agentTools`. Business capabilities usually remain
+Actions or Rules so all callers share one implementation. Inference-only tools can live in a host
+provider.
+
+Action tool metadata may set `availability: "discoverable"`. Exposed Rules are discoverable by
+default. When discoverable tools exist, Framework offers `search_tools`; matches are activated for
+the next model step. Eager tools remain attached without requiring discovery. The resolver runs on
+every step, but stable ordering and definitions produce the same serialized tool prefix, preserving
+provider caching when the effective set has not changed.
+
+A resolved `AgentToolSet` is a bound snapshot. The model can call only a tool offered in that step.
+Immediately before execution, the Kernel resolves current availability and re-enters authorization.
+If a tool was removed or authority was revoked, the runtime emits `tool_error`, adds that error to
+the conversation, and allows the model to recover on the next step. Multiple calls from one model
+step execute sequentially in emitted order.
+
+## Action and Rule tools
+
+Actions opt in with provider-neutral metadata:
+
+```ts
+const action = {
+  key: "documents.publish",
+  tool: {
+    label: "Publish document",
+    description: "Publish a reviewed document.",
+    availability: "discoverable",
+    keywords: ["release", "document"],
+    input: {
+      type: "object",
+      properties: { documentId: { type: "string" } },
+      required: ["documentId"],
+      additionalProperties: false,
     },
   },
-];
+  run({ context, input }) {
+    return publishDocument(context, input.documentId);
+  },
+};
 ```
 
-Actions without `tool` remain callable by Rules and direct Action consumers but are not offered to
-Agents. An exposed Rule is explicit portable configuration:
+Rules opt in through `expose: ["agent"]`. Disabled and unexposed Rules are absent. Short Rules
+return their result; durable Rules return their execution identity and current status. Built-in
+compact tools cover Source and View discovery, generic record operations, and View operations,
+avoiding per-Collection CRUD definitions.
 
-```ts
-{
-  id: "…",
-  key: "approve_expense",
-  label: "Approve expense",
-  expose: ["agent"],
-  input: { expense: { sourceId: "…", required: true } },
-  steps: [/* ordinary Rule steps */]
-}
-```
+## Event contracts
 
-Disabled Rules and Rules not exposed to Agents are omitted. Rule inputs become tool inputs; Source
-inputs accept runtime record IDs and continue through normal Source resolution. Short Rules return
-their result immediately. Durable Rules return an execution ID and status rather than hiding a wait
-inside the model call.
+An `InferenceAdapter` emits zero or more content, structured-output, tool-call, and usage events,
+followed by exactly one of:
 
-## Call an Agent from a Rule
+- `finished` with `stop`, `tool_calls`, `length`, `refusal`, or `content_filter`;
+- `failed` with an `ErrorEnvelope`;
+- `cancelled`.
 
-`agents.run` is a built-in Action. It inherits the Rule's current Actor by default, so a
-user-triggered Rule can ask for inference and keep acting as that User. A Rule uses an explicit
-semantic `runAs` binding only when it should run as an independent Agent:
+No event may follow that terminal inference event.
 
-```ts
-{
-  id: "ask-agent",
-  action: {
-    key: "agents.run",
-    runAs: "support_agent",
-    as: "answer",
-    input: {
-      messages: [{ role: "user", content: { $ref: "vars.prompt" } }]
-    }
-  }
-}
-```
+An `AgentRuntime` emits `started` first, monotonically numbered steps, their streamed content and
+tool activity, then exactly one turn terminal: `completed`, `refused`, `failed`, or `cancelled`.
+Completed model steps emit `step_finished`; provider failure or cancellation terminates the active
+step directly. No event may follow the turn terminal. `collectAgentRun` validates this terminal
+contract and returns the completed JSON value.
 
-The host resolves `support_agent` to an Agent Actor in that Workspace. Current Membership and
-operation permissions are checked at execution time. Omitting `runAs` keeps the triggering Actor;
-using the semantic binding keeps concrete Actor IDs out of the portable Spec.
+## Rules and transports
 
-## Streaming and remote hosts
+`agents.run` is a built-in Action. A Rule inherits its current Actor by default. It uses a semantic
+`runAs` binding when it should run as an independently permissioned Agent; the host resolves the
+binding to an Agent Actor without placing concrete Actor IDs in portable Spec.
 
-For an embedded host, `createWorkspaceClient` forwards the stream directly. For a remote host, a
-trusted server resolves `{ workspaceId, actorId }`, calls the Kernel, and translates events to its
-streaming transport. A browser must never select a trusted execution Actor ID by itself.
+An embedded host can consume the async stream directly. A server host resolves the authenticated
+Actor, runs the Kernel, and frames events for its transport. Conversation storage and bounded
+history are host state; provider credentials are resolved by trusted host infrastructure rather
+than stored in portable Spec.
 
-`tool_call` and `tool_result` events are observational stream events emitted by the adapter. The
-only authorized invocation path is the `context.invokeTool` callback supplied by the Kernel.
-Conversation persistence is deliberately not Kernel state: a host may store it in its own module,
-send only a bounded message window, or run an Agent without a chat surface at all.
-
-Agent evals measure model behavior separately. Deterministic tests remain responsible for identity,
-permission checks, tool projection, input validation, and event-stream contracts.
+Deterministic tests cover identity, authorization, discovery, changing tool availability, ordering,
+and event contracts. Behavioral model evals belong beside a concrete adapter.

@@ -8,6 +8,9 @@ import {
   type AgentEvent,
   type AgentRuntime,
   type AgentContext,
+  type InferenceAdapter,
+  type InferenceEvent,
+  type InferenceInput,
 } from "./agent-runtime.ts";
 import { defineEnvironmentProfile, LOCAL_BROWSER_ENVIRONMENT } from "./environment.ts";
 import { Kernel } from "./kernel.ts";
@@ -15,11 +18,27 @@ import { Kernel } from "./kernel.ts";
 describe("AgentRuntime", () => {
   it("projects opted-in Actions and Rules and executes tools through the Kernel", async () => {
     const runtime = new RecordingAgentRuntime(async (context) => {
-      const created = await context.invokeTool("action:records.create", {
-        sourceId: "collection-task",
-        values: { "field-title": "Draft release notes" },
+      const tools = await context.tools.resolve({
+        execution: context.execution,
+        actor: context.actor,
+        messages: context.messages,
+        step: 1,
+        activeToolIds: new Set(["rule:rule-summarize"]),
+        ...(context.metadata ? { metadata: context.metadata } : {}),
       });
-      const rule = await context.invokeTool("rule:rule-summarize", { topic: "Release" });
+      const created = await tools.execute({
+        id: "call-create",
+        toolId: "action:records.create",
+        input: {
+          sourceId: "collection-task",
+          values: { "field-title": "Draft release notes" },
+        },
+      });
+      const rule = await tools.execute({
+        id: "call-rule",
+        toolId: "rule:rule-summarize",
+        input: { topic: "Release" },
+      });
       return { created, rule };
     });
     const { kernel, owner, agent } = await bootstrap(runtime, [echoAction]);
@@ -35,7 +54,8 @@ describe("AgentRuntime", () => {
     expect(runtime.requests[0]?.actor).toMatchObject({ id: agent.actorId, kind: "agent" });
     expect(runtime.requests[0]?.execution).toEqual(agent);
     expect(runtime.requests[0]?.metadata).toEqual({ requestId: "request-1" });
-    expect(runtime.requests[0]?.tools.map((tool) => tool.id)).toEqual(
+    const listed = await kernel.listAgentTools(agent);
+    expect(listed.map((tool) => tool.id)).toEqual(
       expect.arrayContaining([
         "action:sources.list",
         "action:views.list",
@@ -50,12 +70,10 @@ describe("AgentRuntime", () => {
         "rule:rule-summarize",
       ]),
     );
-    expect(runtime.requests[0]?.tools.map((tool) => tool.id)).not.toContain("action:tests.hidden");
-    expect(runtime.requests[0]?.tools.map((tool) => tool.id)).not.toContain("rule:rule-ui-only");
-    expect(runtime.requests[0]?.tools.map((tool) => tool.id)).not.toContain("rule:rule-disabled");
-    expect(
-      runtime.requests[0]?.tools.find((tool) => tool.id === "rule:rule-summarize")?.input,
-    ).toEqual({
+    expect(listed.map((tool) => tool.id)).not.toContain("action:tests.hidden");
+    expect(listed.map((tool) => tool.id)).not.toContain("rule:rule-ui-only");
+    expect(listed.map((tool) => tool.id)).not.toContain("rule:rule-disabled");
+    expect(listed.find((tool) => tool.id === "rule:rule-summarize")?.input).toEqual({
       type: "object",
       properties: { topic: { type: "string" } },
       required: ["topic"],
@@ -94,10 +112,21 @@ describe("AgentRuntime", () => {
 
   it("keeps tool invocation inside the underlying authorization boundary", async () => {
     const runtime = new RecordingAgentRuntime((context) =>
-      context.invokeTool("action:records.create", {
-        sourceId: "collection-task",
-        values: { "field-title": "Forbidden" },
-      }),
+      context.tools
+        .resolve({
+          execution: context.execution,
+          actor: context.actor,
+          messages: context.messages,
+          step: 1,
+          activeToolIds: new Set(),
+        })
+        .then((tools) =>
+          tools.execute({
+            id: "call-create",
+            toolId: "action:records.create",
+            input: { sourceId: "collection-task", values: { "field-title": "Forbidden" } },
+          }),
+        ),
     );
     const { kernel, owner, agent, actorId } = await bootstrap(runtime);
     await kernel.applySpec(owner, agentSpec());
@@ -170,7 +199,7 @@ describe("AgentRuntime", () => {
 
   it("rejects invalid runtime completion streams deterministically", async () => {
     async function* incomplete(): AsyncIterable<AgentEvent> {
-      yield { type: "text_delta", delta: "hello" };
+      yield { type: "text_delta", step: 1, delta: "hello" };
     }
     async function* duplicate(): AsyncIterable<AgentEvent> {
       yield { type: "completed", output: "first" };
@@ -183,7 +212,147 @@ describe("AgentRuntime", () => {
       code: ERROR_CODES.internalUnexpected,
     });
   });
+
+  it("uses the default tool loop and activates tools found through search_tools", async () => {
+    const inference = new ScriptedInference((input, step) => {
+      if (step === 1) {
+        expect(input.tools.map((tool) => tool.id)).toContain("search_tools");
+        expect(input.tools.map((tool) => tool.id)).not.toContain("rule:rule-summarize");
+        return [
+          { type: "tool_call", id: "find", toolId: "search_tools", input: { query: "summarize" } },
+          { type: "finished", reason: "tool_calls" },
+        ];
+      }
+      if (step === 2) {
+        expect(input.tools.map((tool) => tool.id)).toContain("rule:rule-summarize");
+        return [
+          {
+            type: "tool_call",
+            id: "summarize",
+            toolId: "rule:rule-summarize",
+            input: { topic: "Release" },
+          },
+          { type: "finished", reason: "tool_calls" },
+        ];
+      }
+      expect(input.messages.at(-1)).toMatchObject({
+        role: "tool",
+        callId: "summarize",
+        output: { status: "completed" },
+      });
+      return [
+        { type: "text_delta", delta: "Ready" },
+        { type: "usage", usage: { inputTokens: 10, outputTokens: 2 } },
+        { type: "finished", reason: "stop" },
+      ];
+    });
+    const kernel = await Kernel.open({
+      persistence: new MemoryPersistenceAdapter(),
+      environment: defineEnvironmentProfile({ ...LOCAL_BROWSER_ENVIRONMENT, agentRuntime: true }),
+      inference,
+    });
+    const root = await kernel.createRootWorkspace({ name: "Space", user: { name: "Jane" } });
+    const owner = { workspaceId: root.workspace.id, actorId: root.user.id };
+    await kernel.applySpec(owner, agentSpec());
+
+    const events = await collect(await kernel.runAgent(owner, { messages: [] }));
+
+    expect(events.map((event) => event.type)).toEqual([
+      "started",
+      "step_started",
+      "tool_call",
+      "step_finished",
+      "tool_result",
+      "step_started",
+      "tool_call",
+      "step_finished",
+      "tool_result",
+      "step_started",
+      "text_delta",
+      "step_finished",
+      "completed",
+    ]);
+    expect(events.at(-1)).toEqual({
+      type: "completed",
+      output: "Ready",
+      usage: { inputTokens: 10, outputTokens: 2 },
+    });
+    await kernel.close();
+  });
+
+  it("resolves contextual host tools for every step and rejects a tool removed before execution", async () => {
+    let resolutions = 0;
+    const inference = new ScriptedInference((input, step) =>
+      step === 1
+        ? [
+            { type: "tool_call", id: "title", toolId: "set_title", input: { title: "Plan" } },
+            { type: "finished", reason: "tool_calls" },
+          ]
+        : [
+            { type: "structured_output", output: { recovered: true } },
+            { type: "finished", reason: "stop" },
+          ],
+    );
+    const kernel = await Kernel.open({
+      persistence: new MemoryPersistenceAdapter(),
+      environment: defineEnvironmentProfile({ ...LOCAL_BROWSER_ENVIRONMENT, agentRuntime: true }),
+      inference,
+      agentTools: [
+        {
+          resolve: () => {
+            resolutions += 1;
+            if (resolutions > 1) return [];
+            return [
+              {
+                id: "set_title",
+                label: "Set title",
+                description: "Set the title once.",
+                input: { type: "object", properties: { title: { type: "string" } } },
+                execute: () => ({ saved: true }),
+              },
+            ];
+          },
+        },
+      ],
+    });
+    const root = await kernel.createRootWorkspace({ name: "Space", user: { name: "Jane" } });
+    const owner = { workspaceId: root.workspace.id, actorId: root.user.id };
+
+    const events = await collect(await kernel.runAgent(owner, { messages: [] }));
+
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "tool_error", toolId: "set_title" }),
+        expect.objectContaining({ type: "completed", output: { recovered: true } }),
+      ]),
+    );
+    expect(inference.requests[1]?.messages.at(-1)).toMatchObject({
+      role: "tool",
+      toolId: "set_title",
+      error: { code: ERROR_CODES.resourceNotFound },
+    });
+    await kernel.close();
+  });
 });
+
+class ScriptedInference implements InferenceAdapter {
+  readonly requests: InferenceInput[] = [];
+
+  constructor(
+    private readonly script: (input: InferenceInput, step: number) => readonly InferenceEvent[],
+  ) {}
+
+  async *infer(input: InferenceInput): AsyncIterable<InferenceEvent> {
+    this.requests.push(structuredClone(input));
+    yield* this.script(input, this.requests.length);
+  }
+}
+
+async function collect<T>(events: AsyncIterable<T>): Promise<T[]> {
+  const result: T[] = [];
+  for await (const event of events) result.push(event);
+  return result;
+}
 
 class RecordingAgentRuntime implements AgentRuntime {
   readonly requests: AgentContext[] = [];

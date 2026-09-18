@@ -157,19 +157,20 @@ Reusable execution history, launcher, inspector, and Actor-request components co
 
 ## Phase 8 — AgentRuntime
 
-**Goal:** Agent is an Actor; Rules and UI call an `AgentRuntime` port while SDK details remain
-outside the Kernel.
+**Goal:** Inference is provider-neutral, Agent Actors carry independent authority, and the default
+runtime supports dynamic authorized tools while SDK details remain outside the Kernel.
 
 **In:**
 
-- transport-neutral AgentRuntime contract;
+- one-step `InferenceAdapter` and complete-turn `AgentRuntime` contracts;
 - tools projected from authorized primitive Actions and callable Rules;
+- per-step contextual resolution, discoverable tools, and `search_tools`;
 - User, Agent, and System execution Actor propagation;
 - deterministic contract tests and agent evals kept separate.
 
-The Kernel contract, Action/Rule projection, context-bound client, and deterministic tests are in
-place. A host-selected provider adapter and behavioral eval suite remain. Credentials are injected
-into that adapter (or another host integration), not routed through the portable Spec or Kernel.
+The event model, default sequential tool loop, Action/Rule projection, contextual providers,
+discovery, context-bound client, and deterministic tests are in place. Persisted Agent and model
+configuration, provider composition, one concrete adapter, and behavioral evals remain.
 
 **Out:** mandatory schema-library or agent-SDK dependency in the Spec/Kernel; implicit authority;
 conversation history as the Agent's only mode; multiple speculative adapters.

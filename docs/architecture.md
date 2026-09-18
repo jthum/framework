@@ -199,13 +199,14 @@ Auth providers (password, magic link, SSO) are outside the Spec. After authentic
 | **PersistenceAdapter** | Catalog, records, and Kernel instance data. Physical layout and sync/CDC strategy are adapter policy.        |
 | **EnvironmentProfile** | Deployment capabilities only: durable waits, schedules, ACP, multiplayer, and similar.                       |
 | **SecretStore**        | Optional host/adapter port for credentials outside the Spec and profile.                                     |
-| **AgentRuntime**       | How an Agent reasons. The only `*Runtime`; adapters may be Embedded, ACP, or future implementations.         |
+| **InferenceAdapter**   | One provider/model inference request and its normalized event stream.                                        |
+| **AgentRuntime**       | Complete inference/tool orchestration. The default runtime composes an InferenceAdapter with Kernel tools.   |
 | **Host / Shell**       | Product chrome and information architecture.                                                                 |
 | **Module**             | Domain entities, invariants, Actions, Events, Sources, and optional UI. Code, not a v1 ModuleDefinition SPI. |
 | **Session**            | UI/process state.                                                                                            |
 
 ```text
-Spec + PersistenceAdapter + EnvironmentProfile [+ AgentRuntime] -> Kernel
+Spec + PersistenceAdapter + EnvironmentProfile [+ InferenceAdapter or AgentRuntime] -> Kernel
 
 SecretStore -> host integrations and optional adapters
 ```

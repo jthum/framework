@@ -47,13 +47,19 @@ import { PageService } from "./pages.ts";
 import { ActionRegistry, type ActionDefinition } from "./action-registry.ts";
 import {
   collectAgentRun,
+  DefaultAgentRuntime,
   type AgentInput,
   type AgentEvent,
   type AgentMessage,
   type AgentRuntime,
   type AgentTool,
+  type AgentToolCall,
+  type AgentToolContext,
+  type AgentToolGateway,
   type AgentToolInputSchema,
+  type AgentToolProvider,
   type AgentToolValueSchema,
+  type InferenceAdapter,
 } from "./agent-runtime.ts";
 import {
   ConditionRegistry,
@@ -96,6 +102,10 @@ export interface KernelOptions {
   readonly actions?: readonly ActionDefinition[];
   readonly conditions?: readonly ConditionDefinition[];
   readonly agentRuntime?: AgentRuntime;
+  /** Simple path: Framework supplies the tool loop around this one-step adapter. */
+  readonly inference?: InferenceAdapter;
+  /** Trusted host extensions for tools whose availability depends on the current step. */
+  readonly agentTools?: readonly AgentToolProvider[];
   readonly resolveActorBinding?: ActorBindingResolver;
   readonly ruleExecution?: RuleServiceOptions;
 }
@@ -174,6 +184,7 @@ export class Kernel {
     actions: readonly ActionDefinition[],
     conditions: readonly ConditionDefinition[],
     private readonly agentRuntime: AgentRuntime | undefined,
+    private readonly agentTools: readonly AgentToolProvider[],
     resolveActorBinding: ActorBindingResolver | undefined,
     ruleExecution: RuleServiceOptions | undefined,
   ) {
@@ -454,24 +465,28 @@ export class Kernel {
   }
 
   async listAgentTools(context: ExecutionContext): Promise<readonly AgentTool[]> {
-    await this.requireAgentRuntimeContext(context);
+    const actor = await this.requireAgentRuntimeContext(context);
     await this.assertAgentRuntime();
-    return (await this.projectAgentTools(context)).tools;
+    return (
+      await this.projectAgentTools(
+        context,
+        { execution: context, actor, messages: [], step: 1, activeToolIds: new Set() },
+        true,
+      )
+    ).tools;
   }
 
   async runAgent(context: ExecutionContext, input: AgentInput): Promise<AsyncIterable<AgentEvent>> {
     const actor = await this.requireAgentRuntimeContext(context);
     const runtime = await this.assertAgentRuntime();
-    const projected = await this.projectAgentTools(context);
     return runtime.run({
       execution: { ...context },
       actor,
-      messages: input.messages.map((message) => ({ ...message })),
+      messages: input.messages.map((message) => structuredClone(message)),
       ...(input.instructions === undefined ? {} : { instructions: input.instructions }),
       ...(input.metadata === undefined ? {} : { metadata: structuredClone(input.metadata) }),
       ...(input.signal === undefined ? {} : { signal: input.signal }),
-      tools: projected.tools,
-      invokeTool: projected.invoke,
+      tools: this.agentToolGateway(context),
     });
   }
 
@@ -495,16 +510,27 @@ export class Kernel {
     return this.agentRuntime;
   }
 
-  private async projectAgentTools(context: ExecutionContext): Promise<{
+  private agentToolGateway(context: ExecutionContext): AgentToolGateway {
+    return {
+      resolve: (toolContext) => this.projectAgentTools(context, toolContext, false),
+    };
+  }
+
+  private async projectAgentTools(
+    context: ExecutionContext,
+    toolContext: AgentToolContext,
+    includeDiscoverable: boolean,
+  ): Promise<{
     tools: readonly AgentTool[];
-    invoke: (toolId: string, input: Readonly<Record<string, JsonValue>>) => Promise<JsonValue>;
+    execute: (call: AgentToolCall) => Promise<JsonValue>;
   }> {
     const workspace = await this.requireWorkspace(context.workspaceId);
     const executors = new Map<
       string,
       (input: Readonly<Record<string, JsonValue>>) => Promise<JsonValue>
     >();
-    const tools: AgentTool[] = [];
+    const eager: AgentTool[] = [];
+    const discoverable: Array<AgentTool & { readonly keywords: readonly string[] }> = [];
 
     for (const action of this.actions.list()) {
       if (!action.tool) continue;
@@ -517,7 +543,10 @@ export class Kernel {
       )
         continue;
       const id = `action:${action.key}`;
-      tools.push({ id, ...structuredClone(action.tool) });
+      const { availability = "eager", keywords = [], ...tool } = structuredClone(action.tool);
+      const projected = { id, ...tool };
+      if (availability === "discoverable") discoverable.push({ ...projected, keywords });
+      else eager.push(projected);
       executors.set(id, (input) => this.executeAction(context, action.key, input));
     }
 
@@ -532,11 +561,12 @@ export class Kernel {
       )
         continue;
       const id = `rule:${rule.id}`;
-      tools.push({
+      discoverable.push({
         id,
         label: rule.label,
         description: rule.description ?? `Run the ${rule.label} Rule.`,
         input: ruleInputSchema(rule.input),
+        keywords: [rule.key, rule.label],
       });
       executors.set(id, async (input) => {
         if (requiresDurableExecution(rule, workspace.spec.rules)) {
@@ -559,12 +589,49 @@ export class Kernel {
       });
     }
 
+    for (const provider of this.agentTools) {
+      for (const definition of await provider.resolve(toolContext)) {
+        const { availability = "eager", keywords = [] } = definition;
+        if (executors.has(definition.id))
+          throw resourceConflict(`Agent tool ${definition.id} is already registered.`);
+        const projected: AgentTool = structuredClone({
+          id: definition.id,
+          label: definition.label,
+          description: definition.description,
+          input: definition.input,
+        });
+        if (availability === "discoverable") discoverable.push({ ...projected, keywords });
+        else eager.push(projected);
+        executors.set(definition.id, async (input) =>
+          definition.execute(structuredClone(input), toolContext),
+        );
+      }
+    }
+
+    const visibleDiscoverable = includeDiscoverable
+      ? discoverable
+      : discoverable.filter((tool) => toolContext.activeToolIds.has(tool.id));
+    const tools: AgentTool[] = [...eager, ...visibleDiscoverable];
+    if (!includeDiscoverable && discoverable.length > visibleDiscoverable.length)
+      tools.push(searchToolsDefinition());
+
+    const offered = new Set(tools.map((tool) => tool.id));
     return {
-      tools,
-      invoke: async (toolId, input) => {
-        const execute = executors.get(toolId);
-        if (!execute) throw resourceNotFound("AgentTool", toolId);
-        return execute(structuredClone(input));
+      tools: tools.map((tool) => structuredClone(tool)),
+      execute: async (call) => {
+        if (!offered.has(call.toolId)) throw resourceNotFound("AgentTool", call.toolId);
+        if (call.toolId === "search_tools") return searchAgentTools(discoverable, call.input);
+        // Resolve current state again so removal and authorization changes take effect before use.
+        const current = await this.projectAgentTools(
+          context,
+          { ...toolContext, activeToolIds: new Set([call.toolId]) },
+          false,
+        );
+        const currentTool = current.tools.find((tool) => tool.id === call.toolId);
+        if (!currentTool) throw resourceNotFound("AgentTool", call.toolId);
+        const execute = executors.get(call.toolId);
+        if (!execute) throw resourceNotFound("AgentTool", call.toolId);
+        return execute(structuredClone(call.input));
       },
     };
   }
@@ -574,6 +641,8 @@ export class Kernel {
   }
 
   static async open(options: KernelOptions): Promise<Kernel> {
+    if (options.agentRuntime && options.inference)
+      throw resourceConflict("Provide either agentRuntime or inference, not both.");
     const persistence = await options.persistence.open();
     return new Kernel(
       persistence,
@@ -584,7 +653,9 @@ export class Kernel {
       options.environment ?? LOCAL_BROWSER_ENVIRONMENT,
       options.actions ?? [],
       options.conditions ?? [],
-      options.agentRuntime,
+      options.agentRuntime ??
+        (options.inference ? new DefaultAgentRuntime(options.inference) : undefined),
+      options.agentTools ?? [],
       options.resolveActorBinding,
       options.ruleExecution,
     );
@@ -1945,6 +2016,57 @@ function ruleInputValueSchema(definition: RuleInputDefinition): AgentToolValueSc
   if (definition.value === "boolean") return { type: "boolean" };
   if (definition.value === "array") return { type: "array", items: { type: "json" } };
   return { type: "object", additionalProperties: true };
+}
+
+function searchToolsDefinition(): AgentTool {
+  return {
+    id: "search_tools",
+    label: "Search tools",
+    description:
+      "Find additional tools relevant to the current task. Matches become available on the next step.",
+    input: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Words describing the capability or task." },
+        limit: { type: "number", description: "Maximum number of matches. Defaults to 8." },
+      },
+      required: ["query"],
+      additionalProperties: false,
+    },
+  };
+}
+
+function searchAgentTools(
+  tools: readonly (AgentTool & { readonly keywords: readonly string[] })[],
+  input: Readonly<Record<string, JsonValue>>,
+): JsonValue {
+  const query = requiredActionString(input.query, "query").toLocaleLowerCase();
+  const requestedLimit = input.limit;
+  if (
+    requestedLimit !== undefined &&
+    (typeof requestedLimit !== "number" || !Number.isInteger(requestedLimit) || requestedLimit < 1)
+  )
+    throw actionInputError("Action input limit must be a positive integer.");
+  const limit = Math.min(typeof requestedLimit === "number" ? requestedLimit : 8, 20);
+  const terms = query.split(/\s+/u).filter(Boolean);
+  const matches = tools
+    .map((tool) => ({
+      tool,
+      score: terms.reduce((score, term) => {
+        const text =
+          `${tool.id} ${tool.label} ${tool.description} ${tool.keywords.join(" ")}`.toLocaleLowerCase();
+        return score + (text.includes(term) ? 1 : 0);
+      }, 0),
+    }))
+    .filter(({ score }) => score > 0)
+    .sort((left, right) => right.score - left.score || left.tool.id.localeCompare(right.tool.id))
+    .slice(0, limit)
+    .map(({ tool }) => ({
+      id: tool.id,
+      label: tool.label,
+      description: tool.description,
+    }));
+  return { query, tools: matches };
 }
 
 function actionAgentInput(input: Readonly<Record<string, JsonValue>>): AgentInput {

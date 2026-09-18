@@ -50,8 +50,8 @@ logical persistence contracts, context-bound clients, and reusable editors.
 | Fully custom interface            | canonical Spec and client contracts, without Studio   |
 | Another language/runtime          | implement the documented Spec semantics independently |
 
-An optional `AgentRuntime` is another injected Kernel port, not a provider SDK embedded in the
-Kernel. See [Agents](agents.md) for the ownership boundary.
+An optional `InferenceAdapter` gives the default `AgentRuntime` one-step model inference. Advanced
+hosts can inject a complete `AgentRuntime`. See [Inference and Agents](agents.md).
 
 ## Persistence
 
