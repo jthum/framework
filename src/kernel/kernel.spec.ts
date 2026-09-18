@@ -36,10 +36,12 @@ describe("Kernel catalog skeleton", () => {
       permissions: ["read"],
     });
     const context = { ...owner, actorId: member.id };
-    await expect(kernel.updateActor(context, member.id, { name: "New name" }))
-      .resolves.toMatchObject({ name: "New name", originId: member.originId });
-    await expect(kernel.updateActor(context, root.user.id, { name: "Not Jane" }))
-      .rejects.toMatchObject({ code: ERROR_CODES.permissionDenied });
+    await expect(
+      kernel.updateActor(context, member.id, { name: "New name" }),
+    ).resolves.toMatchObject({ name: "New name", originId: member.originId });
+    await expect(
+      kernel.updateActor(context, root.user.id, { name: "Not Jane" }),
+    ).rejects.toMatchObject({ code: ERROR_CODES.permissionDenied });
     await kernel.close();
   });
 
