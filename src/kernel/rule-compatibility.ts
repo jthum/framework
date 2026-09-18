@@ -37,6 +37,36 @@ export function requiredRuleCapabilities(rule: RuleDefinition): string[] {
   return [...capabilities];
 }
 
+/** Includes nested invocations; cyclic calls are left to the runner's execution limits. */
+export function requiresDurableExecution(
+  rule: RuleDefinition,
+  rules: readonly RuleDefinition[] = [],
+): boolean {
+  const definitions = new Map(rules.map((item) => [item.id, item]));
+  const visited = new Set<string>();
+  const visitRule = (item: RuleDefinition): boolean => {
+    if (visited.has(item.id)) return false;
+    visited.add(item.id);
+    return visitSteps(item.steps);
+  };
+  const visitSteps = (steps: readonly RuleStep[]): boolean =>
+    steps.some((step) => {
+      if ("delay" in step || "wait" in step) return true;
+      if ("invoke" in step) {
+        const target = definitions.get(step.invoke.ruleId);
+        return target ? visitRule(target) : false;
+      }
+      if ("gate" in step)
+        return visitSteps(step.gate.pass ?? []) || visitSteps(step.gate.fail ?? []);
+      if ("foreach" in step) return visitSteps(step.foreach.steps);
+      if ("repeat" in step) return visitSteps(step.repeat.steps);
+      if ("parallel" in step)
+        return step.parallel.branches.some((branch) => visitSteps(branch.steps));
+      return false;
+    });
+  return visitRule(rule);
+}
+
 export function requiredRuleActions(rule: RuleDefinition): string[] {
   const actions = new Set<string>();
   collectRequirements(rule.steps, new Set(), actions);

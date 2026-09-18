@@ -89,3 +89,12 @@ are explicitly read-only in this sheet; the runtime response controls already su
 Builder.run's independent approval example offers canonical authoring in its run preview. The
 current Host editor does not opt into User requests until its Kernel cutover. Global assigned-task
 discovery remains a subsequent slice; this interface consumes actual persisted requests.
+
+# Imports and bundle boundaries
+
+Import editor components from their individual subpaths, such as
+`@jthum/framework/svelte/studio/rule-editor`. Import working models, authoring actions and
+metadata from `@jthum/framework/svelte/studio/data`. The aggregate
+`@jthum/framework/svelte/studio` barrel remains a convenience for tools and environments where
+eagerly loading the full Studio is intentional. Product shells should prefer the granular paths
+so route-level editors remain code-split.

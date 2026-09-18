@@ -66,6 +66,15 @@
       "types": "./src/svelte/studio/adapters.ts",
       "import": "./src/svelte/studio/adapters.ts"
     },
+    "./svelte/studio/data": {
+      "types": "./src/svelte/studio/data.ts",
+      "import": "./src/svelte/studio/data.ts"
+    },
+    "./svelte/studio/*": {
+      "types": "./src/svelte/studio/*.svelte",
+      "svelte": "./src/svelte/studio/*.svelte",
+      "import": "./src/svelte/studio/*.svelte"
+    },
     "./svelte/ui/*": {
       "types": "./src/svelte/ui/*/index.ts",
       "svelte": "./src/svelte/ui/*/index.ts",

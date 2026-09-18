@@ -194,6 +194,8 @@ alongside definition references; opaque metadata, defaults and Block configurati
 Installation comprises multiple transactional Kernel operations, not one atomic recipe; failures
 can leave installed definitions or partially seeded examples. Failed child definition/binding
 installation attempts remove the newly created App; the overall template recipe is not atomic.
+Starter-record seeding failures also remove that new App, while shared definitions/examples
+remain intact because they may be reused by other Apps.
 Space lifecycle, diagnostics and WebMCP now use the canonical Kernel too. The old Host, persisted
 Spec model, conversion path, duplicated record/Rule services and obsolete tests have been deleted.
 There is no legacy importer, fallback database, or dual-write synchronization.

@@ -156,6 +156,11 @@ Do not assert an entire human message unless wording itself is the contract. Nev
 
 ## Regression tests
 
+Framework test self-imports resolve to current TypeScript source through exact test aliases, not
+previous `dist` output. Consumer integration tests also exercise the built package to verify
+exports and packaging. Build the package before those consumer tests; do not rebuild its `dist`
+while consumer tests are running.
+
 Every fixed semantic defect should receive the smallest test that would have caught it at the correct layer. Prefer strengthening an existing contract suite when the bug could affect every adapter or consumer.
 
 UI regressions receive a component/browser test when the failure is behavioural. Pure spacing and colour corrections generally require visual inspection rather than brittle snapshots.

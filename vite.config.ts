@@ -1,5 +1,6 @@
 import { defineConfig } from "vite-plus";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
+import { fileURLToPath } from "node:url";
 
 export default defineConfig({
   plugins: [svelte()],
@@ -11,6 +12,17 @@ export default defineConfig({
     options: { typeAware: true, typeCheck: true },
   },
   test: {
+    // Self-imports must exercise current source, not stale or rebuilding dist files.
+    alias: [
+      {
+        find: /^@jthum\/framework$/,
+        replacement: fileURLToPath(new URL("./src/index.ts", import.meta.url)),
+      },
+      ...["client", "kernel", "spec", "errors", "persistence", "blocks", "sqlite"].map((key) => ({
+        find: new RegExp(`^@jthum/framework/${key}$`),
+        replacement: fileURLToPath(new URL(`./src/${key}/index.ts`, import.meta.url)),
+      })),
+    ],
     expect: { requireAssertions: true },
     environment: "node",
     include: ["src/**/*.{test,spec}.{js,ts}"],

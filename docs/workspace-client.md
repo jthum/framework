@@ -28,6 +28,12 @@ the Action and its actual record operations. Use `startRule` for a durable wait 
 Published Events still reject durable-only subscribers in the short runner; this does not imply
 automatic durable dispatch or a scheduler.
 
+`launchRule(client, key, input)` is an optional convenience for UI/tool callers: it reads current
+definitions, follows nested invocations, and chooses the short runner or durable execution.
+Its result is `{ mode: "short", run }` or `{ mode: "durable", execution }`. Short runs do not
+create history entries; durable runs return a persisted run ID. Unavailable durable execution
+fails explicitly rather than falling back. The explicit APIs remain available to advanced hosts.
+
 The built-in read Actions are `records.list`, which accepts a stable `sourceId` and optional
 canonical Source `query`, and `views.query`, which accepts a stable `viewId` and declared
 `parameters`. Both return record-like values and enforce the same Source/View authorization and
