@@ -1,4 +1,13 @@
-import type { FieldCondition, JsonValue, Spec } from "../spec/model.ts";
+import type {
+  CollectionDefinition,
+  FieldCondition,
+  FormDefinition,
+  JsonValue,
+  PageDefinition,
+  RuleDefinition,
+  Spec,
+  ViewDefinition,
+} from "../spec/model.ts";
 
 export const ACTOR_KINDS = ["user", "agent", "system"] as const;
 export type ActorKind = (typeof ACTOR_KINDS)[number];
@@ -94,6 +103,15 @@ export interface ExecutionContext {
 export interface ScopeHandle {
   readonly kind: string;
   readonly id: string;
+}
+
+/** On-demand instance configuration owned by one module entity, not part of portable Spec. */
+export interface ScopeConfig {
+  readonly collections: readonly CollectionDefinition[];
+  readonly views: readonly ViewDefinition[];
+  readonly forms: readonly FormDefinition[];
+  readonly pages: readonly PageDefinition[];
+  readonly rules: readonly RuleDefinition[];
 }
 
 export const ATTACHMENT_PERMISSIONS = ["read", "update", "delete"] as const;

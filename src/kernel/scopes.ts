@@ -1,6 +1,13 @@
-import { ERROR_CODES, FrameworkError, resourceNotFound } from "../errors/error.ts";
-import type { ScopeStore } from "../persistence/scopes.ts";
-import type { ExecutionContext, ScopeHandle } from "./model.ts";
+import { ERROR_CODES, FrameworkError } from "../errors/error.ts";
+import type { ScopeConfig, ScopeHandle } from "./model.ts";
+
+export const EMPTY_SCOPE_CONFIG: ScopeConfig = Object.freeze({
+  collections: [],
+  views: [],
+  forms: [],
+  pages: [],
+  rules: [],
+});
 
 export function assertScope(scope: ScopeHandle): void {
   if (
@@ -16,16 +23,21 @@ export function assertScope(scope: ScopeHandle): void {
     });
 }
 
-export function sameScope(left: ScopeHandle | null, right: ScopeHandle | undefined): boolean {
-  return left === null || (left.kind === right?.kind && left.id === right.id);
+export function emptyScopeConfig(): ScopeConfig {
+  return structuredClone(EMPTY_SCOPE_CONFIG);
 }
 
-/** Selection isolation is separate from module-specific authorization. */
-export async function assertCollectionScope(
-  store: ScopeStore,
-  context: ExecutionContext,
-  collectionId: string,
-): Promise<void> {
-  if (!sameScope(await store.get(context.workspaceId, collectionId), context.scope))
-    throw resourceNotFound("Collection", collectionId);
+export function readScopeConfig(value: unknown): ScopeConfig {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw invalidConfig();
+  const item = value as Record<string, unknown>;
+  for (const key of ["collections", "views", "forms", "pages", "rules"])
+    if (!Array.isArray(item[key])) throw invalidConfig();
+  return structuredClone(value) as ScopeConfig;
+}
+
+function invalidConfig(): FrameworkError {
+  return new FrameworkError({
+    code: ERROR_CODES.validationInvalidInput,
+    message: "Scope configuration must contain collections, views, forms, pages, and rules arrays.",
+  });
 }

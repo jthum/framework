@@ -51,6 +51,9 @@ dependency direction remains visible.
 
 - Module scope selection and isolation: [`ScopeHandle`](../src/kernel/model.ts),
   [`ScopeStore`](../src/persistence/scopes.ts), and [`src/kernel/scopes.spec.ts`](../src/kernel/scopes.spec.ts)
+- Optional shared-row authorization: [`RecordPolicy`](../src/kernel/record-policy.ts) and
+  [`src/kernel/record-policy.spec.ts`](../src/kernel/record-policy.spec.ts)
+- Event subscription persistence: [`RuleSubscriptionStore`](../src/persistence/subscriptions.ts)
 
 - Spec validity and field capabilities: [`src/spec/validate.spec.ts`](../src/spec/validate.spec.ts)
 - Workspace, Actor, and authorization behavior: [`src/kernel/kernel.spec.ts`](../src/kernel/kernel.spec.ts)

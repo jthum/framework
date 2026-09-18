@@ -1,6 +1,7 @@
 import { resourceConflict, resourceNotFound } from "../errors/error.ts";
 import { MemoryExecutionStore } from "./executions.ts";
 import { MemoryScopeStore } from "./scopes.ts";
+import { MemoryRuleSubscriptionStore } from "./subscriptions.ts";
 import type {
   Actor,
   AgentConfig,
@@ -47,43 +48,93 @@ export class MemoryPersistenceAdapter implements PersistenceAdapter {
   private readonly records = new MemoryRecordStore();
   private readonly executions = new MemoryExecutionStore();
   private readonly scopes = new MemoryScopeStore();
+  private readonly subscriptions = new MemoryRuleSubscriptionStore();
 
   async open(): Promise<PersistenceSession> {
     return {
       scopes: this.scopes,
+      subscriptions: this.subscriptions,
       executions: this.executions,
       catalog: this.repository,
       records: this.records,
       applyWorkspaceSpec: async (workspace, seeds = []) => {
+        const catalog = this.repository.snapshot();
         const snapshot = this.records.snapshot();
+        const subscriptions = this.subscriptions.snapshot();
         try {
-          await this.records.applySchema(workspace.id, workspace.spec.collections);
+          await this.records.applySchema(workspace.id, [
+            ...workspace.spec.collections,
+            ...(await this.scopes.list(workspace.id)).flatMap((entry) => entry.config.collections),
+          ]);
           for (const seed of seeds)
             for (const record of seed.records)
               await this.records.create(workspace.id, seed.collection, record);
           await this.repository.transaction((transaction) =>
             transaction.updateWorkspace(workspace),
           );
-          this.scopes.reconcile(
-            workspace.id,
-            new Set(workspace.spec.collections.map((item) => item.id)),
-          );
+          await this.subscriptions.replace(workspace.id, undefined, workspace.spec.rules);
         } catch (error) {
+          this.repository.restore(catalog);
           this.records.restore(snapshot);
+          this.subscriptions.restore(subscriptions);
+          throw error;
+        }
+      },
+      applyScopeConfig: async (workspace, scope, config, seeds = []) => {
+        const records = this.records.snapshot();
+        const scopes = this.scopes.snapshot();
+        const subscriptions = this.subscriptions.snapshot();
+        try {
+          await this.scopes.set(workspace.id, scope, config);
+          await this.subscriptions.replace(workspace.id, scope, config.rules);
+          await this.records.applySchema(workspace.id, [
+            ...workspace.spec.collections,
+            ...(await this.scopes.list(workspace.id)).flatMap((entry) => entry.config.collections),
+          ]);
+          for (const seed of seeds)
+            for (const record of seed.records)
+              await this.records.create(workspace.id, seed.collection, record);
+        } catch (error) {
+          this.records.restore(records);
+          this.scopes.restore(scopes);
+          this.subscriptions.restore(subscriptions);
+          throw error;
+        }
+      },
+      deleteScope: async (workspace, scope) => {
+        const records = this.records.snapshot();
+        const scopes = this.scopes.snapshot();
+        const subscriptions = this.subscriptions.snapshot();
+        try {
+          await this.scopes.delete(workspace.id, scope);
+          await this.subscriptions.replace(workspace.id, scope, []);
+          await this.records.applySchema(workspace.id, [
+            ...workspace.spec.collections,
+            ...(await this.scopes.list(workspace.id)).flatMap((entry) => entry.config.collections),
+          ]);
+        } catch (error) {
+          this.records.restore(records);
+          this.scopes.restore(scopes);
+          this.subscriptions.restore(subscriptions);
           throw error;
         }
       },
       deleteWorkspace: async (workspaceId) => {
         const catalog = this.repository.snapshot();
+        const scopes = this.scopes.snapshot();
+        const subscriptions = this.subscriptions.snapshot();
         const records = this.records.snapshot();
         const executions = this.executions.snapshot();
         try {
           this.records.deleteWorkspace(workspaceId);
           this.executions.deleteWorkspace(workspaceId);
           this.repository.deleteWorkspace(workspaceId);
-          this.scopes.reconcile(workspaceId, new Set());
+          this.scopes.deleteWorkspace(workspaceId);
+          await this.subscriptions.deleteWorkspace(workspaceId);
         } catch (error) {
           this.repository.restore(catalog);
+          this.scopes.restore(scopes);
+          this.subscriptions.restore(subscriptions);
           this.records.restore(records);
           this.executions.restore(executions);
           throw error;

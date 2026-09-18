@@ -1,13 +1,11 @@
-import { resourceNotFound } from "../errors/error.ts";
-import type { CatalogRepository } from "../persistence/catalog.ts";
 import type { PageDefinition } from "../spec/model.ts";
 import type { AuthorizationRequest } from "./authorization.ts";
-import type { ExecutionContext } from "./model.ts";
+import type { ExecutionContext, Workspace } from "./model.ts";
 
 /** Reads portable Page layout without taking responsibility for host rendering. */
 export class PageService {
   constructor(
-    private readonly catalog: CatalogRepository,
+    private readonly resolveWorkspace: (context: ExecutionContext) => Promise<Workspace>,
     private readonly assertContext: (context: ExecutionContext) => Promise<void>,
     private readonly authorize: (request: AuthorizationRequest) => Promise<void>,
   ) {}
@@ -28,9 +26,7 @@ export class PageService {
 
   private async workspace(context: ExecutionContext) {
     await this.assertContext(context);
-    const workspace = await this.catalog.getWorkspace(context.workspaceId);
-    if (!workspace) throw resourceNotFound("Workspace", context.workspaceId);
-    return workspace;
+    return this.resolveWorkspace(context);
   }
 
   private async authorizeRead(

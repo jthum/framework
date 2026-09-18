@@ -9,6 +9,7 @@ import type { CollectionRecord, RecordStore } from "../persistence/records.ts";
 import type { CollectionDefinition, FieldCondition } from "../spec/model.ts";
 import { assertValidFieldCondition } from "../spec/validate.ts";
 import type { AuthorizationRequest } from "./authorization.ts";
+import type { RecordPolicyService } from "./record-policy.ts";
 import type { Clock, IdGenerator } from "./defaults.ts";
 import {
   ATTACHMENT_PERMISSIONS,
@@ -49,6 +50,7 @@ export class AttachmentService {
     private readonly records: RecordStore,
     private readonly ids: IdGenerator,
     private readonly clock: Clock,
+    private readonly policies: RecordPolicyService,
     private readonly assertContext: (context: ExecutionContext) => Promise<void>,
     private readonly authorize: (request: AuthorizationRequest) => Promise<void>,
   ) {}
@@ -202,9 +204,10 @@ export class AttachmentService {
     const { attachment, collection } = await this.resolve(context, key, "records.list");
     const records = await this.records.list(attachment.originId, collection);
     await this.assertLive(attachment.id);
-    return records.filter((record) =>
+    const visible = records.filter((record) =>
       evaluateCondition(attachment.filter, collection, record.values, true),
     );
+    return this.policies.filter(context, attachment.originId, collection, visible);
   }
 
   async getRecord(
@@ -215,9 +218,11 @@ export class AttachmentService {
     const { attachment, collection } = await this.resolve(context, key, "records.read", id);
     const record = await this.records.get(attachment.originId, collection, id);
     await this.assertLive(attachment.id);
-    return record && evaluateCondition(attachment.filter, collection, record.values, true)
-      ? record
-      : null;
+    if (!record || !evaluateCondition(attachment.filter, collection, record.values, true))
+      return null;
+    return (
+      (await this.policies.filter(context, attachment.originId, collection, [record]))[0] ?? null
+    );
   }
 
   async getManyRecords(
@@ -228,9 +233,10 @@ export class AttachmentService {
     const { attachment, collection } = await this.resolve(context, key, "records.list");
     const records = await this.records.getMany(attachment.originId, collection, ids);
     await this.assertLive(attachment.id);
-    return records.filter((record) =>
+    const visible = records.filter((record) =>
       evaluateCondition(attachment.filter, collection, record.values, true),
     );
+    return this.policies.filter(context, attachment.originId, collection, visible);
   }
 
   async resolveMutation(
@@ -250,6 +256,14 @@ export class AttachmentService {
     await this.assertLive(attachment.id);
     if (!record || !evaluateCondition(attachment.filter, collection, record.values, true))
       throw resourceNotFound("Record", recordId);
+    await this.policies.assert({
+      context,
+      workspaceId: attachment.originId,
+      collection,
+      operation: permission,
+      current: record,
+      ...(permission === "update" ? { values: record.values } : {}),
+    });
     return { attachment, collection, record };
   }
 

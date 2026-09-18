@@ -79,26 +79,37 @@ system deliberately.
 ## Module scope
 
 A host selects an optional `ExecutionContext.scope` handle `{ kind, id }` for a domain entity inside
-one Workspace. Bind a local Collection through `Kernel.bindCollection(context, key, scope)`, or
-the registered `collections.bind` Action with `{ collectionId, scope }`. Passing `null` removes
-the binding. Binding requires manage permission; `listCollectionScopes` is also a management read.
+one Workspace. `Kernel.getScopeConfig` reads optional scope-local Collections, Views, Forms, Pages,
+and Rules. `applyScopeConfig` replaces this configuration and requires manage permission.
+Reading an empty scope does not create configuration or record tables.
 
-Bindings are instance data in `PersistenceSession.scopes`, never part of exported Spec. The current
-model binds each Collection to one entity, rather than adding hidden scope columns to records.
-Hosts create separate Collection definitions when separate entities need separate record sets.
-Collection key renames preserve the binding; deleting a Collection or Workspace removes it.
+Scope configuration is instance data in `PersistenceSession.scopes`, separate from the portable
+Workspace Spec. A selected context composes Workspace definitions with exactly that scope's local
+definitions. Sibling scopes may reuse semantic keys but must use distinct definition IDs. Local
+and Workspace keys must not collide; validation rejects ambiguous names instead of shadowing.
 
-Scoped Collections require an exact matching kind/id context for local record operations and
-Source queries. Source and View listings omit other scopes. Unbound Collections remain available
-in scoped contexts, so topic-local data can reference shared workspace-local data. Relationships
-use the same scope checks. A context-bound WorkspaceClient carries the selection into existing
-Forms, Views, Pages, and Studio surfaces; Rules, domain Events, and durable executions retain it.
+Local definitions are available only in the selected scope. Workspace Collections remain available,
+so local records may reference shared data. A context-bound WorkspaceClient carries the selection
+into Forms, Views, Pages, and Studio surfaces; Rules, domain Events, and durable executions retain
+it. Persisted subscriptions select Workspace and current-scope event Rules, never sibling scopes.
+Definitions are still loaded from their configuration; this index is not a compiled Rule cache.
+
+For one shared Tasks Collection with topic-related rows, register an optional `RecordPolicy` by
+Collection ID through `KernelOptions.recordPolicies`. It checks reads and writes, including Source
+queries and relationship lookup. Read filtering occurs before aggregation and pagination. Write
+checks receive the current row and proposed values, so a policy can reject moving a task into
+another topic. Ordinary Collections require no policy. Current adapters filter reads in memory;
+this is not database query pushdown.
 
 Scope is selection, not authority. A host must authenticate and authorize domain access through
 its Authorizer; a caller knowing a topic ID does not acquire permissions. Module trees and entity
-lifecycle remain module-owned. Deleting a module entity should explicitly remove its bindings or
-Collections. An Attachment is explicit cross-Workspace sharing and does not require the recipient
-to select the origin's module entity.
+lifecycle remain module-owned. `deleteScopeConfig` removes local configuration and its data, but
+rejects deletion while a scoped durable execution is running or waiting. Hosts must coordinate
+module-entity deletion and concurrent operations. An Attachment is explicit cross-Workspace
+sharing; origin policies still apply and may reject access without the required origin context.
+
+SQLite currently keeps scope data in one database. Optional database-per-scope routing is the next
+persistence slice; the logical Scope contract does not prescribe a physical database layout.
 
 Behavioral source of truth: [scope contracts](../src/kernel/scopes.spec.ts) and
 [SQLite persistence tests](../src/sqlite/catalog.spec.ts).

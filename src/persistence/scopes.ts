@@ -1,44 +1,55 @@
-import type { ScopeHandle } from "../kernel/model.ts";
+import type { ScopeConfig, ScopeHandle } from "../kernel/model.ts";
 
-/** Instance binding, not a portable Collection definition. */
-export interface CollectionScope {
-  readonly collectionId: string;
+export interface ScopeEntry {
+  readonly workspaceId: string;
   readonly scope: ScopeHandle;
+  readonly config: ScopeConfig;
 }
 
+/** Instance-owned configuration for module entities. */
 export interface ScopeStore {
-  get(workspaceId: string, collectionId: string): Promise<ScopeHandle | null>;
-  list(workspaceId: string): Promise<CollectionScope[]>;
-  set(workspaceId: string, collectionId: string, scope: ScopeHandle | null): Promise<void>;
+  get(workspaceId: string, scope: ScopeHandle): Promise<ScopeConfig | null>;
+  list(workspaceId: string): Promise<ScopeEntry[]>;
+  set(workspaceId: string, scope: ScopeHandle, config: ScopeConfig): Promise<void>;
+  delete(workspaceId: string, scope: ScopeHandle): Promise<void>;
 }
 
 export class MemoryScopeStore implements ScopeStore {
-  private readonly workspaces = new Map<string, Map<string, ScopeHandle>>();
+  private readonly entries = new Map<string, ScopeEntry>();
 
-  async get(workspaceId: string, collectionId: string): Promise<ScopeHandle | null> {
-    return structuredClone(this.workspaces.get(workspaceId)?.get(collectionId) ?? null);
+  async get(workspaceId: string, scope: ScopeHandle): Promise<ScopeConfig | null> {
+    return structuredClone(this.entries.get(scopeKey(workspaceId, scope))?.config ?? null);
   }
 
-  async list(workspaceId: string): Promise<CollectionScope[]> {
-    return [...(this.workspaces.get(workspaceId) ?? [])].map(([collectionId, scope]) => ({
-      collectionId,
-      scope: structuredClone(scope),
-    }));
+  async list(workspaceId: string): Promise<ScopeEntry[]> {
+    return [...this.entries.values()]
+      .filter((entry) => entry.workspaceId === workspaceId)
+      .map((entry) => structuredClone(entry));
   }
 
-  async set(workspaceId: string, collectionId: string, scope: ScopeHandle | null): Promise<void> {
-    if (scope === null) {
-      this.workspaces.get(workspaceId)?.delete(collectionId);
-      return;
-    }
-    let bindings = this.workspaces.get(workspaceId);
-    if (!bindings) this.workspaces.set(workspaceId, (bindings = new Map()));
-    bindings.set(collectionId, structuredClone(scope));
+  async set(workspaceId: string, scope: ScopeHandle, config: ScopeConfig): Promise<void> {
+    this.entries.set(scopeKey(workspaceId, scope), structuredClone({ workspaceId, scope, config }));
   }
 
-  reconcile(workspaceId: string, collectionIds: ReadonlySet<string>): void {
-    const bindings = this.workspaces.get(workspaceId);
-    for (const id of bindings?.keys() ?? []) if (!collectionIds.has(id)) bindings?.delete(id);
-    if (bindings?.size === 0) this.workspaces.delete(workspaceId);
+  async delete(workspaceId: string, scope: ScopeHandle): Promise<void> {
+    this.entries.delete(scopeKey(workspaceId, scope));
   }
+
+  deleteWorkspace(workspaceId: string): void {
+    for (const [key, entry] of this.entries)
+      if (entry.workspaceId === workspaceId) this.entries.delete(key);
+  }
+
+  snapshot(): ReadonlyMap<string, ScopeEntry> {
+    return structuredClone(this.entries);
+  }
+
+  restore(snapshot: ReadonlyMap<string, ScopeEntry>): void {
+    this.entries.clear();
+    for (const [key, entry] of snapshot) this.entries.set(key, structuredClone(entry));
+  }
+}
+
+function scopeKey(workspaceId: string, scope: ScopeHandle): string {
+  return JSON.stringify([workspaceId, scope.kind, scope.id]);
 }

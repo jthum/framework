@@ -1,150 +1,168 @@
 import { describe, expect, it } from "vite-plus/test";
+import { createWorkspaceClient } from "../client/workspace-client.ts";
 import { ERROR_CODES } from "../errors/error.ts";
 import { MemoryPersistenceAdapter } from "../persistence/memory.ts";
 import { SqlitePersistenceAdapter } from "../sqlite/catalog.ts";
 import { openNodeSqlite } from "../sqlite/node.ts";
 import { Kernel } from "./kernel.ts";
-import { createWorkspaceClient } from "../client/workspace-client.ts";
-import type { ExecutionContext } from "./model.ts";
+import { emptyScopeConfig } from "./scopes.ts";
 
 describe.each([
   ["Memory", () => new MemoryPersistenceAdapter()],
-  ["SQLite", () => new SqlitePersistenceAdapter(() => openNodeSqlite())],
+  [
+    "SQLite",
+    () => {
+      const database = openNodeSqlite();
+      return new SqlitePersistenceAdapter(() => database);
+    },
+  ],
 ] as const)("%s module scope", (_name, persistence) => {
-  it("isolates topic Collections, Views, mutations, and relation reads without changing Spec", async () => {
-    const kernel = await Kernel.open({ persistence: persistence() });
+  it("composes on-demand local definitions with shared Workspace definitions", async () => {
+    const adapter = persistence();
+    const kernel = await Kernel.open({ persistence: adapter });
     try {
       const { workspace, user } = await kernel.createRootWorkspace({
         name: "Team",
         user: { name: "Jane" },
       });
-      const context = { workspaceId: workspace.id, actorId: user.id };
-      const alpha = { ...context, scope: { kind: "topic", id: "alpha" } };
-      const beta = { ...context, scope: { kind: "topic", id: "beta" } };
-      const spec = {
+      const root = { workspaceId: workspace.id, actorId: user.id };
+      const alpha = { ...root, scope: { kind: "topic", id: "alpha" } };
+      const beta = { ...root, scope: { kind: "topic", id: "beta" } };
+      await kernel.applySpec(root, {
         ...workspace.spec,
-        collections: [
-          { id: "alpha-tasks", key: "alpha_tasks", label: "Tasks", fields: [] },
-          { id: "beta-tasks", key: "beta_tasks", label: "Tasks", fields: [] },
-          { id: "people", key: "people", label: "People", fields: [] },
-        ],
-        views: [
-          { id: "alpha-view", key: "alpha_view", label: "Tasks", source: "alpha_tasks", query: {} },
-          { id: "beta-view", key: "beta_view", label: "Tasks", source: "beta_tasks", query: {} },
-        ],
-      };
-      await kernel.applySpec(context, spec);
-      await kernel.bindCollection(context, "alpha_tasks", alpha.scope);
-      await kernel.bindCollection(context, "beta_tasks", beta.scope);
-      const task = await kernel.createRecord(alpha, "alpha_tasks", {});
-      const client = await createWorkspaceClient(kernel, alpha);
-      expect((await client.queryView("alpha_view")).data.rows.map((row) => row.id)).toEqual([
-        task.id,
-      ]);
-      await kernel.createRecord(beta, "beta_tasks", {});
-      expect((await kernel.listSources(context)).map((source) => source.key)).toEqual(["people"]);
+        collections: [{ id: "people", key: "people", label: "People", fields: [] }],
+      });
+      expect(await kernel.getScopeConfig(alpha)).toEqual(emptyScopeConfig());
+      await kernel.applyScopeConfig(alpha, localConfig("alpha"));
+      await kernel.applyScopeConfig(beta, localConfig("beta"));
+      await expect(kernel.applyScopeConfig(beta, localConfig("alpha"))).rejects.toMatchObject({
+        code: ERROR_CODES.validationInvalidInput,
+      });
+      const alphaTask = await kernel.createRecord(alpha, "notes", {});
+      const betaTask = await kernel.createRecord(beta, "notes", {});
+
+      expect((await kernel.listSources(root)).map((source) => source.key)).toEqual(["people"]);
       expect((await kernel.listSources(alpha)).map((source) => source.key)).toEqual([
-        "alpha_tasks",
+        "people",
+        "notes",
+      ]);
+      expect((await kernel.listViews(alpha)).map((view) => view.key)).toEqual(["notes"]);
+      expect((await kernel.listForms(alpha)).map((form) => form.key)).toEqual(["new_note"]);
+      expect((await kernel.listPages(alpha)).map((page) => page.key)).toEqual(["notes"]);
+      expect((await kernel.queryView(alpha, "notes")).data.rows.map((row) => row.id)).toEqual([
+        alphaTask.id,
+      ]);
+      expect((await kernel.queryView(beta, "notes")).data.rows.map((row) => row.id)).toEqual([
+        betaTask.id,
+      ]);
+      await expect(kernel.querySource(root, "notes")).rejects.toMatchObject({
+        code: ERROR_CODES.resourceNotFound,
+      });
+      const client = await createWorkspaceClient(kernel, alpha);
+      expect((await client.queryView("notes")).data.rows.map((row) => row.id)).toEqual([
+        alphaTask.id,
+      ]);
+      expect((await kernel.getWorkspace(root))?.spec.collections.map((item) => item.key)).toEqual([
         "people",
       ]);
-      expect((await kernel.listViews(alpha)).map((view) => view.key)).toEqual(["alpha_view"]);
-      expect((await kernel.queryView(alpha, "alpha_view")).data.rows.map((row) => row.id)).toEqual([
-        task.id,
-      ]);
-      for (const other of [beta, context, { ...alpha, scope: { kind: "thread", id: "alpha" } }]) {
-        await expect(kernel.getRecord(other, "alpha_tasks", task.id)).rejects.toMatchObject({
-          code: ERROR_CODES.resourceNotFound,
-        });
-        await expect(kernel.createRecord(other, "alpha_tasks", {})).rejects.toMatchObject({
-          code: ERROR_CODES.resourceNotFound,
-        });
-        await expect(kernel.updateRecord(other, "alpha_tasks", task.id, {})).rejects.toMatchObject({
-          code: ERROR_CODES.resourceNotFound,
-        });
-        await expect(kernel.deleteRecord(other, "alpha_tasks", task.id)).rejects.toMatchObject({
-          code: ERROR_CODES.resourceNotFound,
-        });
-        await expect(kernel.querySource(other, "alpha_tasks")).rejects.toMatchObject({
-          code: ERROR_CODES.resourceNotFound,
-        });
-        await expect(kernel.queryView(other, "alpha_view")).rejects.toMatchObject({
-          code: ERROR_CODES.resourceNotFound,
-        });
-      }
-      await expect(kernel.querySource(alpha, "people")).resolves.toMatchObject({ rows: [] });
-      expect((await kernel.getWorkspace(context))?.spec).toEqual(spec);
-      await kernel.applySpec(context, {
-        ...spec,
-        views: [],
-        collections: spec.collections.filter((collection) => collection.id !== "alpha-tasks"),
+
+      const session = await adapter.open();
+      const execution = {
+        id: "waiting-alpha",
+        context: alpha,
+        rule: { id: "wait-rule", key: "wait_rule", label: "Wait", steps: [] },
+        revision: 0,
+        status: "waiting" as const,
+        checkpoint: {},
+        createdAt: "2026-09-18T00:00:00Z",
+        updatedAt: "2026-09-18T00:00:00Z",
+      };
+      await session.executions.create(execution);
+      await expect(kernel.deleteScopeConfig(alpha)).rejects.toMatchObject({
+        code: ERROR_CODES.resourceConflict,
       });
-      expect(await kernel.listCollectionScopes(context)).toEqual([
-        { collectionId: "beta-tasks", scope: beta.scope },
+      await expect(
+        session.executions.update({ ...execution, context: beta, revision: 1 }, 0),
+      ).rejects.toMatchObject({ code: ERROR_CODES.resourceConflict });
+      await session.executions.update({ ...execution, revision: 1, status: "completed" }, 0);
+
+      await kernel.deleteScopeConfig(alpha);
+      expect(await kernel.getScopeConfig(alpha)).toEqual(emptyScopeConfig());
+      await expect(kernel.querySource(alpha, "notes")).rejects.toMatchObject({
+        code: ERROR_CODES.resourceNotFound,
+      });
+      expect((await kernel.queryView(beta, "notes")).data.rows.map((row) => row.id)).toEqual([
+        betaTask.id,
       ]);
     } finally {
       await kernel.close();
     }
   });
 
-  it("carries a module Event scope through a Rule and domain Action; scope never grants authority", async () => {
-    const seen: ExecutionContext[] = [];
+  it("carries scope through Events and Rules without granting authority", async () => {
+    const seen: unknown[] = [];
     const kernel = await Kernel.open({
       persistence: persistence(),
-      actions: [
-        {
-          key: "topic.mark",
-          run: async ({ context }) => {
-            seen.push(context);
-            return { done: true };
-          },
-        },
-      ],
+      actions: [{ key: "topic.mark", run: ({ context }) => void seen.push(context) }],
     });
     try {
       const { workspace, user } = await kernel.createRootWorkspace({
         name: "Team",
         user: { name: "Jane" },
       });
-      const context = { workspaceId: workspace.id, actorId: user.id };
-      const scoped = { ...context, scope: { kind: "topic", id: "alpha" } };
-      await kernel.applySpec(context, {
-        ...workspace.spec,
-        collections: [{ id: "tasks", key: "tasks", label: "Tasks", fields: [] }],
+      const root = { workspaceId: workspace.id, actorId: user.id };
+      const scoped = { ...root, scope: { kind: "topic", id: "alpha" } };
+      await kernel.applyScopeConfig(scoped, {
+        ...emptyScopeConfig(),
         rules: [
           {
             id: "on-post",
             key: "on_post",
             label: "On post",
             trigger: { event: "message.posted" },
-            steps: [{ id: "mark", action: { key: "topic.mark", input: {} } }],
+            steps: [{ id: "mark", action: { key: "topic.mark" } }],
           },
         ],
       });
-      await kernel.bindCollection(context, "tasks", scoped.scope);
       await kernel.dispatchEvent(scoped, { event: "message.posted", payload: { text: "Hello" } });
       expect(seen).toEqual([scoped]);
-      const reader = await kernel.createActor(context, { name: "Reader", kind: "user" });
-      await kernel.addMembership(context, {
+      await kernel.dispatchEvent(root, { event: "message.posted", payload: { text: "Outside" } });
+      expect(seen).toHaveLength(1);
+
+      const reader = await kernel.createActor(root, { name: "Reader", kind: "user" });
+      await kernel.addMembership(root, {
         actorId: reader.id,
         workspaceId: workspace.id,
         permissions: ["read"],
       });
-      const reading = { ...scoped, actorId: reader.id };
-      await expect(kernel.createRecord(reading, "tasks", {})).rejects.toMatchObject({
-        code: ERROR_CODES.permissionDenied,
-      });
-      await expect(kernel.bindCollection(reading, "tasks", null)).rejects.toMatchObject({
-        code: ERROR_CODES.permissionDenied,
-      });
       await expect(
-        kernel.bindCollection(context, "tasks", { kind: "topic", id: "" }),
-      ).rejects.toMatchObject({ code: ERROR_CODES.validationInvalidInput });
-      await kernel.bindCollection(context, "tasks", null);
-      await expect(kernel.createRecord(context, "tasks", {})).resolves.toMatchObject({
-        collectionId: "tasks",
+        kernel.applyScopeConfig({ ...scoped, actorId: reader.id }, emptyScopeConfig()),
+      ).rejects.toMatchObject({ code: ERROR_CODES.permissionDenied });
+      await expect(kernel.applyScopeConfig(root, emptyScopeConfig())).rejects.toMatchObject({
+        code: ERROR_CODES.validationInvalidInput,
       });
     } finally {
       await kernel.close();
     }
   });
 });
+
+function localConfig(suffix: string) {
+  const collectionId = `${suffix}-notes`;
+  return {
+    ...emptyScopeConfig(),
+    collections: [{ id: collectionId, key: "notes", label: "Notes", fields: [] }],
+    views: [{ id: `${suffix}-view`, key: "notes", label: "Notes", source: "notes", query: {} }],
+    forms: [
+      {
+        id: `${suffix}-form`,
+        key: "new_note",
+        label: "New note",
+        mode: "create" as const,
+        collectionId,
+        fieldIds: [],
+      },
+    ],
+    pages: [{ id: `${suffix}-page`, key: "notes", label: "Notes", layout: [] }],
+  };
+}

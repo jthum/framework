@@ -11,10 +11,11 @@ import type {
 import type { ActionRegistry, ActionRuntime } from "./action-registry.ts";
 import type { ConditionRegistry } from "./condition-registry.ts";
 import type { AuthorizationRequest } from "./authorization.ts";
-import type { ExecutionContext } from "./model.ts";
+import type { ExecutionContext, Workspace } from "./model.ts";
 import { DurableRuleService } from "./durable-rules.ts";
 import type { Clock, IdGenerator } from "./defaults.ts";
 import type { ExecutionStore } from "../persistence/executions.ts";
+import type { RuleSubscriptionStore } from "../persistence/subscriptions.ts";
 import type { FieldDefinition } from "../spec/model.ts";
 import {
   checkRuleCompatibility,
@@ -122,6 +123,8 @@ export class RuleService {
 
   constructor(
     private readonly catalog: CatalogRepository,
+    private readonly subscriptions: RuleSubscriptionStore,
+    private readonly resolveWorkspace: (context: ExecutionContext) => Promise<Workspace>,
     private readonly clock: Clock,
     private readonly actions: ActionRegistry,
     private readonly conditions: ConditionRegistry,
@@ -162,6 +165,7 @@ export class RuleService {
     const runner = new DurableRuleService(
       store,
       this.catalog,
+      this.resolveWorkspace,
       ids,
       clock,
       {
@@ -253,8 +257,7 @@ export class RuleService {
       operation: "rules.dispatch",
       resource: { kind: "workspace", id: context.workspaceId, workspaceId: context.workspaceId },
     });
-    const workspace = await this.catalog.getWorkspace(context.workspaceId);
-    if (!workspace) throw resourceNotFound("Workspace", context.workspaceId);
+    const workspace = await this.resolveWorkspace(context);
     return this.dispatchWithState(context, event, this.createState(), workspace);
   }
 
@@ -264,9 +267,15 @@ export class RuleService {
     state: RunState,
     knownWorkspace?: Awaited<ReturnType<CatalogRepository["getWorkspace"]>>,
   ): Promise<readonly RuleDispatch[]> {
-    const workspace = knownWorkspace ?? (await this.catalog.getWorkspace(context.workspaceId));
-    if (!workspace) throw resourceNotFound("Workspace", context.workspaceId);
+    const workspace = knownWorkspace ?? (await this.resolveWorkspace(context));
+    const subscriptions = await this.subscriptions.match(
+      context.workspaceId,
+      context.scope,
+      event.event,
+    );
+    const ruleIds = new Set(subscriptions.map((item) => item.ruleId));
     const matches = workspace.spec.rules
+      .filter((rule) => ruleIds.has(rule.id))
       .filter((rule) => rule.enabled !== false && matchesEvent(rule, event))
       .map((rule, index) => ({ rule, index }))
       .sort(
@@ -605,15 +614,15 @@ export class RuleService {
   }
 
   private async requireRule(context: ExecutionContext, key: string): Promise<RuleDefinition> {
-    const workspace = await this.catalog.getWorkspace(context.workspaceId);
-    const rule = workspace?.spec.rules.find((candidate) => candidate.key === key);
+    const workspace = await this.resolveWorkspace(context);
+    const rule = workspace.spec.rules.find((candidate) => candidate.key === key);
     if (!rule) throw resourceNotFound("Rule", key);
     return rule;
   }
 
   private async requireRuleById(context: ExecutionContext, id: string): Promise<RuleDefinition> {
-    const workspace = await this.catalog.getWorkspace(context.workspaceId);
-    const rule = workspace?.spec.rules.find((candidate) => candidate.id === id);
+    const workspace = await this.resolveWorkspace(context);
+    const rule = workspace.spec.rules.find((candidate) => candidate.id === id);
     if (!rule) throw resourceNotFound("Rule", id);
     return rule;
   }

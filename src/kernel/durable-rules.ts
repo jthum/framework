@@ -152,6 +152,9 @@ export class DurableRuleService {
   constructor(
     private readonly store: ExecutionStore,
     private readonly catalog: import("../persistence/catalog.ts").CatalogRepository,
+    private readonly resolveWorkspace: (
+      context: ExecutionContext,
+    ) => Promise<import("./model.ts").Workspace>,
     private readonly ids: IdGenerator,
     private readonly clock: Clock,
     private readonly hooks: ExecutionHooks,
@@ -193,8 +196,7 @@ export class DurableRuleService {
     input: RunRuleInput = {},
   ): Promise<RuleExecution> {
     await this.assertContext(context);
-    const workspace = await this.catalog.getWorkspace(context.workspaceId);
-    if (!workspace) throw resourceNotFound("Workspace", context.workspaceId);
+    const workspace = await this.resolveWorkspace(context);
     const rule = workspace.spec.rules.find((item) => item.key === key);
     if (!rule) throw resourceNotFound("Rule", key);
     await this.checkAuthority(context, "rules.run", "rule", rule.id);

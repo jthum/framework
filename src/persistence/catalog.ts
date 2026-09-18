@@ -4,6 +4,8 @@ import type {
   Attachment,
   Membership,
   ModelConfig,
+  ScopeConfig,
+  ScopeHandle,
   Workspace,
 } from "../kernel/model.ts";
 import type { RecordStore } from "./records.ts";
@@ -11,6 +13,7 @@ import type { CollectionRecord } from "./records.ts";
 import type { CollectionDefinition } from "../spec/model.ts";
 import type { ExecutionStore } from "./executions.ts";
 import type { ScopeStore } from "./scopes.ts";
+import type { RuleSubscriptionStore } from "./subscriptions.ts";
 
 export interface CollectionSeed {
   readonly collection: CollectionDefinition;
@@ -65,11 +68,19 @@ export interface PersistenceAdapter {
 
 export interface PersistenceSession {
   readonly scopes: ScopeStore;
+  readonly subscriptions: RuleSubscriptionStore;
   readonly executions: ExecutionStore;
   readonly catalog: CatalogRepository;
   readonly records: RecordStore;
   /** Atomically applies schema/catalog changes and optional initial records. */
   applyWorkspaceSpec(workspace: Workspace, seeds?: readonly CollectionSeed[]): Promise<void>;
+  applyScopeConfig(
+    workspace: Workspace,
+    scope: ScopeHandle,
+    config: ScopeConfig,
+    seeds?: readonly CollectionSeed[],
+  ): Promise<void>;
+  deleteScope(workspace: Workspace, scope: ScopeHandle): Promise<void>;
   /** Atomically removes one already-validated Workspace and all instance state it owns. */
   deleteWorkspace(workspaceId: string): Promise<void>;
   close(): Promise<void>;

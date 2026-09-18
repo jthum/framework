@@ -12,6 +12,7 @@ export * from "./kernel.ts";
 export * from "./model.ts";
 export * from "./pages.ts";
 export * from "./record-values.ts";
+export * from "./record-policy.ts";
 export * from "./rule-compatibility.ts";
 export * from "./rules.ts";
 export type {

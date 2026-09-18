@@ -11,8 +11,8 @@ import type {
   PersistenceSession,
 } from "../persistence/catalog.ts";
 import type { CollectionRecord, RecordValues } from "../persistence/records.ts";
-import type { ScopeHandle } from "./model.ts";
-import { assertScope, assertCollectionScope } from "./scopes.ts";
+import type { ScopeConfig } from "./model.ts";
+import { assertScope, emptyScopeConfig, readScopeConfig } from "./scopes.ts";
 import {
   createEmptySpec,
   type CollectionDefinition,
@@ -99,6 +99,7 @@ import {
 } from "./rules.ts";
 import type { DurableRuleService, ResumeRuleInput } from "./durable-rules.ts";
 import { InferenceToolService } from "./inference-tools.ts";
+import { RecordPolicyService, type RecordPolicy } from "./record-policy.ts";
 
 export interface KernelOptions {
   readonly persistence: PersistenceAdapter;
@@ -113,6 +114,7 @@ export interface KernelOptions {
   readonly inferenceTools?: readonly InferenceToolProvider[];
   readonly resolveActorBinding?: ActorBindingResolver;
   readonly ruleExecution?: RuleServiceOptions;
+  readonly recordPolicies?: readonly RecordPolicy[];
 }
 
 export interface CreateRootWorkspaceInput {
@@ -181,6 +183,7 @@ export class Kernel {
   private readonly rules: RuleService;
   private readonly durableRules: DurableRuleService;
   private readonly actions: ActionRegistry;
+  private readonly recordPolicies: RecordPolicyService;
   private constructor(
     private readonly persistence: PersistenceSession,
     private readonly catalog: CatalogRepository,
@@ -194,31 +197,34 @@ export class Kernel {
     inferenceTools: readonly InferenceToolProvider[],
     resolveActorBinding: ActorBindingResolver | undefined,
     ruleExecution: RuleServiceOptions | undefined,
+    recordPolicies: readonly RecordPolicy[],
   ) {
+    this.recordPolicies = new RecordPolicyService(recordPolicies);
     this.attachments = new AttachmentService(
       catalog,
       persistence.records,
       ids,
       clock,
+      this.recordPolicies,
       (context) => this.assertContext(context),
       (request) => this.assertAuthorized(request),
     );
     this.sources = new SourceService(
-      catalog,
       persistence.records,
-      persistence.scopes,
       this.attachments,
+      this.recordPolicies,
+      (context) => this.resolveWorkspace(context),
       (context) => this.assertContext(context),
       (request) => this.assertAuthorized(request),
     );
     this.views = new ViewService(
-      catalog,
+      (context) => this.resolveWorkspace(context),
       this.sources,
       (context) => this.assertContext(context),
       (request) => this.assertAuthorized(request),
     );
     this.forms = new FormService(
-      catalog,
+      (context) => this.resolveWorkspace(context),
       {
         create: async (context, collectionKey, values) => {
           const collection = await this.requireCollection(context, collectionKey);
@@ -255,7 +261,7 @@ export class Kernel {
       (request) => this.assertAuthorized(request),
     );
     this.pages = new PageService(
-      catalog,
+      (context) => this.resolveWorkspace(context),
       (context) => this.assertContext(context),
       (request) => this.assertAuthorized(request),
     );
@@ -269,6 +275,8 @@ export class Kernel {
     this.actions = new ActionRegistry([...this.coreActions(), ...actions]);
     this.rules = new RuleService(
       catalog,
+      persistence.subscriptions,
+      (context) => this.resolveWorkspace(context),
       clock,
       this.actions,
       new ConditionRegistry([...coreConditions(), ...conditions]),
@@ -329,32 +337,69 @@ export class Kernel {
   listSources(context: ExecutionContext) {
     return this.sources.list(context);
   }
-  async bindCollection(
-    context: ExecutionContext,
-    key: string,
-    scope: ScopeHandle | null,
-  ): Promise<void> {
+  async getScopeConfig(context: ExecutionContext): Promise<ScopeConfig> {
     await this.assertContext(context);
-    if (scope !== null) assertScope(scope);
-    const workspace = await this.requireWorkspace(context.workspaceId);
-    const collection = workspace.spec.collections.find((item) => item.key === key);
-    if (!collection) throw resourceNotFound("Collection", key);
-    await this.assertAuthorized({
-      context,
-      operation: "collections.bind",
-      resource: { kind: "collection", id: collection.id, workspaceId: workspace.id },
-    });
-    await this.persistence.scopes.set(workspace.id, collection.id, scope);
+    if (!context.scope) return emptyScopeConfig();
+    return (
+      (await this.persistence.scopes.get(context.workspaceId, context.scope)) ?? emptyScopeConfig()
+    );
   }
 
-  async listCollectionScopes(context: ExecutionContext) {
+  async applyScopeConfig(context: ExecutionContext, input: unknown): Promise<ScopeConfig> {
+    return this.applyScopeConfigChange(context, input);
+  }
+
+  private async applyScopeConfigChange(
+    context: ExecutionContext,
+    input: unknown,
+    seeds: readonly CollectionSeed[] = [],
+  ): Promise<ScopeConfig> {
     await this.assertContext(context);
+    if (!context.scope)
+      throw new FrameworkError({
+        code: ERROR_CODES.validationInvalidInput,
+        message: "Scope configuration requires a scope context.",
+      });
     await this.assertAuthorized({
       context,
-      operation: "collections.bindings",
+      operation: "scopes.update",
       resource: { kind: "workspace", id: context.workspaceId, workspaceId: context.workspaceId },
     });
-    return this.persistence.scopes.list(context.workspaceId);
+    const workspace = await this.requireWorkspace(context.workspaceId);
+    const config = readScopeConfig(input);
+    assertDistinctScopeIds(config, workspace.spec);
+    assertValidSpec(mergeScopeConfig(workspace.spec, config));
+    for (const entry of await this.persistence.scopes.list(workspace.id)) {
+      if (entry.scope.kind === context.scope.kind && entry.scope.id === context.scope.id) continue;
+      assertDistinctScopeIds(config, entry.config);
+    }
+    const current = await this.resolveWorkspace(context);
+    await this.assertSchemaCompatible(context, current, mergeScopeConfig(workspace.spec, config));
+    await this.persistence.applyScopeConfig(workspace, context.scope, config, seeds);
+    return config;
+  }
+
+  async deleteScopeConfig(context: ExecutionContext): Promise<void> {
+    await this.assertContext(context);
+    if (!context.scope)
+      throw new FrameworkError({
+        code: ERROR_CODES.validationInvalidInput,
+        message: "Deleting scope configuration requires a scope context.",
+      });
+    await this.assertAuthorized({
+      context,
+      operation: "scopes.delete",
+      resource: { kind: "workspace", id: context.workspaceId, workspaceId: context.workspaceId },
+    });
+    if (await this.persistence.executions.hasActiveScope(context.workspaceId, context.scope))
+      throw new FrameworkError({
+        code: ERROR_CODES.resourceConflict,
+        message: "Scope has active Rule executions.",
+      });
+    await this.persistence.deleteScope(
+      await this.requireWorkspace(context.workspaceId),
+      context.scope,
+    );
   }
   getSource(context: ExecutionContext, key: string) {
     return this.sources.describe(context, key);
@@ -371,31 +416,23 @@ export class Kernel {
     id: string,
     patch: RecordValues,
   ): Promise<CollectionRecord> {
-    const workspace = await this.requireWorkspace(context.workspaceId);
+    const workspace = await this.resolveWorkspace(context);
     const local = workspace.spec.collections.find((collection) => collection.key === key);
     if (local) return this.updateRecord(context, key, id, patch);
     if (!workspace.spec.sources.some((source) => source.key === key))
       throw resourceNotFound("Source", key);
     const target = await this.attachments.resolveMutation(context, key, "update", id);
-    const originContext = await this.originContext(
-      context,
-      target.attachment.originId,
-      target.collection.id,
-    );
+    const originContext = { workspaceId: target.attachment.originId, actorId: context.actorId };
     return this.updateRecord(originContext, target.collection.key, id, patch);
   }
   async deleteSourceRecord(context: ExecutionContext, key: string, id: string): Promise<void> {
-    const workspace = await this.requireWorkspace(context.workspaceId);
+    const workspace = await this.resolveWorkspace(context);
     const local = workspace.spec.collections.find((collection) => collection.key === key);
     if (local) return this.deleteRecord(context, key, id);
     if (!workspace.spec.sources.some((source) => source.key === key))
       throw resourceNotFound("Source", key);
     const target = await this.attachments.resolveMutation(context, key, "delete", id);
-    const originContext = await this.originContext(
-      context,
-      target.attachment.originId,
-      target.collection.id,
-    );
+    const originContext = { workspaceId: target.attachment.originId, actorId: context.actorId };
     return this.deleteRecord(originContext, target.collection.key, id);
   }
   listViews(context: ExecutionContext) {
@@ -426,7 +463,7 @@ export class Kernel {
   }
   async submitForm(context: ExecutionContext, key: string, input: SubmitFormInput) {
     const submission = await this.forms.submit(context, key, input);
-    const workspace = await this.requireWorkspace(context.workspaceId);
+    const workspace = await this.resolveWorkspace(context);
     const collection =
       submission.mode === "standalone"
         ? undefined
@@ -620,6 +657,7 @@ export class Kernel {
       options.inferenceTools ?? [],
       options.resolveActorBinding,
       options.ruleExecution,
+      options.recordPolicies ?? [],
     );
   }
 
@@ -990,6 +1028,11 @@ export class Kernel {
   }
 
   async applySpec(context: ExecutionContext, input: unknown): Promise<Workspace> {
+    if (context.scope)
+      throw new FrameworkError({
+        code: ERROR_CODES.validationInvalidInput,
+        message: "Portable Spec changes require an unscoped Workspace context.",
+      });
     return this.applySpecChange(context, input);
   }
 
@@ -1011,6 +1054,10 @@ export class Kernel {
       },
     });
     const spec: Spec = structuredClone(input);
+    for (const entry of await this.persistence.scopes.list(current.id)) {
+      assertDistinctScopeIds(entry.config, spec);
+      assertValidSpec(mergeScopeConfig(spec, entry.config));
+    }
     await this.assertSchemaCompatible(context, current, spec);
     const workspace: Workspace = {
       ...current,
@@ -1034,6 +1081,13 @@ export class Kernel {
     });
     const values = prepareCreateValues(collection, input);
     await this.assertReferences(context, collection, values);
+    await this.recordPolicies.assert({
+      context,
+      workspaceId: context.workspaceId,
+      collection,
+      operation: "create",
+      values,
+    });
     const stamp = this.clock.now();
     const record: CollectionRecord = {
       id: this.ids.create("record"),
@@ -1059,7 +1113,16 @@ export class Kernel {
       operation: "records.read",
       resource: this.recordResource(context, collection, recordId),
     });
-    return this.persistence.records.get(context.workspaceId, collection, recordId);
+    const record = await this.persistence.records.get(context.workspaceId, collection, recordId);
+    if (record)
+      await this.recordPolicies.assert({
+        context,
+        workspaceId: context.workspaceId,
+        collection,
+        operation: "read",
+        current: record,
+      });
+    return record;
   }
 
   async listRecords(context: ExecutionContext, collectionKey: string): Promise<CollectionRecord[]> {
@@ -1069,7 +1132,12 @@ export class Kernel {
       operation: "records.list",
       resource: this.collectionResource(context, collection),
     });
-    return this.persistence.records.list(context.workspaceId, collection);
+    return this.recordPolicies.filter(
+      context,
+      context.workspaceId,
+      collection,
+      await this.persistence.records.list(context.workspaceId, collection),
+    );
   }
 
   async updateRecord(
@@ -1087,6 +1155,14 @@ export class Kernel {
     const current = await this.requireRecord(context.workspaceId, collection, recordId);
     const values = prepareUpdateValues(collection, current.values, patch);
     await this.assertReferences(context, collection, values);
+    await this.recordPolicies.assert({
+      context,
+      workspaceId: context.workspaceId,
+      collection,
+      operation: "update",
+      current,
+      values,
+    });
     const record: CollectionRecord = {
       ...current,
       values,
@@ -1108,7 +1184,14 @@ export class Kernel {
       operation: "records.delete",
       resource: this.recordResource(context, collection, recordId),
     });
-    await this.requireRecord(context.workspaceId, collection, recordId);
+    const current = await this.requireRecord(context.workspaceId, collection, recordId);
+    await this.recordPolicies.assert({
+      context,
+      workspaceId: context.workspaceId,
+      collection,
+      operation: "delete",
+      current,
+    });
     await this.persistence.records.delete(context.workspaceId, collection, recordId);
   }
 
@@ -1211,39 +1294,6 @@ export class Kernel {
 
   private coreActions(): readonly ActionDefinition[] {
     return [
-      {
-        key: "collections.bind",
-        run: async ({ context, input }) => {
-          const collectionId = requiredActionString(input.collectionId, "collectionId");
-          const workspace = await this.requireWorkspace(context.workspaceId);
-          const collection = workspace.spec.collections.find((item) => item.id === collectionId);
-          if (!collection) throw resourceNotFound("Collection", collectionId);
-          const value = input.scope;
-          if (
-            value !== null &&
-            (!value ||
-              typeof value !== "object" ||
-              Array.isArray(value) ||
-              typeof value.kind !== "string" ||
-              typeof value.id !== "string")
-          )
-            throw new FrameworkError({
-              code: ERROR_CODES.validationInvalidInput,
-              message: "Scope must be null or a kind/id object.",
-            });
-          await this.bindCollection(
-            context,
-            collection.key,
-            value === null
-              ? null
-              : {
-                  kind: requiredActionString(value.kind, "scope.kind"),
-                  id: requiredActionString(value.id, "scope.id"),
-                },
-          );
-          return null;
-        },
-      },
       {
         key: "sources.list",
         tool: actionTool(
@@ -1417,7 +1467,7 @@ export class Kernel {
           ["viewId"],
         ),
         run: async ({ context, input }) => {
-          const workspace = await this.requireWorkspace(context.workspaceId);
+          const workspace = await this.resolveWorkspace(context);
           const viewId = requiredActionString(input.viewId, "viewId");
           const view = workspace.spec.views.find((candidate) => candidate.id === viewId);
           if (!view) throw resourceNotFound("View", viewId);
@@ -1458,7 +1508,7 @@ export class Kernel {
           ["viewId", "label"],
         ),
         run: async ({ context, input, publish }) => {
-          const workspace = await this.requireWorkspace(context.workspaceId);
+          const workspace = await this.resolveWorkspace(context);
           const viewId = requiredActionString(input.viewId, "viewId");
           const view = workspace.spec.views.find((candidate) => candidate.id === viewId);
           if (!view) throw resourceNotFound("View", viewId);
@@ -1509,14 +1559,20 @@ export class Kernel {
               updatedBy: context.actorId,
             });
           }
-          await this.applySpecChange(
-            context,
-            {
-              ...workspace.spec,
-              collections: [...workspace.spec.collections, collection],
-            },
-            [{ collection, records }],
-          );
+          if (context.scope) {
+            const config = await this.getScopeConfig(context);
+            await this.applyScopeConfigChange(
+              context,
+              { ...config, collections: [...config.collections, collection] },
+              [{ collection, records }],
+            );
+          } else {
+            await this.applySpecChange(
+              context,
+              { ...workspace.spec, collections: [...workspace.spec.collections, collection] },
+              [{ collection, records }],
+            );
+          }
           const output: JsonValue = {
             collectionId: collection.id,
             collectionKey: collection.key,
@@ -1614,7 +1670,7 @@ export class Kernel {
     input: Readonly<Record<string, JsonValue>>,
   ): Promise<CollectionDefinition> {
     const source = await this.actionSource(context, input);
-    const workspace = await this.requireWorkspace(context.workspaceId);
+    const workspace = await this.resolveWorkspace(context);
     const collection = workspace.spec.collections.find((candidate) => candidate.id === source.id);
     if (!collection)
       throw new FrameworkError({
@@ -1632,7 +1688,7 @@ export class Kernel {
     const sourceId =
       typeof input.sourceId === "string" ? input.sourceId : actionRecord(input.record)?.sourceId;
     if (!sourceId) throw actionInputError("A record Action requires sourceId or a record value.");
-    const workspace = await this.requireWorkspace(context.workspaceId);
+    const workspace = await this.resolveWorkspace(context);
     const definition = sourceDefinition(workspace.spec, sourceId);
     if (!definition) throw resourceNotFound("Source", sourceId);
     const descriptor = await this.sources.describe(context, definition.key);
@@ -1663,7 +1719,7 @@ export class Kernel {
     const recordId = typeof value === "string" ? value : supplied?.id;
     if (!recordId || (supplied && supplied.sourceId !== sourceId))
       throw actionInputError("A Source Rule input must be a record ID or resolved record value.");
-    const workspace = await this.requireWorkspace(context.workspaceId);
+    const workspace = await this.resolveWorkspace(context);
     const source = sourceDefinition(workspace.spec, sourceId);
     if (!source) throw resourceNotFound("Source", sourceId);
     const descriptor = await this.sources.describe(context, source.key);
@@ -1722,6 +1778,12 @@ export class Kernel {
         message: "The execution Actor is not a member of this Workspace.",
       });
     }
+    if (context.scope)
+      await this.assertAuthorized({
+        context,
+        operation: "scopes.read",
+        resource: { kind: "workspace", id: workspace.id, workspaceId: workspace.id },
+      });
   }
 
   private async assertAuthorized(request: AuthorizationRequest): Promise<void> {
@@ -1750,20 +1812,17 @@ export class Kernel {
     key: string,
   ): Promise<CollectionDefinition> {
     await this.assertContext(context);
-    const workspace = await this.requireWorkspace(context.workspaceId);
+    const workspace = await this.resolveWorkspace(context);
     const collection = workspace.spec.collections.find((candidate) => candidate.key === key);
     if (!collection) throw resourceNotFound("Collection", key);
-    await assertCollectionScope(this.persistence.scopes, context, collection.id);
     return collection;
   }
 
-  private async originContext(
-    context: ExecutionContext,
-    workspaceId: string,
-    collectionId: string,
-  ): Promise<ExecutionContext> {
-    const scope = await this.persistence.scopes.get(workspaceId, collectionId);
-    return { workspaceId, actorId: context.actorId, ...(scope === null ? {} : { scope }) };
+  private async resolveWorkspace(context: ExecutionContext): Promise<Workspace> {
+    const workspace = await this.requireWorkspace(context.workspaceId);
+    if (!context.scope) return workspace;
+    const config = await this.persistence.scopes.get(workspace.id, context.scope);
+    return config ? { ...workspace, spec: mergeScopeConfig(workspace.spec, config) } : workspace;
   }
 
   private async requireRecord(
@@ -1781,7 +1840,7 @@ export class Kernel {
     collection: CollectionDefinition,
     values: RecordValues,
   ): Promise<void> {
-    const workspace = await this.requireWorkspace(context.workspaceId);
+    const workspace = await this.resolveWorkspace(context);
     for (const field of collection.fields) {
       if (field.type !== "reference") continue;
       const value = values[field.key];
@@ -1810,7 +1869,7 @@ export class Kernel {
       const previous = currentCollections.get(collection.id);
       if (!previous) continue;
       const records = await this.persistence.records.list(current.id, previous);
-      const collectionContext = await this.originContext(context, current.id, collection.id);
+      const collectionContext = context;
       for (const record of records) {
         const values = prepareMigratedValues(previous, collection, record.values);
         await this.assertMigratedReferences(collectionContext, current, next, collection, values);
@@ -2128,4 +2187,32 @@ function snapshotFieldType(
 
 function firstTextFieldId(fields: readonly FieldDefinition[]): string | undefined {
   return fields.find((field) => field.type === "text")?.id;
+}
+
+function mergeScopeConfig(spec: Spec, config: ScopeConfig): Spec {
+  return {
+    ...spec,
+    collections: [...spec.collections, ...config.collections],
+    views: [...spec.views, ...config.views],
+    forms: [...spec.forms, ...config.forms],
+    pages: [...spec.pages, ...config.pages],
+    rules: [...spec.rules, ...config.rules],
+  };
+}
+
+function assertDistinctScopeIds(left: ScopeConfig, right: ScopeConfig): void {
+  const definitions = (config: ScopeConfig) => [
+    ...config.collections,
+    ...config.views,
+    ...config.forms,
+    ...config.pages,
+    ...config.rules,
+    ...config.collections.flatMap((collection) => collection.fields),
+  ];
+  const ids = new Set(definitions(right).map((item) => item.id));
+  if (definitions(left).some((item) => ids.has(item.id)))
+    throw new FrameworkError({
+      code: ERROR_CODES.validationInvalidInput,
+      message: "Scope definitions must not reuse identities owned by another scope.",
+    });
 }

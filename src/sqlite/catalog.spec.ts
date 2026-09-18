@@ -25,7 +25,7 @@ afterEach(async () => {
 });
 
 describe("SQLite catalog adapter", () => {
-  it("persists module scope bindings across reopen and removes them with the Collection", async () => {
+  it("persists scope-local configuration and records across reopen", async () => {
     const path = join(await makeTemporaryDirectory(), "scopes.sqlite");
     const first = await openKernel(path);
     const { workspace, user } = await first.createRootWorkspace({
@@ -34,30 +34,33 @@ describe("SQLite catalog adapter", () => {
     });
     const context = { workspaceId: workspace.id, actorId: user.id };
     const scope = { kind: "topic", id: "launch" };
-    const spec = {
-      ...workspace.spec,
+    const scoped = { ...context, scope };
+    const config = {
       collections: [{ id: "tasks", key: "tasks", label: "Tasks", fields: [] }],
+      views: [],
+      forms: [],
+      pages: [],
+      rules: [],
     };
-    await first.applySpec(context, spec);
-    await first.executeAction(context, "collections.bind", { collectionId: "tasks", scope });
-    const record = await first.createRecord({ ...context, scope }, "tasks", {});
+    await first.applyScopeConfig(scoped, config);
+    const record = await first.createRecord(scoped, "tasks", {});
     await first.close();
     const second = await openKernel(path);
     try {
-      expect(await second.listCollectionScopes(context)).toEqual([
-        { collectionId: "tasks", scope },
-      ]);
-      expect(await second.getRecord({ ...context, scope }, "tasks", record.id)).toEqual(record);
+      expect(await second.getScopeConfig(scoped)).toEqual(config);
+      expect(await second.getRecord(scoped, "tasks", record.id)).toEqual(record);
       await expect(second.listRecords(context, "tasks")).rejects.toMatchObject({
         code: ERROR_CODES.resourceNotFound,
       });
-      await second.applySpec(context, {
-        ...spec,
-        collections: [{ ...spec.collections[0]!, key: "renamed_tasks" }],
+      await second.applyScopeConfig(scoped, {
+        ...config,
+        collections: [{ ...config.collections[0]!, key: "renamed_tasks" }],
       });
-      expect(await second.listRecords({ ...context, scope }, "renamed_tasks")).toEqual([record]);
-      await second.applySpec(context, { ...spec, collections: [] });
-      expect(await second.listCollectionScopes(context)).toEqual([]);
+      expect(await second.listRecords(scoped, "renamed_tasks")).toEqual([record]);
+      await second.deleteScopeConfig(scoped);
+      await expect(second.listRecords(scoped, "renamed_tasks")).rejects.toMatchObject({
+        code: ERROR_CODES.resourceNotFound,
+      });
     } finally {
       await second.close();
     }
@@ -240,7 +243,7 @@ describe("SQLite catalog adapter", () => {
 
     await expect(persistence.open()).rejects.toMatchObject({
       code: ERROR_CODES.persistenceUnsupported,
-      details: { actualVersion: 99, supportedVersion: 11 },
+      details: { actualVersion: 99, supportedVersion: 12 },
     });
 
     await expect(database.get("SELECT 1")).rejects.toThrow();

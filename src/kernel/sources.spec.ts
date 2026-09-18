@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { ERROR_CODES } from "../errors/error.ts";
 import type { PersistenceAdapter, PersistenceSession } from "../persistence/catalog.ts";
 import { MemoryScopeStore } from "../persistence/scopes.ts";
+import { MemoryRuleSubscriptionStore } from "../persistence/subscriptions.ts";
 import { MemoryExecutionStore } from "../persistence/executions.ts";
 import {
   MemoryCatalogRepository,
@@ -354,6 +355,7 @@ function memoryAdapter(records: MemoryRecordStore): PersistenceAdapter {
     async open(): Promise<PersistenceSession> {
       return {
         scopes: new MemoryScopeStore(),
+        subscriptions: new MemoryRuleSubscriptionStore(),
         executions: new MemoryExecutionStore(),
         catalog,
         records,
@@ -367,6 +369,8 @@ function memoryAdapter(records: MemoryRecordStore): PersistenceAdapter {
             throw error;
           }
         },
+        async applyScopeConfig() {},
+        async deleteScope() {},
         async deleteWorkspace(workspaceId) {
           records.deleteWorkspace(workspaceId);
           catalog.deleteWorkspace(workspaceId);

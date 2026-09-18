@@ -1,5 +1,5 @@
 import { resourceConflict } from "../errors/error.ts";
-import type { ExecutionContext } from "../kernel/model.ts";
+import type { ExecutionContext, ScopeHandle } from "../kernel/model.ts";
 import type { JsonValue, RuleDefinition } from "../spec/model.ts";
 
 /** Instance state, not portable Spec. The Rule snapshot fixes the meaning of a resumed run. */
@@ -18,6 +18,7 @@ export interface RuleExecution {
 
 /** Trusted persistence port. Actor-facing authorization belongs to the Kernel. */
 export interface ExecutionStore {
+  hasActiveScope(workspaceId: string, scope: ScopeHandle): Promise<boolean>;
   create(execution: RuleExecution): Promise<void>;
   get(workspaceId: string, id: string): Promise<RuleExecution | null>;
   list(
@@ -52,6 +53,7 @@ export function assertExecutionUpdate(
     current.revision !== expectedRevision ||
     current.context.workspaceId !== next.context.workspaceId ||
     current.context.actorId !== next.context.actorId ||
+    canonicalJson(current.context.scope) !== canonicalJson(next.context.scope) ||
     canonicalJson(current.rule) !== canonicalJson(next.rule) ||
     current.createdAt !== next.createdAt
   )
@@ -71,6 +73,16 @@ function canonicalJson(value: unknown): string | undefined {
 
 export class MemoryExecutionStore implements ExecutionStore {
   private readonly executions = new Map<string, RuleExecution>();
+
+  async hasActiveScope(workspaceId: string, scope: ScopeHandle): Promise<boolean> {
+    return [...this.executions.values()].some(
+      (item) =>
+        item.context.workspaceId === workspaceId &&
+        item.context.scope?.kind === scope.kind &&
+        item.context.scope.id === scope.id &&
+        (item.status === "running" || item.status === "waiting"),
+    );
+  }
 
   snapshot(): ReadonlyMap<string, RuleExecution> {
     return structuredClone(this.executions);

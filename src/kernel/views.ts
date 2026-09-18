@@ -1,5 +1,4 @@
 import { resourceNotFound } from "../errors/error.ts";
-import type { CatalogRepository } from "../persistence/catalog.ts";
 import type {
   JsonValue,
   SourceFilter,
@@ -9,7 +8,7 @@ import type {
 } from "../spec/model.ts";
 import { FrameworkError } from "../errors/error.ts";
 import type { AuthorizationRequest } from "./authorization.ts";
-import type { ExecutionContext } from "./model.ts";
+import type { ExecutionContext, Workspace } from "./model.ts";
 import type { SourceResult, SourceService } from "./sources.ts";
 
 export interface ViewQueryResult {
@@ -21,7 +20,7 @@ export interface ViewQueryResult {
 /** Resolves portable View definitions without coupling them to a persistence adapter. */
 export class ViewService {
   constructor(
-    private readonly catalog: CatalogRepository,
+    private readonly resolveWorkspace: (context: ExecutionContext) => Promise<Workspace>,
     private readonly sources: SourceService,
     private readonly assertContext: (context: ExecutionContext) => Promise<void>,
     private readonly authorize: (request: AuthorizationRequest) => Promise<void>,
@@ -75,9 +74,7 @@ export class ViewService {
 
   private async workspace(context: ExecutionContext) {
     await this.assertContext(context);
-    const workspace = await this.catalog.getWorkspace(context.workspaceId);
-    if (!workspace) throw resourceNotFound("Workspace", context.workspaceId);
-    return workspace;
+    return this.resolveWorkspace(context);
   }
 
   private async authorizeRead(

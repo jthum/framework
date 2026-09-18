@@ -23,7 +23,7 @@ canonical path.
 | 6     | Complete    | Membership ACL, `others`, explicit re-share, spawn policy, delegated-Workspace proof        |
 | 7     | Complete    | Durable Rules, waits, User requests, execution UI, and durable Event subscriptions          |
 | 8     | Complete    | InferenceRuntime, execution Actor propagation, authorized tools, and the YAIR package       |
-| 9     | In progress | Collection scope binding, scoped Sources/Views, module Event proof, and adapter tests       |
+| 9     | In progress | Local scope configuration, shared-row policies, subscriptions; database routing remains     |
 
 ## Conformance scenarios
 
@@ -42,8 +42,8 @@ records into each child, or introduce a second place primitive.
 ### S2 — Domain module scopes
 
 A collaboration-oriented host uses root and operational Workspaces. Recursive Channels, Topics,
-Conversations, and Threads are module scopes inside a Workspace. A Collection may bind to a module
-scope and a domain Event may trigger a Rule.
+Conversations, and Threads are module scopes inside a Workspace. Scopes can own local configuration;
+shared Collections can use module-owned row policies. A domain Event may trigger a Rule.
 
 The Kernel must allow opaque module scope bindings and registered Actions, Sources, and Events. It
 must not turn module entities into Workspaces or bake their invariants into the portable Spec.
@@ -181,19 +181,20 @@ tests protect protocol fragmentation and provider-state replay.
 **Out:** mandatory schema-library or agent-SDK dependency in the Spec/Kernel; implicit authority;
 conversation history as the Agent's only mode; multiple speculative adapters.
 
-## Phase 9 — Module scope binding
+## Phase 9 — Module scopes
 
-**Goal:** Bind a Collection instance to an opaque module entity inside one Workspace.
+**Goal:** Support optional local configuration and isolated data for module entities inside a Workspace.
 
-A scope handle contains a module-defined `kind` and `id`. Sources and Views respect the binding.
+A scope handle contains a module-defined `kind` and `id`. Sources and Views respect the selection.
 A stub module proves topic-local isolation and a domain Event without adding module entities to the
 portable Spec or inventing a broad module-definition SPI.
 
-The first slice uses one Collection per module entity, with bindings stored as instance data.
-Local CRUD, Sources, Views, and context-bound clients respect the scope; domain Events and Rules
-carry it unchanged. Memory and SQLite share isolation tests; SQLite tests reopen and key renames.
-See [module scope](extensions.md#module-scope). Remaining closure work is targeted review of scope
-propagation, relation edges, and adapter lifecycle—not a new module entity registry.
+Scope-local Collections, Views, Forms, Pages, and Rules are instance configuration, not additions
+to the global portable Spec. Shared Collections optionally enforce module row policies. Event
+subscriptions and executions remain central. Memory and SQLite share isolation and policy tests;
+SQLite tests reopening and key renames. See [module scope](extensions.md#module-scope).
+Remaining work: optional database-per-scope routing, coordinated lifecycle recovery, and targeted
+relation/concurrency closure tests. Single-database operation remains the default.
 
 ## Later, deliberately unscheduled
 

@@ -21,6 +21,7 @@ import type {
 } from "../persistence/catalog.ts";
 import { SqliteRecordStore } from "./records.ts";
 import { SqliteScopeStore } from "./scopes.ts";
+import { SqliteRuleSubscriptionStore } from "./subscriptions.ts";
 import { SqliteExecutionStore } from "./executions.ts";
 import {
   assertActorIntegrity,
@@ -67,21 +68,53 @@ export class SqlitePersistenceAdapter implements PersistenceAdapter {
     }
     return {
       scopes: new SqliteScopeStore(database),
+      subscriptions: new SqliteRuleSubscriptionStore(database),
       executions,
       catalog: new SqliteCatalogRepository(database),
       records,
       applyWorkspaceSpec: (workspace, seeds = []) =>
         database.transaction(async (connection) => {
-          await records.applySchemaWith(connection, workspace.id, workspace.spec.collections);
+          const scopes = new SqliteScopeStore(connection);
+          await records.applySchemaWith(connection, workspace.id, [
+            ...workspace.spec.collections,
+            ...(await scopes.list(workspace.id)).flatMap((entry) => entry.config.collections),
+          ]);
           for (const seed of seeds)
             for (const record of seed.records)
               await records.createWith(connection, workspace.id, seed.collection, record);
           await updateWorkspace(connection, workspace);
+          await new SqliteRuleSubscriptionStore(connection).replace(
+            workspace.id,
+            undefined,
+            workspace.spec.rules,
+          );
+        }),
+      applyScopeConfig: (workspace, scope, config, seeds = []) =>
+        database.transaction(async (connection) => {
           const scopes = new SqliteScopeStore(connection);
-          const ids = new Set(workspace.spec.collections.map((item) => item.id));
-          for (const binding of await scopes.list(workspace.id))
-            if (!ids.has(binding.collectionId))
-              await scopes.set(workspace.id, binding.collectionId, null);
+          await scopes.set(workspace.id, scope, config);
+          await new SqliteRuleSubscriptionStore(connection).replace(
+            workspace.id,
+            scope,
+            config.rules,
+          );
+          await records.applySchemaWith(connection, workspace.id, [
+            ...workspace.spec.collections,
+            ...(await scopes.list(workspace.id)).flatMap((entry) => entry.config.collections),
+          ]);
+          for (const seed of seeds)
+            for (const record of seed.records)
+              await records.createWith(connection, workspace.id, seed.collection, record);
+        }),
+      deleteScope: (workspace, scope) =>
+        database.transaction(async (connection) => {
+          const scopes = new SqliteScopeStore(connection);
+          await scopes.delete(workspace.id, scope);
+          await new SqliteRuleSubscriptionStore(connection).replace(workspace.id, scope, []);
+          await records.applySchemaWith(connection, workspace.id, [
+            ...workspace.spec.collections,
+            ...(await scopes.list(workspace.id)).flatMap((entry) => entry.config.collections),
+          ]);
         }),
       deleteWorkspace: (workspaceId) =>
         database.transaction(async (connection) => {
@@ -95,7 +128,7 @@ export class SqlitePersistenceAdapter implements PersistenceAdapter {
   }
 }
 
-export const SQLITE_CATALOG_SCHEMA_VERSION = 11;
+export const SQLITE_CATALOG_SCHEMA_VERSION = 12;
 
 export class SqliteCatalogRepository implements CatalogRepository {
   constructor(private readonly database: SqliteDatabase) {}
@@ -645,13 +678,23 @@ async function initializeCatalog(database: SqliteDatabase): Promise<void> {
     CREATE INDEX IF NOT EXISTS workspaces_parent_id ON workspaces(parent_id);
     CREATE INDEX IF NOT EXISTS workspaces_root_id ON workspaces(root_id);
 
-    CREATE TABLE IF NOT EXISTS collection_scopes (
+    CREATE TABLE IF NOT EXISTS scope_configs (
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-      collection_id TEXT NOT NULL,
       kind TEXT NOT NULL,
       scope_id TEXT NOT NULL,
-      PRIMARY KEY (workspace_id, collection_id)
+      config_json TEXT NOT NULL,
+      PRIMARY KEY (workspace_id, kind, scope_id)
     );
+
+    CREATE TABLE IF NOT EXISTS rule_subscriptions (
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      scope_kind TEXT,
+      scope_id TEXT,
+      event TEXT NOT NULL,
+      rule_id TEXT NOT NULL,
+      CHECK ((scope_kind IS NULL AND scope_id IS NULL) OR (scope_kind IS NOT NULL AND scope_id IS NOT NULL))
+    );
+    CREATE INDEX IF NOT EXISTS rule_subscriptions_match ON rule_subscriptions(workspace_id, event, scope_kind, scope_id);
 
     CREATE TABLE IF NOT EXISTS actors (
       id TEXT PRIMARY KEY,

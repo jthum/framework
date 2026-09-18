@@ -6,9 +6,17 @@ import {
   type RuleExecution,
 } from "../persistence/executions.ts";
 import type { SqliteDatabase } from "./gateway.ts";
+import type { ScopeHandle } from "../kernel/model.ts";
 
 export class SqliteExecutionStore implements ExecutionStore {
   constructor(private readonly database: SqliteDatabase) {}
+
+  async hasActiveScope(workspaceId: string, scope: ScopeHandle): Promise<boolean> {
+    return !!(await this.database.get(
+      "SELECT id FROM rule_executions WHERE workspace_id = ? AND json_extract(execution_json, '$.context.scope.kind') = ? AND json_extract(execution_json, '$.context.scope.id') = ? AND json_extract(execution_json, '$.status') IN ('running', 'waiting') LIMIT 1",
+      [workspaceId, scope.kind, scope.id],
+    ));
+  }
 
   async initialize(): Promise<void> {
     await this.database.execute(`
