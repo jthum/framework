@@ -61,14 +61,22 @@ adapters. A host may use the included in-memory adapter, a SQLite gateway, or an
 passes the shared contracts. Analytics engines may sit beside primary persistence as Sources; they
 do not have to replace transactional storage.
 
-### Optional SQLite scope databases
+### Optional SQLite record databases
 
-`SqlitePersistenceAdapter` accepts optional `scopeDatabases` callbacks. Without them, all data stays
-in the catalog database. With them, Workspace Collections remain there, while scope-local record
-tables live in separate databases. Scope configuration, subscriptions, and executions remain central.
+`SqlitePersistenceAdapter` accepts optional `workspaceDatabases` and `scopeDatabases` callbacks.
+Without either, records live in the catalog database. With `workspaceDatabases`, each Workspace's
+records live in its own database; scope-local tables co-locate there unless `scopeDatabases` selects
+separate storage. Scope-only routing is also supported. Workspace definitions, Actors, Memberships,
+Attachments, scope configuration, subscriptions, and executions remain in the central catalog.
+Physical placement does not grant access: cross-Workspace sharing still uses explicit Attachments,
+which query the origin Workspace's record database without copying its data.
 
 ```ts
 const persistence = new SqlitePersistenceAdapter(openCatalogDatabase, {
+  workspaceDatabases: {
+    open: ({ workspaceId }) => openWorkspaceDatabase(workspaceId),
+    remove: ({ workspaceId }) => removeWorkspaceDatabase(workspaceId),
+  },
   scopeDatabases: {
     open: ({ workspaceId, scope }) => openLocalDatabase(workspaceId, scope.kind, scope.id),
     remove: ({ workspaceId, scope }) => removeLocalDatabase(workspaceId, scope.kind, scope.id),
@@ -82,9 +90,10 @@ route by renameable Collection keys. An ownership marker rejects accidentally re
 and catalog files. Persisted layout selection rejects opening an existing database in a different
 mode; changing layouts is an explicit data-transfer concern, not a compatibility path.
 
-Only scopes with local Collections open record databases. Handles are cached for the session and
-closed on session close or scope cleanup. A scope containing only Pages or Rules needs no record
-database. `remove` is optional: without it, cleanup removes tables but retains the empty database.
+Record databases open on demand for schema/data operations and cleanup. Metadata-only creation
+does not open one. Handles are cached for the session and closed on session close or database
+cleanup. A scope containing only Pages or Rules needs no dedicated record database.
+`remove` is optional: without it, cleanup removes tables but retains the empty database.
 If supplied, removal must tolerate retries and already-missing storage. The host owns WAL/sidecar
 cleanup where its gateway requires it. Shared Collections are not copied into each scope database.
 
@@ -100,9 +109,10 @@ record/lifecycle operations. A multi-process host must coordinate schema changes
 and affected requests with an application-level maintenance barrier or single lifecycle writer;
 separate live sessions are not a distributed locking protocol. Persistence catalog/Scope stores are
 trusted ports: change scoped configuration through `applyScopeConfig`/`deleteScope`, not direct
-metadata writes. Direct `RecordStore.applySchema` manages central, unscoped record schemas.
+metadata writes. Workspace Specs use `applyWorkspaceSpec`. Direct `RecordStore.applySchema` manages
+unscoped schemas in the configured Workspace record database (or central database in single mode).
 
-Executable behavior: [routing and recovery tests](../src/sqlite/scope-databases.spec.ts) and
+Executable behavior: [routing and recovery tests](../src/sqlite/database-routing.spec.ts) and
 [shared scope contracts](../src/kernel/scopes.spec.ts).
 
 ## UI and code splitting

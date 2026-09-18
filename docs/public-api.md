@@ -54,8 +54,8 @@ dependency direction remains visible.
 - Optional shared-row authorization: [`RecordPolicy`](../src/kernel/record-policy.ts) and
   [`src/kernel/record-policy.spec.ts`](../src/kernel/record-policy.spec.ts)
 - Event subscription persistence: [`RuleSubscriptionStore`](../src/persistence/subscriptions.ts)
-- SQLite database-per-scope routing and recovery: [`SqliteScopeDatabases`](../src/sqlite/scope-databases.ts)
-  and [`src/sqlite/scope-databases.spec.ts`](../src/sqlite/scope-databases.spec.ts)
+- SQLite Workspace/scope routing and recovery: [`SqlitePersistenceOptions`](../src/sqlite/database-routing.ts)
+  and [`src/sqlite/database-routing.spec.ts`](../src/sqlite/database-routing.spec.ts)
 
 - Spec validity and field capabilities: [`src/spec/validate.spec.ts`](../src/spec/validate.spec.ts)
 - Workspace, Actor, and authorization behavior: [`src/kernel/kernel.spec.ts`](../src/kernel/kernel.spec.ts)

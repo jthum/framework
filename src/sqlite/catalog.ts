@@ -23,7 +23,7 @@ import { SqliteRecordStore } from "./records.ts";
 import { SqliteScopeStore } from "./scopes.ts";
 import { SqliteRuleSubscriptionStore } from "./subscriptions.ts";
 import { SqliteExecutionStore } from "./executions.ts";
-import { routeScopeDatabases, type SqliteScopeDatabases } from "./scope-databases.ts";
+import { routeDatabases, type SqlitePersistenceOptions } from "./database-routing.ts";
 import {
   assertActorIntegrity,
   assertActorIdentityUnchanged,
@@ -51,7 +51,7 @@ export class SqlitePersistenceAdapter implements PersistenceAdapter {
 
   constructor(
     private readonly openDatabase: OpenSqliteDatabase,
-    private readonly options: { readonly scopeDatabases?: SqliteScopeDatabases } = {},
+    private readonly options: SqlitePersistenceOptions = {},
   ) {}
 
   async open(): Promise<PersistenceSession> {
@@ -61,7 +61,13 @@ export class SqlitePersistenceAdapter implements PersistenceAdapter {
     try {
       await initializeCatalog(database);
       await database.transaction(async (connection) => {
-        const desired = this.options.scopeDatabases ? "scoped" : "single";
+        const desired = this.options.workspaceDatabases
+          ? this.options.scopeDatabases
+            ? "workspace-scoped"
+            : "workspace"
+          : this.options.scopeDatabases
+            ? "scoped"
+            : "single";
         const row = await connection.get<{ mode: string }>(
           "SELECT mode FROM persistence_layout WHERE id = 1",
         );
@@ -94,13 +100,14 @@ export class SqlitePersistenceAdapter implements PersistenceAdapter {
       applyWorkspaceSpec: (workspace, seeds = []) =>
         database.transaction(async (connection) => {
           const scopes = new SqliteScopeStore(connection);
-          await records.applySchemaWith(connection, workspace.id, [
-            ...workspace.spec.collections,
-            ...(this.options.scopeDatabases
-              ? []
-              : (await scopes.list(workspace.id)).flatMap((entry) => entry.config.collections)),
-          ]);
-          for (const seed of seeds)
+          if (!this.options.workspaceDatabases)
+            await records.applySchemaWith(connection, workspace.id, [
+              ...workspace.spec.collections,
+              ...(this.options.scopeDatabases
+                ? []
+                : (await scopes.list(workspace.id)).flatMap((entry) => entry.config.collections)),
+            ]);
+          for (const seed of this.options.workspaceDatabases ? [] : seeds)
             for (const record of seed.records)
               await records.createWith(connection, workspace.id, seed.collection, record);
           await updateWorkspace(connection, workspace);
@@ -146,9 +153,9 @@ export class SqlitePersistenceAdapter implements PersistenceAdapter {
         }),
       close: () => database.close(),
     };
-    if (!this.options.scopeDatabases) return session;
+    if (!this.options.scopeDatabases && !this.options.workspaceDatabases) return session;
     try {
-      return await routeScopeDatabases(database, session, this.options.scopeDatabases);
+      return await routeDatabases(database, session, this.options);
     } catch (error) {
       await database.close().catch(() => undefined);
       throw error;
@@ -156,7 +163,7 @@ export class SqlitePersistenceAdapter implements PersistenceAdapter {
   }
 }
 
-export const SQLITE_CATALOG_SCHEMA_VERSION = 13;
+export const SQLITE_CATALOG_SCHEMA_VERSION = 14;
 
 export class SqliteCatalogRepository implements CatalogRepository {
   constructor(private readonly database: SqliteDatabase) {}
@@ -687,9 +694,9 @@ async function initializeCatalog(database: SqliteDatabase): Promise<void> {
 
     CREATE TABLE IF NOT EXISTS persistence_layout (
       id INTEGER PRIMARY KEY CHECK (id = 1),
-      mode TEXT NOT NULL CHECK (mode IN ('single', 'scoped'))
+      mode TEXT NOT NULL CHECK (mode IN ('single', 'scoped', 'workspace', 'workspace-scoped'))
     );
-    CREATE TABLE IF NOT EXISTS scope_changes (
+    CREATE TABLE IF NOT EXISTS record_changes (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       change_json TEXT NOT NULL
     );

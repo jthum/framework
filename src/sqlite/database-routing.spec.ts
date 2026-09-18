@@ -11,7 +11,7 @@ import type { CollectionRecord } from "../persistence/records.ts";
 import { SqlitePersistenceAdapter } from "./catalog.ts";
 import type { SqliteConnection } from "./gateway.ts";
 import { openNodeSqlite } from "./node.ts";
-import type { ScopeDatabaseLocation } from "./scope-databases.ts";
+import type { ScopeDatabaseLocation, WorkspaceDatabaseLocation } from "./database-routing.ts";
 
 const memoryAdapter = () =>
   new SqlitePersistenceAdapter(() => openNodeSqlite(), {
@@ -19,6 +19,12 @@ const memoryAdapter = () =>
   });
 catalogAdapterContract("SQLite scoped layout", memoryAdapter);
 recordStoreContract("SQLite scoped layout", memoryAdapter);
+const workspaceAdapter = () =>
+  new SqlitePersistenceAdapter(() => openNodeSqlite(), {
+    workspaceDatabases: { open: () => openNodeSqlite() },
+  });
+catalogAdapterContract("SQLite Workspace layout", workspaceAdapter);
+recordStoreContract("SQLite Workspace layout", workspaceAdapter);
 
 const directories: string[] = [];
 afterEach(async () => {
@@ -27,7 +33,7 @@ afterEach(async () => {
   );
 });
 
-async function fixture() {
+async function fixture(workspaces = false, separateScopes = true) {
   const directory = await mkdtemp(join(tmpdir(), "framework-scope-routing-"));
   directories.push(directory);
   const catalogPath = join(directory, "catalog.db");
@@ -39,6 +45,14 @@ async function fixture() {
   const open = vi.fn((location: ScopeDatabaseLocation) => openNodeSqlite(path(location)));
   const remove = vi.fn(async (location: ScopeDatabaseLocation) =>
     rm(path(location), { force: true }),
+  );
+  const workspacePath = ({ workspaceId }: WorkspaceDatabaseLocation) =>
+    join(directory, `workspace-${Buffer.from(workspaceId).toString("hex")}.db`);
+  const openWorkspace = vi.fn((location: WorkspaceDatabaseLocation) =>
+    openNodeSqlite(workspacePath(location)),
+  );
+  const removeWorkspace = vi.fn(async (location: WorkspaceDatabaseLocation) =>
+    rm(workspacePath(location), { force: true }),
   );
   let failMetadata = false;
   const adapter = () =>
@@ -53,7 +67,11 @@ async function fixture() {
               get: (sql, parameters) => connection.get(sql, parameters),
               all: (sql, parameters) => connection.all(sql, parameters),
               run: async (sql, parameters) => {
-                if (failMetadata && sql.startsWith("INSERT INTO scope_configs")) {
+                if (
+                  failMetadata &&
+                  (sql.startsWith("INSERT INTO scope_configs") ||
+                    sql.startsWith("UPDATE workspaces"))
+                ) {
                   failMetadata = false;
                   throw new Error("Injected metadata failure");
                 }
@@ -64,7 +82,12 @@ async function fixture() {
           });
         return database;
       },
-      { scopeDatabases: { open, remove } },
+      {
+        ...(separateScopes ? { scopeDatabases: { open, remove } } : {}),
+        ...(workspaces
+          ? { workspaceDatabases: { open: openWorkspace, remove: removeWorkspace } }
+          : {}),
+      },
     );
   const kernel = await Kernel.open({ persistence: adapter() });
   const { workspace, user } = await kernel.createRootWorkspace({
@@ -85,6 +108,9 @@ async function fixture() {
     adapter,
     open,
     remove,
+    workspacePath,
+    openWorkspace,
+    removeWorkspace,
     failMetadata: () => {
       failMetadata = true;
     },
@@ -100,9 +126,9 @@ function notes(suffix: string) {
   };
 }
 
-describe("SQLite scope database routing", () => {
+describe("SQLite record database routing", () => {
   it("references an explicitly attached root Collection from a child Workspace scope", async () => {
-    const app = await fixture();
+    const app = await fixture(true);
     try {
       await app.kernel.updateWorkspaceAccess(app.root, {
         members: ["read", "create", "update", "delete", "manage"],
@@ -459,6 +485,182 @@ describe("SQLite scope database routing", () => {
       ).rejects.toThrow();
     } finally {
       await app.kernel.close();
+    }
+  });
+});
+
+describe("SQLite Workspace databases", () => {
+  it("keeps root and child records in distinct files and out of the catalog across reopen", async () => {
+    const app = await fixture(true);
+    let kernel = app.kernel;
+    try {
+      expect(app.openWorkspace).not.toHaveBeenCalled();
+      const collection = notes("shared-definition");
+      await kernel.applySpec(app.root, { ...app.workspace.spec, collections: [collection] });
+      const rootRecord = await kernel.createRecord(app.root, "notes", { title: "Root" });
+      const { workspace } = await kernel.createWorkspace(app.root, { name: "App" });
+      const child = { ...app.root, workspaceId: workspace.id };
+      await kernel.applySpec(child, { ...workspace.spec, collections: [collection] });
+      const childRecord = await kernel.createRecord(child, "notes", { title: "Child" });
+      const catalog = openNodeSqlite(app.catalogPath);
+      try {
+        expect(await catalog.all("SELECT collection_id FROM framework_record_schemas")).toEqual([]);
+        expect((await catalog.all("SELECT id FROM workspaces")).length).toBe(2);
+      } finally {
+        await catalog.close();
+      }
+      expect(app.workspacePath(app.root)).not.toBe(app.workspacePath(child));
+      await kernel.close();
+      app.openWorkspace.mockClear();
+      kernel = await Kernel.open({ persistence: app.adapter() });
+      expect(app.openWorkspace).not.toHaveBeenCalled();
+      expect(await kernel.listRecords(app.root, "notes")).toEqual([rootRecord]);
+      expect(await kernel.listRecords(child, "notes")).toEqual([childRecord]);
+      await kernel.deleteWorkspace(child);
+      await expect(access(app.workspacePath(child))).rejects.toThrow();
+      expect(await kernel.listRecords(app.root, "notes")).toEqual([rootRecord]);
+    } finally {
+      await kernel.close();
+    }
+  });
+
+  it("can co-locate scope records with their Workspace without dropping sibling or shared tables", async () => {
+    const app = await fixture(true, false);
+    let kernel = app.kernel;
+    try {
+      await kernel.applySpec(app.root, {
+        ...app.workspace.spec,
+        collections: [{ id: "people", key: "people", label: "People", fields: [] }],
+      });
+      const person = await kernel.createRecord(app.root, "people", {});
+      await kernel.applyScopeConfig(app.alpha, {
+        ...emptyScopeConfig(),
+        collections: [notes("alpha")],
+      });
+      await kernel.applyScopeConfig(app.beta, {
+        ...emptyScopeConfig(),
+        collections: [notes("beta")],
+      });
+      const record = await kernel.createRecord(app.beta, "notes", { title: "Sibling" });
+      await kernel.deleteScopeConfig(app.alpha);
+      await kernel.applySpec(app.root, {
+        ...app.workspace.spec,
+        collections: [{ id: "people", key: "persons", label: "People", fields: [] }],
+      });
+      expect(await kernel.listRecords(app.beta, "notes")).toEqual([record]);
+      expect(await kernel.listRecords(app.root, "persons")).toEqual([person]);
+      expect(app.open).not.toHaveBeenCalled();
+      expect(app.openWorkspace).toHaveBeenCalledTimes(1);
+      await kernel.close();
+      kernel = await Kernel.open({ persistence: app.adapter() });
+      expect(await kernel.listRecords(app.beta, "notes")).toEqual([record]);
+      await kernel.deleteScopeConfig(app.beta);
+      expect(await kernel.listRecords(app.root, "persons")).toEqual([person]);
+    } finally {
+      await kernel.close();
+    }
+  });
+
+  it("recovers a Workspace schema rename after metadata publication fails", async () => {
+    const app = await fixture(true);
+    const collection = notes("alpha");
+    await app.kernel.applySpec(app.root, { ...app.workspace.spec, collections: [collection] });
+    const record = await app.kernel.createRecord(app.root, "notes", { title: "Retain" });
+    app.failMetadata();
+    await expect(
+      app.kernel.applySpec(app.root, {
+        ...app.workspace.spec,
+        collections: [
+          { ...collection, key: "memo", fields: [{ ...collection.fields[0]!, key: "heading" }] },
+        ],
+      }),
+    ).rejects.toThrow("Injected metadata failure");
+    await expect(app.kernel.listRecords(app.root, "notes")).rejects.toMatchObject({
+      code: ERROR_CODES.resourceConflict,
+    });
+    await app.kernel.close();
+    const kernel = await Kernel.open({ persistence: app.adapter() });
+    try {
+      expect((await kernel.getRecord(app.root, "memo", record.id))?.values).toEqual({
+        heading: "Retain",
+      });
+    } finally {
+      await kernel.close();
+    }
+  });
+
+  it("replays Workspace seeds and event subscriptions together", async () => {
+    const app = await fixture(true);
+    await app.kernel.close();
+    const session = await app.adapter().open();
+    const collection = notes("global");
+    const record: CollectionRecord = {
+      id: "seed",
+      collectionId: collection.id,
+      values: { title: "Seed" },
+      createdBy: app.root.actorId,
+      updatedBy: app.root.actorId,
+      createdAt: "2026-09-18T00:00:00Z",
+      updatedAt: "2026-09-18T00:00:00Z",
+    };
+    app.failMetadata();
+    await expect(
+      session.applyWorkspaceSpec(
+        {
+          ...app.workspace,
+          spec: {
+            ...app.workspace.spec,
+            collections: [collection],
+            rules: [
+              {
+                id: "rule",
+                key: "on_post",
+                label: "On post",
+                trigger: { event: "message.posted" },
+                steps: [],
+              },
+            ],
+          },
+        },
+        [{ collection, records: [record] }],
+      ),
+    ).rejects.toThrow();
+    await session.close();
+    const recovered = await app.adapter().open();
+    try {
+      expect(await recovered.records.list(app.root.workspaceId, collection)).toEqual([record]);
+      expect(
+        await recovered.subscriptions.match(app.root.workspaceId, undefined, "message.posted"),
+      ).toEqual([{ workspaceId: app.root.workspaceId, event: "message.posted", ruleId: "rule" }]);
+    } finally {
+      await recovered.close();
+    }
+  });
+
+  it("finishes Workspace and scope cleanup after interrupted Workspace file removal", async () => {
+    const app = await fixture(true);
+    const { workspace } = await app.kernel.createWorkspace(app.root, { name: "App" });
+    const child = { ...app.root, workspaceId: workspace.id };
+    await app.kernel.applySpec(child, { ...workspace.spec, collections: [notes("child")] });
+    await app.kernel.applyScopeConfig(
+      { ...child, scope: app.alpha.scope },
+      { ...emptyScopeConfig(), collections: [{ ...notes("scope"), key: "local_notes" }] },
+    );
+    app.removeWorkspace.mockImplementationOnce(async (location) => {
+      await rm(app.workspacePath(location), { force: true });
+      throw new Error("Interrupted Workspace cleanup");
+    });
+    await expect(app.kernel.deleteWorkspace(child)).rejects.toThrow();
+    await app.kernel.close();
+    const kernel = await Kernel.open({ persistence: app.adapter() });
+    try {
+      expect((await kernel.listChildWorkspaces(app.root)).length).toBe(0);
+      await expect(access(app.workspacePath(child))).rejects.toThrow();
+      await expect(
+        access(app.path({ workspaceId: child.workspaceId, scope: app.alpha.scope })),
+      ).rejects.toThrow();
+    } finally {
+      await kernel.close();
     }
   });
 });

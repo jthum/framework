@@ -109,7 +109,7 @@ module-entity deletion and concurrent operations. An Attachment is explicit cros
 sharing; origin policies still apply and may reject access without the required origin context.
 
 SQLite defaults to one database and optionally routes scope-local records to separate databases.
-See [SQLite scope databases](host-architecture.md#optional-sqlite-scope-databases) for callbacks,
+See [SQLite record databases](host-architecture.md#optional-sqlite-record-databases) for callbacks,
 forward recovery, and host coordination. The logical Scope contract does not prescribe layout.
 
 Behavioral source of truth: [scope contracts](../src/kernel/scopes.spec.ts) and

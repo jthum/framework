@@ -193,11 +193,11 @@ Scope-local Collections, Views, Forms, Pages, and Rules are instance configurati
 to the global portable Spec. Shared Collections optionally enforce module row policies. Event
 subscriptions and executions remain central. Memory and SQLite share isolation and policy tests;
 SQLite tests reopening and key renames. See [module scope](extensions.md#module-scope).
-SQLite supports optional database-per-scope routing with a forward-recovery lifecycle journal;
+SQLite supports optional database-per-Workspace and database-per-scope routing with a forward-recovery lifecycle journal;
 single-database operation remains the default. Tests cover shared/attached relations, local
 snapshots, isolation, reopening, renames, seed replay, destructive schema recovery, and cleanup.
 Routed sessions serialize their operations; multi-process hosts coordinate structural changes and
-recovery as documented in [host architecture](host-architecture.md#optional-sqlite-scope-databases).
+recovery as documented in [host architecture](host-architecture.md#optional-sqlite-record-databases).
 This phase does not add general cross-database transactions or distributed locking.
 
 ## Later, deliberately unscheduled

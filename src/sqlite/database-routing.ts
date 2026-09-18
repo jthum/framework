@@ -4,7 +4,9 @@ import {
   resourceConflict,
   resourceNotFound,
 } from "../errors/error.ts";
-import type { ScopeHandle, ScopeConfig } from "../kernel/model.ts";
+import type { ScopeHandle, ScopeConfig, Workspace } from "../kernel/model.ts";
+import { assertWorkspaceTopologyUnchanged } from "../persistence/catalog-integrity.ts";
+import type { CollectionDefinition } from "../spec/model.ts";
 import type { PersistenceSession, CollectionSeed } from "../persistence/catalog.ts";
 import type { RecordStore } from "../persistence/records.ts";
 import type { SqliteDatabase } from "./gateway.ts";
@@ -12,9 +14,27 @@ import { SqliteRecordStore } from "./records.ts";
 import { SqliteScopeStore } from "./scopes.ts";
 import { SqliteRuleSubscriptionStore } from "./subscriptions.ts";
 
-export interface ScopeDatabaseLocation {
+export interface WorkspaceDatabaseLocation {
   readonly workspaceId: string;
+}
+
+export interface ScopeDatabaseLocation extends WorkspaceDatabaseLocation {
   readonly scope: ScopeHandle;
+}
+
+export interface SqliteWorkspaceDatabases {
+  open(location: WorkspaceDatabaseLocation): SqliteDatabase | Promise<SqliteDatabase>;
+  /** Idempotent physical cleanup after handles close. */
+  remove?(location: WorkspaceDatabaseLocation): Promise<void>;
+}
+
+export interface SqlitePersistenceOptions {
+  readonly workspaceDatabases?: SqliteWorkspaceDatabases;
+  readonly scopeDatabases?: SqliteScopeDatabases;
+}
+
+interface RecordDatabaseLocation extends WorkspaceDatabaseLocation {
+  readonly scope?: ScopeHandle;
 }
 
 /** Callbacks must resolve distinct, stable databases, never the catalog database. */
@@ -31,27 +51,46 @@ type Change =
       config: ScopeConfig;
       seeds: readonly CollectionSeed[];
       hadCollections: boolean;
+      collections: readonly CollectionDefinition[];
     }
-  | { kind: "delete"; location: ScopeDatabaseLocation; hadCollections: boolean }
-  | { kind: "workspace-delete"; workspaceId: string; locations: ScopeDatabaseLocation[] };
+  | {
+      kind: "delete";
+      location: ScopeDatabaseLocation;
+      hadCollections: boolean;
+      collections: readonly CollectionDefinition[];
+    }
+  | {
+      kind: "workspace-set";
+      workspace: Workspace;
+      collections: readonly CollectionDefinition[];
+      seeds: readonly CollectionSeed[];
+      hadCollections: boolean;
+    }
+  | { kind: "workspace-delete"; workspaceId: string; locations: RecordDatabaseLocation[] };
 
-interface OpenScope {
+interface OpenRecordDatabase {
   database: SqliteDatabase;
   records: SqliteRecordStore;
 }
 
 /** SQLite-only physical routing and recoverable schema lifecycle. Kernel sees the ordinary ports. */
-export async function routeScopeDatabases(
+export async function routeDatabases(
   database: SqliteDatabase,
   session: PersistenceSession,
-  options: SqliteScopeDatabases,
+  options: SqlitePersistenceOptions,
 ): Promise<PersistenceSession> {
-  const handles = new Map<string, Promise<OpenScope>>();
+  const handles = new Map<string, Promise<OpenRecordDatabase>>();
   const ownedDatabases = new Set<SqliteDatabase>();
   let queue: Promise<unknown> = Promise.resolve();
   let closed = false;
-  const key = (location: ScopeDatabaseLocation) =>
-    JSON.stringify([location.workspaceId, location.scope.kind, location.scope.id]);
+  const key = (location: RecordDatabaseLocation) =>
+    JSON.stringify([
+      location.workspaceId,
+      location.scope?.kind ?? null,
+      location.scope?.id ?? null,
+    ]);
+  const target = (location: RecordDatabaseLocation): RecordDatabaseLocation =>
+    options.scopeDatabases && location.scope ? location : { workspaceId: location.workspaceId };
   const schedule = <T>(work: () => Promise<T>): Promise<T> => {
     if (closed) return Promise.reject(resourceConflict("Persistence session is closed."));
     const result = queue.then(work);
@@ -61,54 +100,56 @@ export async function routeScopeDatabases(
     );
     return result;
   };
-  const open = async (location: ScopeDatabaseLocation): Promise<OpenScope> => {
+  const open = async (location: RecordDatabaseLocation): Promise<OpenRecordDatabase> => {
     const id = key(location);
     let pending = handles.get(id);
     if (!pending) {
       pending = (async () => {
-        const scopeDatabase = await options.open(structuredClone(location));
-        if (scopeDatabase === database || ownedDatabases.has(scopeDatabase)) {
-          throw resourceConflict("Each scope must have a distinct database handle.");
+        const recordDatabase = location.scope
+          ? await options.scopeDatabases!.open(structuredClone(location) as ScopeDatabaseLocation)
+          : await options.workspaceDatabases!.open({ workspaceId: location.workspaceId });
+        if (recordDatabase === database || ownedDatabases.has(recordDatabase)) {
+          throw resourceConflict("Each record location must have a distinct database handle.");
         }
         try {
           if (
-            await scopeDatabase.get(
+            await recordDatabase.get(
               "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'persistence_layout'",
             )
           )
             throw resourceConflict("A catalog database cannot be used for scope records.");
-          await scopeDatabase.execute(
-            "CREATE TABLE IF NOT EXISTS scope_database_owner (id INTEGER PRIMARY KEY CHECK (id = 1), workspace_id TEXT NOT NULL, kind TEXT NOT NULL, scope_id TEXT NOT NULL, schema_version INTEGER NOT NULL)",
+          await recordDatabase.execute(
+            "CREATE TABLE IF NOT EXISTS record_database_owner (id INTEGER PRIMARY KEY CHECK (id = 1), workspace_id TEXT NOT NULL, kind TEXT, scope_id TEXT, schema_version INTEGER NOT NULL)",
           );
-          await scopeDatabase.transaction(async (connection) => {
+          await recordDatabase.transaction(async (connection) => {
             const owner = await connection.get<{
               workspace_id: string;
-              kind: string;
-              scope_id: string;
+              kind: string | null;
+              scope_id: string | null;
               schema_version: number;
-            }>("SELECT * FROM scope_database_owner WHERE id = 1");
+            }>("SELECT * FROM record_database_owner WHERE id = 1");
             if (
               owner &&
               (owner.workspace_id !== location.workspaceId ||
-                owner.kind !== location.scope.kind ||
-                owner.scope_id !== location.scope.id ||
+                owner.kind !== (location.scope?.kind ?? null) ||
+                owner.scope_id !== (location.scope?.id ?? null) ||
                 owner.schema_version !== 1)
             )
               throw resourceConflict(
-                "Scope database belongs to another location or unsupported schema.",
+                "Record database belongs to another location or unsupported schema.",
               );
             if (!owner)
               await connection.run(
-                "INSERT INTO scope_database_owner (id, workspace_id, kind, scope_id, schema_version) VALUES (1, ?, ?, ?, 1)",
-                [location.workspaceId, location.scope.kind, location.scope.id],
+                "INSERT INTO record_database_owner (id, workspace_id, kind, scope_id, schema_version) VALUES (1, ?, ?, ?, 1)",
+                [location.workspaceId, location.scope?.kind ?? null, location.scope?.id ?? null],
               );
           });
-          const records = new SqliteRecordStore(scopeDatabase);
+          const records = new SqliteRecordStore(recordDatabase);
           await records.initialize();
-          ownedDatabases.add(scopeDatabase);
-          return { database: scopeDatabase, records };
+          ownedDatabases.add(recordDatabase);
+          return { database: recordDatabase, records };
         } catch (error) {
-          await scopeDatabase.close().catch(() => undefined);
+          await recordDatabase.close().catch(() => undefined);
           throw error;
         }
       })();
@@ -117,7 +158,7 @@ export async function routeScopeDatabases(
     }
     return pending;
   };
-  const release = async (location: ScopeDatabaseLocation): Promise<void> => {
+  const release = async (location: RecordDatabaseLocation): Promise<void> => {
     const id = key(location);
     const pending = handles.get(id);
     if (pending) {
@@ -126,13 +167,42 @@ export async function routeScopeDatabases(
       ownedDatabases.delete(entry.database);
       handles.delete(id);
     }
-    await options.remove?.(structuredClone(location));
+    if (location.scope)
+      await options.scopeDatabases?.remove?.(structuredClone(location) as ScopeDatabaseLocation);
+    else await options.workspaceDatabases?.remove?.({ workspaceId: location.workspaceId });
   };
   const ensureReady = async (): Promise<void> => {
-    if (await database.get("SELECT id FROM scope_changes LIMIT 1"))
+    if (await database.get("SELECT id FROM record_changes LIMIT 1"))
       throw resourceConflict(
-        "A scope lifecycle change requires recovery; reopen persistence before continuing.",
+        "A record storage lifecycle change requires recovery; reopen persistence before continuing.",
       );
+  };
+  const scopedCollections = async (
+    workspaceId: string,
+    scope: ScopeHandle,
+    config: ScopeConfig | null,
+  ): Promise<{ collections: readonly CollectionDefinition[]; hadCollections: boolean }> => {
+    const workspace = await session.catalog.getWorkspace(workspaceId);
+    if (!workspace) throw resourceNotFound("Workspace", workspaceId);
+    const previous = await session.scopes.get(workspaceId, scope);
+    if (options.scopeDatabases)
+      return {
+        collections: config?.collections ?? [],
+        hadCollections: !!previous?.collections.length,
+      };
+    const entries = await session.scopes.list(workspaceId);
+    return {
+      collections: [
+        ...workspace.spec.collections,
+        ...entries
+          .filter((entry) => entry.scope.kind !== scope.kind || entry.scope.id !== scope.id)
+          .flatMap((entry) => entry.config.collections),
+        ...(config?.collections ?? []),
+      ],
+      hadCollections:
+        !!workspace.spec.collections.length ||
+        entries.some((entry) => entry.config.collections.length > 0),
+    };
   };
   const apply = async (change: Change): Promise<void> => {
     if (change.kind === "workspace-delete") {
@@ -143,15 +213,31 @@ export async function routeScopeDatabases(
       if (await session.catalog.getWorkspace(change.workspaceId))
         await session.deleteWorkspace(change.workspaceId);
       for (const location of change.locations) await release(location);
+    } else if (change.kind === "workspace-set") {
+      if (change.hadCollections || change.collections.length) {
+        const entry = await open({ workspaceId: change.workspace.id });
+        await entry.database.transaction(async (connection) => {
+          await entry.records.applySchemaWith(connection, change.workspace.id, change.collections);
+          for (const seed of change.seeds)
+            for (const record of seed.records)
+              await entry.records.seedWith(
+                connection,
+                change.workspace.id,
+                seed.collection,
+                record,
+              );
+        });
+      }
+      await session.applyWorkspaceSpec(change.workspace);
     } else {
-      const hasCollections = change.kind === "set" && change.config.collections.length > 0;
+      const hasCollections = change.collections.length > 0;
       if (change.hadCollections || hasCollections) {
-        const entry = await open(change.location);
+        const entry = await open(target(change.location));
         await entry.database.transaction(async (connection) => {
           await entry.records.applySchemaWith(
             connection,
             change.location.workspaceId,
-            change.kind === "set" ? change.config.collections : [],
+            change.collections,
           );
           if (change.kind === "set")
             for (const seed of change.seeds)
@@ -193,15 +279,16 @@ export async function routeScopeDatabases(
           await subscriptions.replace(change.location.workspaceId, change.location.scope, []);
         }
       });
-      if (change.hadCollections && !hasCollections) await release(change.location);
+      if (options.scopeDatabases && change.hadCollections && !hasCollections)
+        await release(change.location);
     }
-    await database.run("DELETE FROM scope_changes WHERE id = 1");
+    await database.run("DELETE FROM record_changes WHERE id = 1");
   };
   const change = async (value: Change): Promise<void> => {
     await database.transaction(async (connection) => {
-      if (await connection.get("SELECT id FROM scope_changes LIMIT 1"))
-        throw resourceConflict("Another scope lifecycle change is pending.");
-      await connection.run("INSERT INTO scope_changes (id, change_json) VALUES (1, ?)", [
+      if (await connection.get("SELECT id FROM record_changes LIMIT 1"))
+        throw resourceConflict("Another record storage lifecycle change is pending.");
+      await connection.run("INSERT INTO record_changes (id, change_json) VALUES (1, ?)", [
         JSON.stringify(value),
       ]);
     });
@@ -213,15 +300,19 @@ export async function routeScopeDatabases(
       "SELECT kind, scope_id FROM scope_record_routes WHERE workspace_id = ? AND collection_id = ?",
       [workspaceId, collectionId],
     );
-    return row
+    return row && options.scopeDatabases
       ? (await open({ workspaceId, scope: { kind: row.kind, id: row.scope_id } })).records
-      : session.records;
+      : options.workspaceDatabases
+        ? (await open({ workspaceId })).records
+        : session.records;
   };
   const records: RecordStore = {
     applySchema: (workspaceId, collections) =>
       schedule(async () => {
         await ensureReady();
-        await session.records.applySchema(workspaceId, collections);
+        if (options.workspaceDatabases)
+          await (await open({ workspaceId })).records.applySchema(workspaceId, collections);
+        else await session.records.applySchema(workspaceId, collections);
       }),
     create: (workspaceId, collection, record) =>
       schedule(async () =>
@@ -246,7 +337,7 @@ export async function routeScopeDatabases(
         (await store(workspaceId, collection.id)).delete(workspaceId, collection, id),
       ),
   };
-  const closeScopes = async (): Promise<void> => {
+  const closeRecordDatabases = async (): Promise<void> => {
     const results = await Promise.allSettled(
       [...handles.values()].map(async (pending) => (await pending).database.close()),
     );
@@ -257,15 +348,15 @@ export async function routeScopeDatabases(
   };
   try {
     const pending = await database.get<{ change_json: string }>(
-      "SELECT change_json FROM scope_changes WHERE id = 1",
+      "SELECT change_json FROM record_changes WHERE id = 1",
     );
     if (pending) await apply(JSON.parse(pending.change_json) as Change);
   } catch (error) {
-    await closeScopes().catch(() => undefined);
+    await closeRecordDatabases().catch(() => undefined);
     throw new FrameworkError(
       {
         code: ERROR_CODES.persistenceUnsupported,
-        message: "Scope lifecycle recovery could not complete.",
+        message: "Record storage lifecycle recovery could not complete.",
         retryable: true,
       },
       { cause: error },
@@ -274,35 +365,53 @@ export async function routeScopeDatabases(
   return {
     ...session,
     records,
-    applyWorkspaceSpec: (workspace, seeds) =>
-      schedule(async () => {
+    applyWorkspaceSpec: (input, inputSeeds = []) => {
+      const workspace = structuredClone(input);
+      const seeds = structuredClone(inputSeeds);
+      return schedule(async () => {
         await ensureReady();
-        await session.applyWorkspaceSpec(workspace, seeds);
-      }),
+        if (!options.workspaceDatabases) return session.applyWorkspaceSpec(workspace, seeds);
+        const current = await session.catalog.getWorkspace(workspace.id);
+        if (!current) throw resourceNotFound("Workspace", workspace.id);
+        assertWorkspaceTopologyUnchanged(current, workspace);
+        assertUniqueSeeds(seeds);
+        const local = options.scopeDatabases
+          ? []
+          : (await session.scopes.list(workspace.id)).flatMap((entry) => entry.config.collections);
+        await change({
+          kind: "workspace-set",
+          workspace,
+          seeds,
+          collections: [...workspace.spec.collections, ...local],
+          hadCollections: current.spec.collections.length > 0 || local.length > 0,
+        });
+      });
+    },
     applyScopeConfig: (workspace, scope, input, inputSeeds = []) => {
       const config = structuredClone(input);
       const seeds = structuredClone(inputSeeds);
       const location = structuredClone({ workspaceId: workspace.id, scope });
       return schedule(async () => {
         await ensureReady();
-        const previous = await session.scopes.get(workspace.id, scope);
+        assertUniqueSeeds(seeds);
+        const schema = await scopedCollections(workspace.id, scope, config);
         await change({
           kind: "set",
           location,
           config,
           seeds,
-          hadCollections: !!previous?.collections.length,
+          ...schema,
         });
       });
     },
     deleteScope: (workspace, scope) =>
       schedule(async () => {
         await ensureReady();
-        const previous = await session.scopes.get(workspace.id, scope);
+        const schema = await scopedCollections(workspace.id, scope, null);
         await change({
           kind: "delete",
           location: { workspaceId: workspace.id, scope },
-          hadCollections: !!previous?.collections.length,
+          ...schema,
         });
       }),
     deleteWorkspace: (workspaceId) =>
@@ -314,9 +423,12 @@ export async function routeScopeDatabases(
         await change({
           kind: "workspace-delete",
           workspaceId,
-          locations: entries
-            .filter((entry) => entry.config.collections.length)
-            .map(({ scope }) => ({ workspaceId, scope })),
+          locations: [
+            ...entries
+              .filter((entry) => options.scopeDatabases && entry.config.collections.length)
+              .map(({ scope }) => ({ workspaceId, scope })),
+            ...(options.workspaceDatabases ? [{ workspaceId }] : []),
+          ],
         });
       }),
     close: async () => {
@@ -324,10 +436,20 @@ export async function routeScopeDatabases(
       closed = true;
       await queue;
       try {
-        await closeScopes();
+        await closeRecordDatabases();
       } finally {
         await session.close();
       }
     },
   };
+}
+
+function assertUniqueSeeds(seeds: readonly CollectionSeed[]): void {
+  const seen = new Set<string>();
+  for (const seed of seeds)
+    for (const record of seed.records) {
+      const id = JSON.stringify([seed.collection.id, record.id]);
+      if (seen.has(id)) throw resourceConflict("Initial records contain duplicate identities.");
+      seen.add(id);
+    }
 }

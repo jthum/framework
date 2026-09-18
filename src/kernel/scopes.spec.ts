@@ -25,6 +25,25 @@ describe.each([
       });
     },
   ],
+  [
+    "SQLite Workspace databases",
+    () => {
+      const database = openNodeSqlite();
+      return new SqlitePersistenceAdapter(() => database, {
+        workspaceDatabases: { open: () => openNodeSqlite() },
+      });
+    },
+  ],
+  [
+    "SQLite Workspace and scope databases",
+    () => {
+      const database = openNodeSqlite();
+      return new SqlitePersistenceAdapter(() => database, {
+        workspaceDatabases: { open: () => openNodeSqlite() },
+        scopeDatabases: { open: () => openNodeSqlite() },
+      });
+    },
+  ],
 ] as const)("%s module scope", (_name, persistence) => {
   it("composes on-demand local definitions with shared Workspace definitions", async () => {
     const adapter = persistence();
