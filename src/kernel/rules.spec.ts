@@ -7,6 +7,29 @@ import type { Clock, IdGenerator, IdKind } from "./defaults.ts";
 import { Kernel } from "./kernel.ts";
 
 describe("Kernel Rules", () => {
+  it("provides the injected clock to current-time bindings in short runs", async () => {
+    const { kernel, context, spec } = await bootstrap();
+    await kernel.applySpec(
+      context,
+      specWithRules(spec, [
+        {
+          id: "clock-rule",
+          key: "clock_rule",
+          label: "Clock Rule",
+          steps: [
+            {
+              id: "clock-step",
+              compute: { assign: { now: { $ref: "meta.now" }, today: { $ref: "meta.today" } } },
+            },
+          ],
+        },
+      ]),
+    );
+    const short = await kernel.runRule(context, "clock_rule");
+    expect(short.vars.now).toBe(fixedClock.now());
+    expect(short.vars.today).toBe(fixedClock.now().slice(0, 10));
+    await kernel.close();
+  });
   it("keeps authored predicates and Action values valid across Field key renames", async () => {
     const { kernel, context, spec } = await bootstrap();
     await kernel.applySpec(context, specWithRules(spec, [activateRule()]));

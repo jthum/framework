@@ -50,6 +50,7 @@
 		...new Map(
 			[
 				{ value: "meta.now", label: "Current date and time", group: "Runtime" },
+				{ value: "meta.today", label: "Current date", group: "Runtime" },
 				{ value: "actor.id", label: "Current actor ID", group: "Runtime" },
 				{ value: `vars.${inputName}`, label: inputLabel ?? type?.label ?? "Current record", group: fields ? "Submission" : "Current record" },
 				...availableFields.map((item) => ({ value: `vars.${inputName}.${item.key}`, label: item.label, group: fields ? "Submission" : "Current record" })),

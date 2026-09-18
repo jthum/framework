@@ -59,6 +59,19 @@ async function setup(persistence: PersistenceAdapter = new MemoryPersistenceAdap
 }
 
 describe("Durable Rules", () => {
+  it("checkpoints the current-time binding across a durable wait", async () => {
+    const app = await setup();
+    await app.install([
+      rule([delay, { id: "clock", compute: { assign: { now: { $ref: "meta.now" } } } }]),
+    ]);
+    const paused = await app.kernel.startRule(app.context, "test");
+    app.advance();
+    const resumed = await app.kernel.resumeRule(app.context, paused.id);
+    expect(resumed.status).toBe("completed");
+    const details = await app.kernel.getRuleExecutionDetails(app.context, paused.id);
+    expect(details?.vars?.now).toBe("2026-09-17T00:00:00.000Z");
+    await app.kernel.close();
+  });
   it("claims a resumed wait before effects and never replays preceding Actions", async () => {
     const app = await setup();
     await app.install([rule([capture, delay, { ...capture, id: "after" }])]);

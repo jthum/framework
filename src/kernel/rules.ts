@@ -107,6 +107,7 @@ export class RuleService {
 
   constructor(
     private readonly catalog: CatalogRepository,
+    private readonly clock: Clock,
     private readonly actions: ActionRegistry,
     private readonly conditions: ConditionRegistry,
     private readonly runtime: ActionRuntime,
@@ -152,7 +153,7 @@ export class RuleService {
         maxDepth: this.maxDepth,
         profile: () => this.profile(),
         scope: async (context, rule, input) => ({
-          ...emptyScope(context, rule),
+          ...emptyScope(context, rule, this.clock.now()),
           trigger: {
             event: input.trigger?.event ?? "rule.called",
             ...(input.trigger?.sourceId ? { sourceId: input.trigger.sourceId } : {}),
@@ -288,7 +289,7 @@ export class RuleService {
       },
       actor: { id: context.actorId },
       vars: await this.prepareInputs(context, rule, input.input ?? {}),
-      meta: { ruleId: rule.id, ruleKey: rule.key },
+      meta: emptyScope(context, rule, this.clock.now()).meta,
     };
     try {
       await this.runSteps(context, rule, rule.steps, scope, state);
@@ -537,7 +538,7 @@ export class RuleService {
     for (const [name, definition] of Object.entries(rule.input ?? {})) {
       let value = supplied[name];
       if (value === undefined && "default" in definition && definition.default !== undefined)
-        value = resolveValue(definition.default, emptyScope(context, rule));
+        value = resolveValue(definition.default, emptyScope(context, rule, this.clock.now()));
       if (value === undefined) {
         if (definition.required === true)
           throw invalidExecution(`Rule input ${name} is required.`, { input: name });
@@ -733,12 +734,12 @@ function scopeValue(scope: RuleScope): Readonly<Record<string, JsonValue>> {
   };
 }
 
-function emptyScope(context: ExecutionContext, rule: RuleDefinition): RuleScope {
+function emptyScope(context: ExecutionContext, rule: RuleDefinition, now: string): RuleScope {
   return {
     trigger: { event: "rule.called", payload: {} },
     actor: { id: context.actorId },
     vars: {},
-    meta: { ruleId: rule.id, ruleKey: rule.key },
+    meta: { ruleId: rule.id, ruleKey: rule.key, now, today: now.slice(0, 10) },
   };
 }
 

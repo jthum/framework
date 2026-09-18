@@ -94,6 +94,7 @@
 	const sortableIds = new WeakMap<object, string>();
 	const baseReferences = $derived(uniqueReferences([
 		{ value: "meta.now", label: "Current date and time", group: "Runtime" },
+		{ value: "meta.today", label: "Current date", group: "Runtime" },
 		{ value: "actor.id", label: "Current actor ID", group: "Runtime" },
 		{ value: "trigger.key", label: "Trigger key", group: "Runtime" },
 		{ value: `vars.${inputName}`, label: inputLabel ?? inputTypeDef?.label ?? "Current input", group: recordInput ? "Current record" : "Submission" },
@@ -429,7 +430,7 @@
 	}
 
 	function displayValue(value: AutomationValue): string {
-		return isBinding(value) && value.$ref === "meta.now" ? "now" : String(value ?? "");
+		return isBinding(value) && value.$ref === "meta.now" ? "now" : isBinding(value) && value.$ref === "meta.today" ? "today" : String(value ?? "");
 	}
 
 	type StepCategory = "action" | "condition" | "loop" | "wait" | "data";
@@ -493,7 +494,7 @@
 								]}
 								placeholder="Field"
 							/>
-							{#if isBinding(value) && value.$ref !== "meta.now"}
+							{#if isBinding(value) && value.$ref !== "meta.now" && value.$ref !== "meta.today"}
 								<div class="flex h-9 items-center rounded-md border bg-muted/40 px-3 font-mono text-xs text-muted-foreground">
 									{value.$ref}
 								</div>

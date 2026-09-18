@@ -32,7 +32,7 @@ export function humanStep(step: RuleStep, spec?: EditorContext): string {
       .map(([fieldKey, value]) => {
         const field = fieldLabel(spec, typeKey, fieldKey);
         const display =
-          isBinding(value) && value.$ref === "meta.now"
+          isBinding(value) && (value.$ref === "meta.now" || value.$ref === "meta.today")
             ? "today"
             : labelFromKey(scalarString(value));
         return `Set ${field.toLowerCase()} to ${display}`;

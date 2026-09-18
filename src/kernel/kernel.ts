@@ -227,6 +227,7 @@ export class Kernel {
     );
     this.rules = new RuleService(
       catalog,
+      clock,
       new ActionRegistry([...this.coreActions(), ...actions]),
       new ConditionRegistry([...coreConditions(), ...conditions]),
       this,

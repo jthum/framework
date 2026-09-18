@@ -35,10 +35,20 @@ export { default as RuleValueMap } from "./automation-value-map-editor.svelte";
 export type { RuleActions, RuleEffect, RuleCompatibility } from "./rule-model.js";
 export { CORE_RULE_EFFECTS } from "./rule-effects.js";
 export { FIELD_KINDS, cloneData } from "./authoring.js";
-export type { FieldKind, FieldCondition, FilterClause, FilterOp, ValueSemantic } from "./authoring.js";
+export type {
+  FieldKind,
+  FieldCondition,
+  FilterClause,
+  FilterOp,
+  ValueSemantic,
+} from "./authoring.js";
 export {
-  FIELD_CAPABILITIES, FIELD_FORMATS, FIELD_PRESENTATIONS,
-  fieldWidgetFor, supportsFieldFormat, supportsFieldPresentation,
+  FIELD_CAPABILITIES,
+  FIELD_FORMATS,
+  FIELD_PRESENTATIONS,
+  fieldWidgetFor,
+  supportsFieldFormat,
+  supportsFieldPresentation,
 } from "./field-capabilities.js";
 export {
   createRule,

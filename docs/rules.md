@@ -25,6 +25,9 @@ The primitives are gate, compute, action, nested Rule invocation, delay, wait, f
 and parallel branches. Predicates compose with `all`, `any`, and `not`. Values are JSON plus a
 `{ $ref }` binding rooted at `trigger`, `actor`, `vars`, or `meta`. A record binding may add one
 stable `fieldId`; Studio projects that to an ordinary friendly field selector.
+`meta.now` is the scope's initial ISO timestamp; `meta.today` is its UTC `YYYY-MM-DD` date.
+Both use the injected runtime clock and remain checkpointed across a durable wait, rather
+than changing when a saved run resumes. Use the date binding for date-only Fields.
 
 Every step and parallel branch has a stable ID. Studio assigns one automatically when an author
 adds an item, so trace and idempotency identity adds no authoring ceremony. Rule inputs, built-in
