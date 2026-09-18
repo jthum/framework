@@ -1,22 +1,21 @@
 # Testing strategy
 
-Tests protect the portable framework contract, adapter interchangeability, and the Builder.run reference host. Prefer observable behaviour and reusable contract suites over assertions about private implementation structure.
+Tests protect the portable Framework contract, adapter interchangeability, and reusable host boundaries. Prefer observable behaviour and reusable contract suites over assertions about private implementation structure.
 
 ## Commands
 
 Vite+ owns the quality loop:
 
-| Command                      | Purpose                                                               |
-| ---------------------------- | --------------------------------------------------------------------- |
-| `vp test`                    | Run the complete configured test suite once                           |
-| `vp test <filter>`           | Run matching tests while developing                                   |
-| `vp test watch <filter>`     | Watch a focused area                                                  |
-| `vp test related <files...>` | Run tests related to changed files                                    |
-| `vp check`                   | Formatting, lint, and type checks                                     |
-| `vp run test:browser`        | Existing Builder browser smoke test                                   |
-| `vp build`                   | Production build verification when delivery/runtime packaging changed |
+| Command                      | Purpose                                     |
+| ---------------------------- | ------------------------------------------- |
+| `vp test`                    | Run the complete configured test suite once |
+| `vp test <filter>`           | Run matching tests while developing         |
+| `vp test watch <filter>`     | Watch a focused area                        |
+| `vp test related <files...>` | Run tests related to changed files          |
+| `vp check`                   | Formatting, lint, and type checks           |
+| `vp pack`                    | Library build and export verification       |
 
-Use targeted tests during implementation. Before handing off a meaningful framework change, run `vp check` and `vp test`. Run the browser smoke test when navigation, persistence startup, workers, routing, or critical Builder flows changed.
+Use targeted tests during implementation. Before handing off a meaningful Framework change, run `vp check` and `vp test`. Run `vp pack` when exports, packaging, or delivery boundaries change. A consuming host owns its own browser smoke tests.
 
 Purely visual changes may use proportionate browser inspection without paying for the entire suite unless behaviour also changed.
 
@@ -72,8 +71,8 @@ Fixtures must not encode TypeScript object identity or SQLite implementation det
 
 The architecture defines three cross-cutting scenarios:
 
-- **S1:** Builder root Space / child App Workspaces and attached shared Collections;
-- **S2:** Teamloop module scopes and module Events;
+- **S1:** root/child Workspaces and attached shared Collections;
+- **S2:** domain module scopes and module Events;
 - **S3:** delegated Workspace, local Actors, filtered Attachment, attenuation, revocation, and explicit `runAs`.
 
 Each phase implements the relevant assertions from the canonical implementation plan. These are Kernel fixtures, not production UIs for products that do not yet exist.
@@ -94,7 +93,7 @@ Do not mock the component whose contract the test is meant to validate.
 
 ### Browser tests
 
-Browser tests cover a small number of valuable Builder flows:
+Browser tests in a consuming host should cover a small number of valuable flows:
 
 - boot and persistence initialization;
 - creating or opening an App;

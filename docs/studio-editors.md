@@ -86,9 +86,8 @@ the initiating Actor; the Kernel requires a User assignee. No actor directory is
 The field bridge retains stable option IDs, custom option labels, defaults, date constraints,
 integer constraints, multiplicity and custom metadata. Existing JSON fields remain preserved and
 are explicitly read-only in this sheet; the runtime response controls already support JSON.
-Builder.run's independent approval example offers canonical authoring in its run preview. The
-current Host editor does not opt into User requests until its Kernel cutover. Global assigned-task
-discovery remains a subsequent slice; this interface consumes actual persisted requests.
+Global assigned-task discovery remains a subsequent slice; this interface consumes actual
+persisted requests.
 
 # Imports and bundle boundaries
 

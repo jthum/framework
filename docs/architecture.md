@@ -1,12 +1,12 @@
 # Framework architecture
 
 **Date:** 2026-09-16  
-**Status:** Canonical. Greenfield. No backwards compatibility with the current Builder.run Spec or `Host`.  
+**Status:** Canonical. Greenfield. No backwards-compatibility contract.
 **Plan:** [implementation-plan.md](./implementation-plan.md)
 
-This is the architecture of the shared information-system framework. Builder.run is its first **host**. Teamloop and a future Workspaces app are other hosts; Teamloop also supplies a domain **module**. The portable Spec is the hero. The TypeScript Kernel is the reference consumer, not the definition of the product.
-
-The current Builder frontend is an asset. Preserve its editors, Pages, navigation, design system, tables, modals, and Block implementations while replacing its core incrementally from the separate Builder host repository.
+This is the architecture of the shared information-system Framework. The portable Spec is the
+primary contract. The TypeScript Kernel is the reference consumer, not the definition of the
+product. Hosts compose the Kernel, modules, persistence, interfaces, and their own product policy.
 
 ---
 
@@ -16,18 +16,22 @@ The current Builder frontend is an asset. Preserve its editors, Pages, navigatio
 Spec          portable, language-agnostic definition
 Consumer      implementation of the Spec (this Kernel, Laravel, WP, GPUI)
 Kernel        TypeScript reference engine
-Host / shell  product IA (Builder Studio, Teamloop chrome, ...)
+Host / shell  product information architecture and chrome
 Module        domain code (conversation, later PMS entities)
 Persistence   adapter (SQLite today; Postgres/Convex/sync later)
 ```
 
-Laravel does not import the TypeScript Kernel. It reads the Spec and implements the same semantics with its own persistence and UI. Teamloop written on this stack shares the Kernel, changes the host, and adds a module. Those are different kinds of reuse.
+A non-TypeScript consumer does not import the TypeScript Kernel. It reads the Spec and implements
+the same semantics with its own persistence and UI. A TypeScript host may instead share the Kernel,
+change the shell, and add domain modules. Those are different kinds of reuse.
 
 ---
 
 ## 2. Workspace, Actor issuance, and module scope
 
-**Workspace** is the only Kernel place: Builder Space, an App, Teamloop Organisation, HR, and Summer Recruiting are all Workspaces. A host may expose only one and never use the word. There is no Kernel Account or organisation-wide people table.
+**Workspace** is the only Kernel place. A root tenant, an application boundary, a department, and a
+delegated recruiting area may all be Workspaces. A host may expose only one and never use the word.
+There is no Kernel Account or organisation-wide people table.
 
 Workspace grouping uses `is_root`, `parent_id`, and `root_id` (TypeScript: `isRoot`, `parentId`, `rootId`). A root has `is_root = true`, `parent_id = null`, and `root_id = id`. Bootstrap creates one root, issues the first User and System there, and persists their Memberships. Host vocabulary may be Space, Organisation, or Account; those labels do not create new Kernel types.
 
@@ -227,34 +231,25 @@ Do not grow a `KernelConfig` junk drawer. Adapter URLs belong to adapters. Secre
 
 ## 5. Host and module shapes
 
-| Product            | Kernel                                      | Host                                                                                                  | Module                                                                        |
-| ------------------ | ------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| **Builder.run**    | Workspaces, Collections, Attachments, Rules | Space = root Workspace; App = child Workspace; expose = Attachment; implicit list/create/edit; Studio | none required                                                                 |
-| **Teamloop**       | same                                        | Organisation = root Workspace; operational Workspace = child; conversation chrome                     | Channel / Topic / Conversation; Collections bound to scopes; `message.posted` |
-| **Workspaces app** | same plus spawn policy and local Actors     | delegated Workspace creation; invite versus local Actor UX                                            | none required                                                                 |
+| Host shape                      | Kernel composition                                         | Host responsibility                              | Optional module                             |
+| ------------------------------- | ---------------------------------------------------------- | ------------------------------------------------ | ------------------------------------------- |
+| Configurable application studio | root and child Workspaces, Collections, Attachments, Rules | application switching, implicit surfaces, Studio | none required                               |
+| Collaboration product           | root and operational Workspaces                            | conversation chrome and navigation               | Channel, Topic, Conversation, domain Events |
+| Delegated portal                | spawn policy, local Actors, filtered Attachments           | invite/local-identity UX and restricted policy   | none required                               |
 
-Builder is the delegated-Workspace model with advanced spawn and local-Actor controls hidden or restricted. It is not a different engine.
+These shapes are conformance pressures, not different engines or product prescriptions.
 
 ---
 
-## 6. Persistence and current-catalog transition
+## 6. Persistence
 
 Logical containment does not dictate physical layout. An adapter may use one database per Workspace, one per root, or shared tables keyed by IDs. An adapter-specific tenant key is not a Kernel Account.
 
 Kernel-owned instance data includes Workspaces, Actors, Memberships, Attachments, RuleExecutions, ActorRequests, and later Materializations. Module-owned tables live beside Collections rather than masquerading as Collections.
 
-The current Builder catalog approximates the target implicitly:
-
-| Current                        | Current role                     | Target                                       |
-| ------------------------------ | -------------------------------- | -------------------------------------------- |
-| root `space` containing actors | root identity and shared data    | root Workspace; Actors issued there          |
-| `space` with `created_by`      | App                              | Workspace                                    |
-| `actor.space_id`               | Actor origin and inferred access | Actor origin/root plus persisted Memberships |
-| App `created_by`               | discovery and access             | provenance plus Membership/ACL               |
-| type `expose`                  | implicit sharing                 | Attachment                                   |
-| `kv`                           | active Space and appearance      | adapter-owned preferences/settings           |
-
-Do not preserve these inference rules as compatibility behaviour. Migrate the current product to the new model and delete the old path at cutover.
+Do not infer access from creator fields, Actor issuance, or Workspace grouping. Provenance remains
+provenance; Membership and ACL remain authority; Attachment remains sharing. Adapter-owned
+preferences and active UI selections are not portable Spec data.
 
 ---
 
@@ -268,9 +263,10 @@ A Spec never names a concrete Workspace or Attachment. Exporting a Spec clones t
 
 ---
 
-## 8. Framework packaging and extraction
+## 8. Framework packaging
 
-The framework lives in its own repository and exposes one package with subpath boundaries. Builder.run remains a separate host and integrates the package only after the public API survives a framework vertical slice.
+Framework lives in its own repository and exposes one package with subpath boundaries. A host is a
+separate composition and may consume a local checkout, a pinned Git revision, or a future release.
 
 Initial shape may be one package with subpath exports:
 
@@ -293,15 +289,17 @@ src/
   sqlite/
   svelte/
   blocks/
-
-Builder.run remains in its own host repository.
 ```
 
-The Kernel must not import Svelte, Builder navigation, browser session globals, or SQLite-specific implementations. Framework Svelte editors depend on public Kernel/client contracts, not concrete adapters.
+The Kernel must not import Svelte, application navigation, browser session globals, or
+SQLite-specific implementations. Framework Svelte editors depend on public Kernel/client
+contracts, not concrete adapters.
 
-The repository is intended for `github.com/jthum/framework` and the package name is `@jthum/framework`. During greenfield development Builder may consume it from a local path or pinned Git revision; publication and independent package splitting can wait for a real second consumer.
+The package name is `@jthum/framework`. Publication and independently versioned package splitting
+can wait until distribution requirements justify them.
 
-Temporary side-by-side code during extraction is risk isolation, not backwards compatibility. Do not add dual persisted formats, legacy readers, aliases, or migration baggage. Delete the old `Host` path after vertical parity.
+Do not add dual persisted formats, legacy readers, aliases, or migration baggage during greenfield
+development.
 
 ---
 

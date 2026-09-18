@@ -1,6 +1,7 @@
 # Forms and Pages
 
-Phase 4 begins with two portable surface primitives. Neither one owns host navigation, Svelte components, or persistence-specific behavior.
+Forms and Pages are portable surface primitives. Neither one owns host navigation, Svelte
+components, or persistence-specific behavior.
 
 ## Forms
 
@@ -27,7 +28,10 @@ await kernel.submitForm(context, "create_project", {
 
 Collection Forms reject values for Fields they do not expose, then delegate to the same `createRecord` or `updateRecord` operation used everywhere else. They therefore inherit record validation, reference checks, lifecycle behavior, authorization, timestamps, and Actor attribution rather than reimplementing mutation logic.
 
-Standalone Forms reuse the Field primitive, including defaults, conditional behavior, and validation. References are checked against local or attached Sources. Submission currently returns the normalized values; Phase 5 will publish `form.submitted` with the same payload so Rules own all business behavior. A Form is intentionally not an arbitrary command builder.
+Standalone Forms reuse the Field primitive, including defaults, conditional behavior, and
+validation. References are checked against local or attached Sources. Submission returns normalized
+values and publishes `form.submitted` so Rules own business behavior. A Form is intentionally not
+an arbitrary command builder.
 
 `submit.success` is an optional presentation hint. It does not encode workflow behavior.
 
@@ -55,4 +59,4 @@ const page = {
 
 Every node has a stable ID so editors can reorder or update it without index identity. A Block node selects a registry key and carries JSON configuration. A Group node supplies layout (`columns`, optional `minHeight`, and children); it is never registered or rendered as a fake Block. Empty Pages and Groups are valid while authors build them.
 
-Host details such as Builder folders and icons use `meta`. Rendering remains a host/UI-package concern. Static Blocks may render from config alone; data-backed Blocks may additionally receive resolved Source data. Block code remains lazily loaded through the registry.
+Host details such as folders and icons use `meta`. Rendering remains a host/UI-package concern. Static Blocks may render from config alone; data-backed Blocks may additionally receive resolved Source data. Block code remains lazily loaded through the registry.

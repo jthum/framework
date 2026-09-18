@@ -55,4 +55,4 @@ frames. History lists only runs started by the bound Actor in the bound Workspac
 page size of 20 and an enforced maximum of 100. Inspecting another Actor's execution still requires
 management permission. Request responses return the request, never the initiating Actor's run data.
 
-This layer does not translate old Builder definitions, emulate the old Host, or add another mutation implementation. UI editors can accept the interface rather than importing a concrete Kernel, persistence adapter, or global Builder session.
+This layer does not translate legacy definitions or add another mutation implementation. UI editors can accept the interface rather than importing a concrete Kernel, persistence adapter, or global application session.

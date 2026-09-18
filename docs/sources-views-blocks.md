@@ -75,7 +75,7 @@ settings form without importing renderer code. A zero-configuration Block omits 
 Blocks do not need an empty schema or registration ceremony. View, Form, Rule, and Field inputs are
 semantic selectors resolved by the host against the active Spec.
 
-Blocks receive a complete `BlockInput` containing resolved Source data and JSON configuration. They do not query SQLite, resolve Attachments, inspect Builder navigation, or reach into host session state. The framework publishes Table and Kanban definitions; concrete Svelte renderers remain a host/UI-package concern.
+Blocks receive a complete `BlockInput` containing resolved Source data and JSON configuration. They do not query SQLite, resolve Attachments, inspect application navigation, or reach into host session state. Framework publishes Table and Kanban definitions; concrete Svelte renderers remain a host/UI-package concern.
 
 Failed loads are not cached, so a transient chunk failure can be retried. Duplicate Block keys fail immediately. Layout groups remain Page layout nodes rather than fake Blocks.
 

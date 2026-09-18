@@ -1,6 +1,6 @@
 # Coding standards
 
-These standards apply to the shared framework packages and the Builder.run reference host. The repository uses TypeScript, Svelte 5, SvelteKit 3, shadcn-svelte, and Vite+.
+These standards apply to Framework's TypeScript, Svelte 5, shadcn-svelte, and Vite+ code.
 
 The framework is greenfield. Prefer one clean current implementation over compatibility aliases, dual formats, deprecated readers, or speculative extension systems.
 
@@ -58,11 +58,11 @@ adapters      Svelte/editor bindings
 ```
 
 - Spec code imports no Kernel, Svelte, browser, Node, SQLite, or host modules.
-- Kernel code imports no Svelte components, Builder navigation, global session, or concrete persistence adapter.
+- Kernel code imports no Svelte components, application navigation, global session, or concrete persistence adapter.
 - Persistence contracts expose logical operations, not SQL.
 - SQLite and future adapters implement persistence contracts and contain their own physical queries and schema policy.
-- Framework Svelte code depends on public client/contracts, not a global Builder session.
-- Builder host code composes the Kernel, adapters, editors, navigation, and product policy.
+- Framework Svelte code depends on public clients and contracts, not a global application session.
+- Host code composes the Kernel, adapters, editors, navigation, and product policy.
 - Blocks receive declared values and resolved data; they do not open databases or reach into host state.
 
 Do not bypass a package boundary for convenience. Change the public contract when a genuine cross-layer capability is missing.

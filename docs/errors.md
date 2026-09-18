@@ -174,8 +174,8 @@ HTTP status codes are not part of the Kernel error contract.
 Hosts and modules may add their own semantic namespaces:
 
 ```text
-BUILDER.TEMPLATE_INVALID
-TEAMLOOP.CHANNEL_ARCHIVED
+APPLICATION.TEMPLATE_INVALID
+CONVERSATION.CHANNEL_ARCHIVED
 BILLING.INVOICE_LOCKED
 ```
 

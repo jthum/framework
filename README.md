@@ -1,30 +1,55 @@
 # Framework
 
-Framework is a portable information-system specification and its reference TypeScript Kernel.
+Framework is a portable specification and reference TypeScript kernel for building configurable
+information systems. It provides the shared language and runtime for Workspaces, Collections,
+Views, Forms, Rules, Pages, Blocks, Actors, permissions, and live cross-Workspace Attachments.
 
-Builder.run is its first host. Teamloop and future products can use the same primitives while providing their own host, modules, persistence, and deployment environment.
+The portable Spec is the contract. The TypeScript Kernel is one implementation of that contract;
+another stack can consume the same Spec without importing this package.
 
-The portable Spec is the product contract. The TypeScript Kernel is one consumer of that contract, not a requirement for consumers implemented with Laravel, WordPress, or another stack.
+## What you can use
 
-The Kernel depends on persistence contracts, not a database. The package includes an in-memory
-adapter for tests and ephemeral use, plus a normalized SQLite catalog behind a driver-neutral
-gateway. Node.js is one optional SQLite driver; browser hosts can provide another.
+- `@jthum/framework/spec` — portable definitions and validation
+- `@jthum/framework/kernel` — the reference execution engine
+- `@jthum/framework/client` — a context-bound interface for UI and transport layers
+- `@jthum/framework/persistence` — persistence ports and the in-memory adapter
+- `@jthum/framework/sqlite` — the driver-neutral SQLite adapter
+- `@jthum/framework/blocks` — Block definitions and lazy renderer registry
+- `@jthum/framework/catalog` — host-selected discovery catalogs
+- `@jthum/framework/svelte/studio/*` — reusable Svelte 5 authoring surfaces
+- `@jthum/framework/svelte/ui/*` — semantic Svelte UI primitives
+
+Hosts may adopt the complete stack, use only the portable Spec, replace the Studio, or supply
+their own persistence and transport implementations. Framework does not own application routing,
+authentication, navigation, product vocabulary, or domain-specific modules.
 
 ## Status
 
-Greenfield and pre-release. Phases 0–3 and the core Phase 4 contracts are implemented: the Kernel can apply portable
-Collection Specs and perform validated record CRUD through interchangeable memory and SQLite
-adapters, bind live filtered Attachments between Workspaces with revocation, query local or
-attached Sources through Views, resolve lazily loaded Block renderers, submit Forms, and read
-portable Page layouts. Builder has an executable S1 projection and browser SQLite bridge; editor/runtime migration is still in progress. There is no
-backwards-compatibility contract with the current Builder.run runtime.
+Framework is greenfield and pre-release. The implemented surface includes:
 
-Workspace is the sole Kernel place. Root and parent columns group Workspaces without
-inheriting permissions. Actors are issued in a Workspace; persisted Memberships determine
-where they may act. There is no Kernel Account. See the [architecture](docs/architecture.md)
-for identity, roster, and host terminology.
+- Workspace, Actor, Membership, ACL, and Attachment semantics;
+- Collection schemas and validated record operations;
+- local and attached Sources, Views, and declared relationship traversal;
+- create, edit, and standalone Forms;
+- Page layout trees and lazily loaded Blocks;
+- short and durable Rules, Events, waits, and User requests;
+- interchangeable memory and SQLite persistence;
+- reusable Svelte editors for Collections, Views, Forms, Rules, and Pages;
+- inert catalogs for host-owned template and resource discovery.
 
-## Development
+There is currently no backwards-compatibility promise. Prefer one clean current contract over
+aliases or migration baggage.
+
+## Start here
+
+- [Build an application](docs/getting-started.md)
+- [Understand the core model](docs/concepts.md)
+- [Choose package boundaries](docs/host-architecture.md)
+- [Extend a host safely](docs/extensions.md)
+- [Develop Framework itself](docs/developing-framework.md)
+- [Browse all documentation](docs/README.md)
+
+## Repository development
 
 ```bash
 vp install
@@ -33,10 +58,5 @@ vp test
 vp pack
 ```
 
-Start with the [framework documentation](docs/README.md).
-
-See [Sources, Views, and Blocks](docs/sources-views-blocks.md) for the data-to-presentation boundary.
-See [Forms and Pages](docs/forms-pages.md) for the portable surface contracts.
-See [Svelte UI and Studio](docs/svelte.md) for component ownership and customization boundaries.
-The full Collection, View, Form, Rule and Page editors are reusable Studio exports;
-see [editor contracts](docs/studio-editors.md) for host wiring and the remaining canonical runtime integration boundary.
+The executable example in [`examples/minimal-host.ts`](examples/minimal-host.ts) is tested with the
+library and mirrors the getting-started guide.
