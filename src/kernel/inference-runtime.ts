@@ -4,11 +4,19 @@ import type { JsonValue } from "../spec/model.ts";
 import type { Actor, ExecutionContext } from "./model.ts";
 
 export type InferenceMessage =
-  | { readonly role: "user" | "assistant"; readonly content: string }
+  | { readonly role: "user"; readonly content: string }
+  | {
+      readonly role: "assistant";
+      readonly content: string;
+      /** Opaque provider-owned continuity data that must be replayed with this message. */
+      readonly providerState?: Readonly<Record<string, JsonValue>>;
+    }
   | {
       readonly role: "assistant";
       readonly content?: string;
       readonly toolCalls: readonly InferenceToolCall[];
+      /** Opaque provider-owned continuity data that must be replayed with this message. */
+      readonly providerState?: Readonly<Record<string, JsonValue>>;
     }
   | {
       readonly role: "tool";
@@ -72,6 +80,7 @@ export type InferenceFinishReason = "stop" | "tool_calls" | "length" | "refusal"
 export type InferenceEvent =
   | { readonly type: "started" }
   | { readonly type: "step_started"; readonly step: number; readonly tools: readonly string[] }
+  | { readonly type: "reasoning_delta"; readonly step: number; readonly delta: string }
   | { readonly type: "text_delta"; readonly step: number; readonly delta: string }
   | { readonly type: "structured_output"; readonly step: number; readonly output: JsonValue }
   | ({ readonly type: "tool_call"; readonly step: number } & InferenceToolCall)
@@ -94,7 +103,13 @@ export type InferenceEvent =
       readonly step: number;
       readonly reason: InferenceFinishReason;
     }
-  | { readonly type: "completed"; readonly output: JsonValue; readonly usage?: InferenceUsage }
+  | {
+      readonly type: "completed";
+      readonly output: JsonValue;
+      /** Replay this history when the host continues the conversation in another run. */
+      readonly messages?: readonly InferenceMessage[];
+      readonly usage?: InferenceUsage;
+    }
   | { readonly type: "refused"; readonly reason?: string; readonly usage?: InferenceUsage }
   | { readonly type: "failed"; readonly error: ErrorEnvelope; readonly usage?: InferenceUsage }
   | { readonly type: "cancelled"; readonly usage?: InferenceUsage };

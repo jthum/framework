@@ -28,6 +28,17 @@ YAIR_OPENAI_MODEL=MiniMax-M3 \
 vp test src/openai-provider.live.spec.ts
 ```
 
+The live suite exercises streamed thinking/text, tool calls across two user turns, dynamic tool
+discovery, and recovery from a structured tool error. `YAIR_OPENAI_API_KEY` overrides
+`MINIMAX_API_KEY`. These are opt-in behavioral checks, separate from deterministic protocol tests.
+
+Provider settings are passed through `ModelConfig.settings`. For MiniMax M3, use
+`reasoning_split: true` and `thinking: { type: "adaptive" }` to separate thinking from answer text.
+The provider emits `reasoning_delta` and preserves `reasoning_details` or `reasoning_content` in
+assistant `providerState` for replay. YAIR returns the full replayable history as
+`completed.messages`; append the next user message to it for subsequent turns. Providers without
+separate reasoning fields simply emit answer text.
+
 `credentialRef` remains opaque to Framework and YAIR. A trusted host can resolve it just in time:
 
 ```ts

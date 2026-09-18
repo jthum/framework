@@ -67,6 +67,7 @@ export class YairRuntime implements InferenceRuntime {
       let structured: JsonValue | undefined;
       let finish: Extract<InferenceEvent, { type: "step_finished" }>["reason"] | undefined;
       let finishMessage: string | undefined;
+      let providerState: Readonly<Record<string, JsonValue>> | undefined;
       let terminal = false;
 
       for await (const event of this.provider.infer({
@@ -80,6 +81,9 @@ export class YairRuntime implements InferenceRuntime {
         if (terminal)
           throw invalidRuntime("ModelProvider emitted an event after a terminal event.");
         switch (event.type) {
+          case "reasoning_delta":
+            yield { type: "reasoning_delta", step, delta: event.delta };
+            break;
           case "text_delta":
             text += event.delta;
             yield { type: "text_delta", step, delta: event.delta };
@@ -103,6 +107,7 @@ export class YairRuntime implements InferenceRuntime {
             terminal = true;
             finish = event.reason;
             finishMessage = event.message;
+            providerState = event.providerState;
             break;
           case "failed":
             terminal = true;
@@ -134,14 +139,29 @@ export class YairRuntime implements InferenceRuntime {
         };
         return;
       }
+      const assistantMessage = {
+        role: "assistant" as const,
+        content: text,
+        ...(providerState === undefined ? {} : { providerState: structuredClone(providerState) }),
+      };
       if (finish !== "tool_calls") {
-        yield { type: "completed", output: structured ?? text, ...(usage ? { usage } : {}) };
+        yield {
+          type: "completed",
+          output: structured ?? text,
+          messages: structuredClone([...messages, assistantMessage]),
+          ...(usage ? { usage } : {}),
+        };
         return;
       }
       if (calls.length === 0)
         throw invalidRuntime('ModelProvider finished with "tool_calls" but emitted no tool calls.');
 
-      messages.push({ role: "assistant", ...(text ? { content: text } : {}), toolCalls: calls });
+      messages.push({
+        role: "assistant",
+        ...(text ? { content: text } : {}),
+        toolCalls: calls,
+        ...(providerState === undefined ? {} : { providerState: structuredClone(providerState) }),
+      });
       for (const call of calls) {
         try {
           const output = await toolSet.execute(call);

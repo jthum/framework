@@ -1967,7 +1967,9 @@ function actionInferenceInput(input: Readonly<Record<string, JsonValue>>): Infer
       throw actionInputError(`Action input messages.${index}.role must be user or assistant.`);
     if (typeof value.content !== "string" || !value.content.trim())
       throw actionInputError(`Action input messages.${index}.content must be a non-empty string.`);
-    return { role: value.role, content: value.content };
+    return value.role === "user"
+      ? { role: "user", content: value.content }
+      : { role: "assistant", content: value.content };
   });
   if (typeof input.instructions !== "undefined" && typeof input.instructions !== "string")
     throw actionInputError("Action input instructions must be a string.");

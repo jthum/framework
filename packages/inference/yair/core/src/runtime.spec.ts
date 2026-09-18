@@ -73,8 +73,69 @@ describe("YairRuntime", () => {
     expect(events.at(-1)).toEqual({
       type: "completed",
       output: "Ready",
+      messages: expect.arrayContaining([{ role: "assistant", content: "Ready" }]),
       usage: { inputTokens: 10, outputTokens: 2 },
     });
+  });
+
+  it("streams reasoning and preserves provider continuity across steps", async () => {
+    const providerState = {
+      reasoning_details: [{ type: "reasoning.text", id: "reasoning-1", text: "Use the tool." }],
+    };
+    const provider = new ScriptedProvider((request, step) => {
+      if (step === 1)
+        return [
+          { type: "reasoning_delta", delta: "Use the tool." },
+          { type: "tool_call", id: "call", toolId: "noop", input: {} },
+          { type: "finished", reason: "tool_calls", providerState },
+        ];
+      expect(request.messages.at(-2)).toEqual({
+        role: "assistant",
+        toolCalls: [{ id: "call", toolId: "noop", input: {} }],
+        providerState,
+      });
+      return [
+        { type: "reasoning_delta", delta: "The tool finished." },
+        { type: "text_delta", delta: "Done" },
+        { type: "finished", reason: "stop", providerState },
+      ];
+    });
+
+    const events = await collect(new YairRuntime(provider).run(runtimeContext()));
+
+    expect(events.filter((event) => event.type === "reasoning_delta")).toEqual([
+      { type: "reasoning_delta", step: 1, delta: "Use the tool." },
+      { type: "reasoning_delta", step: 2, delta: "The tool finished." },
+    ]);
+    expect(events.at(-1)).toEqual({
+      type: "completed",
+      output: "Done",
+      messages: [
+        {
+          role: "assistant",
+          toolCalls: [{ id: "call", toolId: "noop", input: {} }],
+          providerState,
+        },
+        { role: "tool", callId: "call", toolId: "noop", output: null },
+        { role: "assistant", content: "Done", providerState },
+      ],
+    });
+
+    const completed = events.at(-1);
+    if (completed?.type !== "completed" || !completed.messages)
+      throw new Error("Missing completed history.");
+    const nextMessages = [...completed.messages, { role: "user" as const, content: "Continue" }];
+    const nextProvider = new ScriptedProvider((request) => {
+      expect(request.messages).toEqual(nextMessages);
+      return [
+        { type: "text_delta", delta: "Continued" },
+        { type: "finished", reason: "stop" },
+      ];
+    });
+    const next = await collect(
+      new YairRuntime(nextProvider).run({ ...runtimeContext(), messages: nextMessages }),
+    );
+    expect(next.at(-1)).toMatchObject({ type: "completed", output: "Continued" });
   });
 
   it("feeds a tool removed before execution back to the model", async () => {

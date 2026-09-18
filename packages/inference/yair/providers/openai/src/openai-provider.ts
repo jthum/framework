@@ -95,6 +95,8 @@ export class OpenAIProvider implements ModelProvider {
     if (request.tools.length > 0) {
       body.tools = request.tools.map((tool) => toTool(tool, tools));
       if (settings.tool_choice === undefined) body.tool_choice = "auto";
+    } else {
+      delete body.tool_choice;
     }
     if (stream && this.options.includeUsage) body.stream_options = { include_usage: true };
 
@@ -133,6 +135,7 @@ function toolNames(request: ModelRequest): ToolNames {
 }
 
 function providerToolName(id: string): string {
+  if (/^[a-zA-Z0-9_-]{1,64}$/.test(id)) return id;
   const readable = id.replace(/[^a-zA-Z0-9_-]+/g, "_").replace(/^_+|_+$/g, "") || "tool";
   return `f_${fnv1a(id)}_${readable}`.slice(0, 64);
 }
@@ -159,8 +162,14 @@ function toMessages(
 function toMessage(message: InferenceMessage, names: ToolNames): JsonValue {
   if (message.role === "user") return { role: "user", content: message.content };
   if (message.role === "assistant") {
-    if (!("toolCalls" in message)) return { role: "assistant", content: message.content };
+    if (!("toolCalls" in message))
+      return {
+        ...message.providerState,
+        role: "assistant",
+        content: message.content,
+      };
     return {
+      ...message.providerState,
       role: "assistant",
       content: message.content ?? null,
       tool_calls: message.toolCalls.map((call) => ({
@@ -231,6 +240,7 @@ async function* readCompletionStream(
 ): AsyncIterable<ModelEvent> {
   const names = toolNames(request);
   const calls = new Map<number, ToolCallParts>();
+  const reasoning = new ReasoningState();
   let finish: InferenceFinishReason | undefined;
   let finishMessage: string | undefined;
   for await (const data of sseData(body)) {
@@ -241,6 +251,7 @@ async function* readCompletionStream(
     const choice = firstChoice(chunk.choices);
     if (!choice) continue;
     const delta = asObject(choice.delta);
+    for (const part of reasoning.collect(delta)) yield { type: "reasoning_delta", delta: part };
     if (typeof delta.content === "string" && delta.content) {
       yield { type: "text_delta", delta: delta.content };
     }
@@ -248,7 +259,7 @@ async function* readCompletionStream(
     collectToolCalls(delta.tool_calls, calls);
     if (typeof choice.finish_reason === "string") finish = mapFinishReason(choice.finish_reason);
   }
-  yield* finishCompletion(calls, names, finish, finishMessage);
+  yield* finishCompletion(calls, names, finish, finishMessage, reasoning.providerState());
 }
 
 async function* readCompletion(value: unknown, request: ModelRequest): AsyncIterable<ModelEvent> {
@@ -258,6 +269,8 @@ async function* readCompletion(value: unknown, request: ModelRequest): AsyncIter
   const choice = firstChoice(completion.choices);
   if (!choice) throw new Error("Provider response contained no completion choice.");
   const message = asObject(choice.message);
+  const reasoning = new ReasoningState();
+  for (const part of reasoning.collect(message)) yield { type: "reasoning_delta", delta: part };
   if (typeof message.content === "string" && message.content)
     yield { type: "text_delta", delta: message.content };
   const calls = new Map<number, ToolCallParts>();
@@ -265,7 +278,49 @@ async function* readCompletion(value: unknown, request: ModelRequest): AsyncIter
   const finish =
     typeof choice.finish_reason === "string" ? mapFinishReason(choice.finish_reason) : undefined;
   const refusal = typeof message.refusal === "string" ? message.refusal : undefined;
-  yield* finishCompletion(calls, toolNames(request), finish, refusal);
+  yield* finishCompletion(calls, toolNames(request), finish, refusal, reasoning.providerState());
+}
+
+class ReasoningState {
+  private readonly details = new Map<number, Record<string, JsonValue>>();
+  private content = "";
+
+  collect(value: Record<string, unknown>): string[] {
+    const deltas: string[] = [];
+    const details = value.reasoning_details;
+    if (Array.isArray(details) && details.length > 0) {
+      for (const [position, item] of details.entries()) {
+        const detail = asObject(item);
+        const index = typeof detail.index === "number" ? detail.index : position;
+        const current = this.details.get(index) ?? {};
+        const text = typeof detail.text === "string" ? detail.text : "";
+        this.details.set(index, {
+          ...current,
+          ...jsonRecord(detail),
+          ...(text || typeof current.text === "string"
+            ? { text: `${typeof current.text === "string" ? current.text : ""}${text}` }
+            : {}),
+        });
+        if (text) deltas.push(text);
+      }
+      return deltas;
+    }
+    if (typeof value.reasoning_content === "string" && value.reasoning_content) {
+      this.content += value.reasoning_content;
+      deltas.push(value.reasoning_content);
+    }
+    return deltas;
+  }
+
+  providerState(): Readonly<Record<string, JsonValue>> | undefined {
+    if (this.details.size > 0)
+      return {
+        reasoning_details: [...this.details]
+          .sort(([left], [right]) => left - right)
+          .map(([, detail]) => detail),
+      };
+    return this.content ? { reasoning_content: this.content } : undefined;
+  }
 }
 
 interface ToolCallParts {
@@ -293,6 +348,7 @@ function* finishCompletion(
   names: ToolNames,
   finish: InferenceFinishReason | undefined,
   finishMessage: string | undefined,
+  providerState: Readonly<Record<string, JsonValue>> | undefined,
 ): Iterable<ModelEvent> {
   if (!finish) throw new Error("Provider response ended without a finish reason.");
   const reason = finishMessage && finish === "stop" ? "refusal" : finish;
@@ -305,7 +361,12 @@ function* finishCompletion(
       throw new Error(`Tool ${toolId} returned non-object arguments.`);
     yield { type: "tool_call", id: call.id, toolId, input };
   }
-  yield { type: "finished", reason, ...(finishMessage ? { message: finishMessage } : {}) };
+  yield {
+    type: "finished",
+    reason,
+    ...(finishMessage ? { message: finishMessage } : {}),
+    ...(providerState === undefined ? {} : { providerState }),
+  };
 }
 
 function mapFinishReason(value: string): InferenceFinishReason {
@@ -342,6 +403,20 @@ function asObject(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function jsonRecord(value: Record<string, unknown>): Record<string, JsonValue> {
+  return Object.fromEntries(
+    Object.entries(value).filter((entry): entry is [string, JsonValue] => isJsonValue(entry[1])),
+  );
+}
+
+function isJsonValue(value: unknown): value is JsonValue {
+  if (value === null || ["string", "number", "boolean"].includes(typeof value)) return true;
+  if (Array.isArray(value)) return value.every(isJsonValue);
+  return (
+    typeof value === "object" && Object.values(value as Record<string, unknown>).every(isJsonValue)
+  );
 }
 
 function numberOrUndefined(value: unknown): number | undefined {

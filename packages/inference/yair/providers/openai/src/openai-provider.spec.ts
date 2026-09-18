@@ -15,18 +15,42 @@ describe("OpenAIProvider", () => {
         sentInit = init;
         return sseResponse([
           {
-            choices: [{ index: 0, delta: { content: "Let me check. " }, finish_reason: null }],
+            choices: [
+              {
+                index: 0,
+                delta: {
+                  content: "Let me check. ",
+                  reasoning_details: [
+                    {
+                      type: "reasoning.text",
+                      id: "reasoning-1",
+                      index: 0,
+                      text: "I should ",
+                    },
+                  ],
+                },
+                finish_reason: null,
+              },
+            ],
           },
           {
             choices: [
               {
                 index: 0,
                 delta: {
+                  reasoning_details: [
+                    {
+                      type: "reasoning.text",
+                      id: "reasoning-1",
+                      index: 0,
+                      text: "search.",
+                    },
+                  ],
                   tool_calls: [
                     {
                       index: 0,
                       id: "call_1",
-                      function: { name: "f_", arguments: '{"query":' },
+                      function: { name: "search_", arguments: '{"query":' },
                     },
                   ],
                 },
@@ -42,7 +66,7 @@ describe("OpenAIProvider", () => {
                   tool_calls: [
                     {
                       index: 0,
-                      function: { name: "f20f3a2d_search_tools", arguments: '"invoice"}' },
+                      function: { name: "tools", arguments: '"invoice"}' },
                     },
                   ],
                 },
@@ -75,7 +99,7 @@ describe("OpenAIProvider", () => {
         {
           type: "function",
           function: {
-            name: "f_f20f3a2d_search_tools",
+            name: "search_tools",
             parameters: {
               type: "object",
               properties: { query: { type: "string" }, context: {} },
@@ -87,7 +111,9 @@ describe("OpenAIProvider", () => {
       ],
     });
     expect(events).toEqual([
+      { type: "reasoning_delta", delta: "I should " },
       { type: "text_delta", delta: "Let me check. " },
+      { type: "reasoning_delta", delta: "search." },
       { type: "usage", usage: { inputTokens: 21, outputTokens: 7, totalTokens: 28 } },
       {
         type: "tool_call",
@@ -95,7 +121,20 @@ describe("OpenAIProvider", () => {
         toolId: "search_tools",
         input: { query: "invoice" },
       },
-      { type: "finished", reason: "tool_calls" },
+      {
+        type: "finished",
+        reason: "tool_calls",
+        providerState: {
+          reasoning_details: [
+            {
+              type: "reasoning.text",
+              id: "reasoning-1",
+              index: 0,
+              text: "I should search.",
+            },
+          ],
+        },
+      },
     ]);
   });
 
@@ -214,6 +253,16 @@ describe("OpenAIProvider", () => {
           { role: "user", content: "Delete it" },
           {
             role: "assistant",
+            providerState: {
+              reasoning_details: [
+                {
+                  type: "reasoning.text",
+                  id: "reasoning-delete",
+                  index: 0,
+                  text: "Delete it.",
+                },
+              ],
+            },
             toolCalls: [{ id: "call_delete", toolId: "records.delete", input: { id: "one" } }],
           },
           {
@@ -230,6 +279,14 @@ describe("OpenAIProvider", () => {
     expect(sentBody?.messages).toEqual([
       { role: "user", content: "Delete it" },
       {
+        reasoning_details: [
+          {
+            type: "reasoning.text",
+            id: "reasoning-delete",
+            index: 0,
+            text: "Delete it.",
+          },
+        ],
         role: "assistant",
         content: null,
         tool_calls: [
@@ -270,7 +327,7 @@ describe("OpenAIProvider", () => {
                     id: "call_search",
                     type: "function",
                     function: {
-                      name: "f_f20f3a2d_search_tools",
+                      name: "search_tools",
                       arguments: '{"query":"invoice"}',
                     },
                   },

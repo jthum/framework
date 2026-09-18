@@ -138,6 +138,15 @@ An embedded host can consume the async stream directly. A server host resolves t
 Actor, runs the Kernel, and frames events for its transport. Conversation persistence and bounded
 history are host state.
 
+`text_delta` carries visible answer text; `reasoning_delta` carries separate provider-exposed
+thinking. Hosts decide whether to display or retain thinking. Assistant messages may carry opaque
+JSON `providerState` for provider continuity. Preserve it when replaying messages, rather than
+turning it into visible text or instructions.
+
+YAIR includes replayable `messages` on `completed`: the incoming history, assistant tool calls,
+tool results/errors, and final assistant response. For the next user turn, append the new user
+message to that history. Other runtimes may omit history; hosts then own conversation assembly.
+
 Deterministic tests cover identity, authorization, discovery, changing tool availability, ordering,
 stream validity, refusal, cancellation, and step limits. Behavioral model evals belong beside a
 concrete runtime/provider integration.

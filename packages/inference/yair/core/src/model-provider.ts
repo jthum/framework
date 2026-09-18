@@ -10,11 +10,18 @@ import type {
 } from "@jthum/framework";
 
 export type ModelEvent =
+  | { readonly type: "reasoning_delta"; readonly delta: string }
   | { readonly type: "text_delta"; readonly delta: string }
   | { readonly type: "structured_output"; readonly output: JsonValue }
   | ({ readonly type: "tool_call" } & InferenceToolCall)
   | { readonly type: "usage"; readonly usage: InferenceUsage }
-  | { readonly type: "finished"; readonly reason: InferenceFinishReason; readonly message?: string }
+  | {
+      readonly type: "finished";
+      readonly reason: InferenceFinishReason;
+      readonly message?: string;
+      /** Opaque state the provider needs replayed with the assistant message. */
+      readonly providerState?: Readonly<Record<string, JsonValue>>;
+    }
   | { readonly type: "failed"; readonly error: ErrorEnvelope }
   | { readonly type: "cancelled" };
 
