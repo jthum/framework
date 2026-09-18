@@ -18,6 +18,16 @@ const inference = yair({
 });
 ```
 
+Run the opt-in live contract against any compatible provider:
+
+```bash
+YAIR_LIVE=1 \
+MINIMAX_API_KEY=... \
+YAIR_OPENAI_BASE_URL=https://api.minimax.io/v1 \
+YAIR_OPENAI_MODEL=MiniMax-M3 \
+vp test src/openai-provider.live.spec.ts
+```
+
 `credentialRef` remains opaque to Framework and YAIR. A trusted host can resolve it just in time:
 
 ```ts
