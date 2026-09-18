@@ -175,11 +175,13 @@ The context-bound `WorkspaceClient` contract and in-process adapter now provide 
 
 Builder's Collection, View, Form, Rule, and Page authoring surfaces now load canonical editor
 contexts and persist exclusively through context-bound Framework clients. Their old Host mutation
-fallbacks have been removed. Page View queries also use the canonical client. Builder still uses
-its old Host for the operational record/form surface, app lifecycle, block-rendering projection,
-spec inspector, and WebMCP projection; those are the remaining cutover boundary before the old
-projection and persisted shape can be deleted. `form.submitted` publication uses the Phase 5
-Event/Action spine rather than a Phase 4-only event mechanism.
+fallbacks have been removed. Page View queries also use the canonical client. Builder's record
+lists, create/edit Forms, record details, related records, lifecycle moves, manual Rules, and
+deletion now use the same canonical record and execution stores. Template records are seeded
+separately by the host and remain outside the portable Spec. Builder still uses its old Host for
+app/Space lifecycle, block-rendering option projection, the spec inspector, profile/settings
+mutations, and WebMCP projection; those are the remaining cutover boundary before the old
+projection and persisted shape can be deleted.
 
 **Phase 4 Studio extraction checkpoint:** Framework owns the semantic Svelte theme,
 shadcn-Svelte primitives, editor actions, form-purpose choices, vertical drag interaction,
@@ -210,14 +212,14 @@ the authorized editor context. Renaming a local or attached Collection Field the
 friendly projection without rewriting consuming Rule Specs. Custom Action inputs remain opaque to
 the framework, while direct record and Form APIs remain key-oriented.
 
-This does **not** close Phase 4: the main session still opens Host alongside Framework for
-operational records and product lifecycle concerns, and the old projection/storage path has not
-been deleted. Studio authoring itself is no longer dual-write or fallback-based.
+This does **not** close Phase 4: the main session still opens Host alongside Framework for product
+lifecycle and the remaining projections, and the old projection/storage path has not been deleted.
+Studio authoring and operational record interaction are no longer dual-write or fallback-based.
 
-**Sequencing decision before deleting Host:** canonical Rule definitions and Studio translation
-are now complete, but Builder's current executor remains authoritative until the Phase 5
-Action/Event execution spine lands. Do not duplicate execution or silently skip unsupported
-Actions during the cutover.
+**Cutover rule before deleting Host:** canonical Rule definitions, Studio translation, the
+Action/Event execution spine, and Builder record interaction are complete. Move each remaining
+product concern to its canonical owner and delete its Host path in the same slice; do not introduce
+dual-write synchronization or compatibility aliases.
 
 ### Phase 5 — Primitive Actions, Rules, and snapshots
 
