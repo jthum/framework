@@ -31,6 +31,33 @@ export function catalogAdapterContract(
       await persistence.close();
     });
 
+    it("updates Actor profile fields without changing identity", async () => {
+      const persistence = await createAdapter().open();
+      const catalog = persistence.catalog;
+      const fixture = catalogFixture();
+      await catalog.transaction(async (transaction) => {
+        await transaction.insertWorkspace(fixture.workspace);
+        await transaction.insertActor(fixture.actor);
+        await transaction.updateActor({
+          ...fixture.actor,
+          name: "Jane Doe",
+          email: "jane@example.com",
+          updatedAt: "2026-01-02T00:00:00.000Z",
+        });
+      });
+
+      await expect(catalog.getActor(fixture.actor.id)).resolves.toMatchObject({
+        name: "Jane Doe",
+        email: "jane@example.com",
+      });
+      await expect(
+        catalog.transaction((transaction) =>
+          transaction.updateActor({ ...fixture.actor, originId: "somewhere-else" }),
+        ),
+      ).rejects.toMatchObject({ code: ERROR_CODES.resourceConflict });
+      await persistence.close();
+    });
+
     it("rolls back every write when a transaction fails", async () => {
       expect.hasAssertions();
       const persistence = await createAdapter().open();

@@ -15,6 +15,7 @@ import { SqliteRecordStore } from "./records.ts";
 import { SqliteExecutionStore } from "./executions.ts";
 import {
   assertActorIntegrity,
+  assertActorIdentityUnchanged,
   assertAttachmentIntegrity,
   assertAttachmentRevocation,
   assertMembershipIdentityUnchanged,
@@ -260,6 +261,19 @@ class SqliteCatalogTransaction implements CatalogTransaction {
       actor.createdAt,
       actor.updatedAt,
     ]);
+  }
+
+  async updateActor(actor: Actor): Promise<void> {
+    const row = await this.connection.get<ActorRow>("SELECT * FROM actors WHERE id = ?", [
+      actor.id,
+    ]);
+    if (!row) throw resourceNotFound("Actor", actor.id);
+    assertActorIdentityUnchanged(actorFromRow(row), actor);
+    await assertActorIntegrity(this, actor);
+    await this.connection.run(
+      "UPDATE actors SET name = ?, email = ?, updated_at = ? WHERE id = ?",
+      [actor.name, actor.email ?? null, actor.updatedAt, actor.id],
+    );
   }
 
   async insertMembership(membership: Membership): Promise<void> {

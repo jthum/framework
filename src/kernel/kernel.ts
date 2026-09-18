@@ -112,6 +112,11 @@ export interface CreateActorInput {
   readonly email?: string;
 }
 
+export interface UpdateActorInput {
+  readonly name: string;
+  readonly email?: string;
+}
+
 export interface AddMembershipInput {
   readonly actorId: string;
   readonly workspaceId: string;
@@ -588,6 +593,35 @@ export class Kernel {
       updatedAt: stamp,
     };
     await this.catalog.transaction((transaction) => transaction.insertActor(actor));
+    return actor;
+  }
+
+  async updateActor(
+    context: ExecutionContext,
+    id: string,
+    input: UpdateActorInput,
+  ): Promise<Actor> {
+    await this.assertContext(context);
+    const current = await this.requireActor(id);
+    await this.assertAuthorized({
+      context,
+      operation: "actors.update",
+      resource: { kind: "actor", id: current.id, workspaceId: current.originId },
+    });
+    const { email: currentEmail, ...identity } = current;
+    const actor: Actor = {
+      ...identity,
+      name: requiredName(input.name, "Actor"),
+      ...(input.email === undefined
+        ? currentEmail === undefined
+          ? {}
+          : { email: currentEmail }
+        : input.email
+          ? { email: input.email }
+          : {}),
+      updatedAt: this.clock.now(),
+    };
+    await this.catalog.transaction((transaction) => transaction.updateActor(actor));
     return actor;
   }
 

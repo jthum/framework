@@ -1,5 +1,5 @@
 import type { FormSubmission, SubmitFormInput } from "../kernel/forms.ts";
-import type { Kernel } from "../kernel/kernel.ts";
+import type { Kernel, UpdateActorInput } from "../kernel/kernel.ts";
 import type {
   ActorRequest,
   ResumeRuleInput,
@@ -23,7 +23,7 @@ export interface RuleExecutionClient {
     values: Readonly<Record<string, JsonValue>>,
   ): Promise<ActorRequest>;
 }
-import type { ExecutionContext, Workspace } from "../kernel/model.ts";
+import type { Actor, ExecutionContext, Workspace } from "../kernel/model.ts";
 import type { SourceDescriptor, SourceResult, SourceRow } from "../kernel/sources.ts";
 import type { ViewQueryResult } from "../kernel/views.ts";
 import type { CollectionRecord, RecordValues } from "../persistence/records.ts";
@@ -45,6 +45,8 @@ import type {
  */
 export interface WorkspaceClient extends RuleExecutionClient {
   getWorkspace(): Promise<Workspace>;
+  getActor(id: string): Promise<Actor | null>;
+  updateActor(id: string, input: UpdateActorInput): Promise<Actor>;
   applySpec(spec: Spec): Promise<Workspace>;
   listRules(): Promise<readonly RuleDefinition[]>;
   /** Published Action Events run matching short Rules through the same authorization spine. */
@@ -94,6 +96,14 @@ class LocalWorkspaceClient implements WorkspaceClient {
     private readonly kernel: Kernel,
     private readonly context: ExecutionContext,
   ) {}
+
+  getActor(id: string) {
+    return this.kernel.getActor(this.context, id);
+  }
+
+  updateActor(id: string, input: UpdateActorInput) {
+    return this.kernel.updateActor(this.context, id, input);
+  }
 
   async listRules(): Promise<readonly RuleDefinition[]> {
     return (await this.getWorkspace()).spec.rules;

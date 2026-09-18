@@ -56,6 +56,16 @@ export async function assertActorIntegrity(catalog: CatalogReader, actor: Actor)
   }
 }
 
+export function assertActorIdentityUnchanged(previous: Actor, next: Actor): void {
+  if (
+    previous.id !== next.id ||
+    previous.originId !== next.originId ||
+    previous.rootId !== next.rootId ||
+    previous.kind !== next.kind
+  )
+    throw resourceConflict("Actor identity cannot be changed after creation.");
+}
+
 export async function assertMembershipIntegrity(
   catalog: CatalogReader,
   membership: Membership,

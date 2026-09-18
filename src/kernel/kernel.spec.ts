@@ -8,6 +8,23 @@ import { Kernel } from "./kernel.ts";
 import type { ExecutionContext } from "./model.ts";
 
 describe("Kernel catalog skeleton", () => {
+  it("updates an Actor profile through the authorization boundary", async () => {
+    const kernel = await Kernel.open({
+      persistence: new MemoryPersistenceAdapter(),
+      ids: sequenceIds(),
+      clock: fixedClock,
+    });
+    const { workspace, user } = await kernel.createRootWorkspace({
+      name: "Space",
+      user: { name: "Jane" },
+    });
+    const context = { workspaceId: workspace.id, actorId: user.id };
+    await expect(
+      kernel.updateActor(context, user.id, { name: "Jane Doe", email: "jane@example.com" }),
+    ).resolves.toMatchObject({ name: "Jane Doe", email: "jane@example.com" });
+    await kernel.close();
+  });
+
   it("enforces explicit Workspace spawn and local Actor policy", async () => {
     expect.hasAssertions();
     const kernel = await Kernel.open({

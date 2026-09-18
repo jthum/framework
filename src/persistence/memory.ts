@@ -11,6 +11,7 @@ import type {
 import type { CollectionRecord, RecordStore } from "./records.ts";
 import {
   assertActorIntegrity,
+  assertActorIdentityUnchanged,
   assertAttachmentIntegrity,
   assertAttachmentRevocation,
   assertMembershipIdentityUnchanged,
@@ -190,6 +191,14 @@ export class MemoryCatalogRepository implements CatalogRepository, CatalogTransa
   async insertActor(actor: Actor): Promise<void> {
     await assertActorIntegrity(this, actor);
     insertUnique(this.state.actors, actor, "Actor");
+  }
+
+  async updateActor(actor: Actor): Promise<void> {
+    const previous = this.state.actors.get(actor.id);
+    if (!previous) throw resourceNotFound("Actor", actor.id);
+    assertActorIdentityUnchanged(previous, actor);
+    await assertActorIntegrity(this, actor);
+    this.state.actors.set(actor.id, clone(actor));
   }
 
   async insertMembership(membership: Membership): Promise<void> {
