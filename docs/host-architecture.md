@@ -50,8 +50,9 @@ logical persistence contracts, context-bound clients, and reusable editors.
 | Fully custom interface            | canonical Spec and client contracts, without Studio   |
 | Another language/runtime          | implement the documented Spec semantics independently |
 
-An optional `InferenceAdapter` gives the default `AgentRuntime` one-step model inference. Advanced
-hosts can inject a complete `AgentRuntime`. See [Inference and Agents](agents.md).
+An optional `InferenceRuntime` supplies a complete inference run. A host may use YAIR, a bridge to
+another inference library, or its own implementation without changing Kernel semantics. See
+[Inference and Agents](agents.md).
 
 ## Persistence
 

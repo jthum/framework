@@ -1,31 +1,31 @@
 import { describe, expect, it } from "vite-plus/test";
-import { ERROR_CODES } from "../errors/error.ts";
-import type { InferenceAdapter, InferenceEvent, InferenceInput } from "./agent-runtime.ts";
-import { InferenceRegistry } from "./inference.ts";
+import { ERROR_CODES } from "@jthum/framework/errors";
+import type { ModelEvent, ModelProvider, ModelRequest } from "./model-provider.ts";
+import { ModelProviderRegistry } from "./provider-registry.ts";
 
-describe("InferenceRegistry", () => {
+describe("ModelProviderRegistry", () => {
   it("routes a request by its configured provider", async () => {
-    const first = new RecordingAdapter("first");
-    const second = new RecordingAdapter("second");
-    const registry = new InferenceRegistry([
-      { key: "first", adapter: first },
-      { key: "second", adapter: second },
+    const first = new RecordingProvider();
+    const second = new RecordingProvider();
+    const registry = new ModelProviderRegistry([
+      { key: "first", provider: first },
+      { key: "second", provider: second },
     ]);
-    const input: InferenceInput = {
+    const request: ModelRequest = {
       messages: [],
       tools: [],
       model: { provider: "second", model: "reasoning-model" },
     };
 
-    await collect(registry.infer(input));
+    await collect(registry.infer(request));
 
     expect(first.requests).toHaveLength(0);
-    expect(second.requests).toEqual([input]);
+    expect(second.requests).toEqual([request]);
   });
 
   it("supports one explicit default and rejects unknown providers", async () => {
-    const adapter = new RecordingAdapter("default");
-    const registry = new InferenceRegistry([{ key: "default", adapter }], "default");
+    const provider = new RecordingProvider();
+    const registry = new ModelProviderRegistry([{ key: "default", provider }], "default");
 
     await expect(collect(registry.infer({ messages: [], tools: [] }))).resolves.toEqual([
       { type: "finished", reason: "stop" },
@@ -42,13 +42,11 @@ describe("InferenceRegistry", () => {
   });
 });
 
-class RecordingAdapter implements InferenceAdapter {
-  readonly requests: InferenceInput[] = [];
+class RecordingProvider implements ModelProvider {
+  readonly requests: ModelRequest[] = [];
 
-  constructor(readonly name: string) {}
-
-  async *infer(input: InferenceInput): AsyncIterable<InferenceEvent> {
-    this.requests.push(input);
+  async *infer(request: ModelRequest): AsyncIterable<ModelEvent> {
+    this.requests.push(request);
     yield { type: "finished", reason: "stop" };
   }
 }

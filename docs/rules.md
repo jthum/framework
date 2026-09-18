@@ -89,10 +89,10 @@ System Actor that is actually a member of the active Workspace; a host may insta
 other semantic bindings. The resolved Actor is passed back through ordinary context and Action
 authorization rather than becoming a permission shortcut.
 
-`agents.run` calls an installed AgentRuntime and collects its final JSON result. It inherits the
+`inference.run` calls an installed InferenceRuntime and collects its final JSON result. It inherits the
 Rule's current Actor; a semantic Agent binding in `runAs` is optional when the work needs an
 independent identity. Agent Actors use their persisted instructions and ModelConfig; User/System
-inference can supply a model selection or use an adapter default. Conversation storage remains host
+inference can supply a model selection or use a runtime default. Conversation storage remains host
 state. See [Inference and Agents](agents.md).
 
 The short runner bounds nesting, cascaded steps, loops, and repeats. Retries are process-local, parallel

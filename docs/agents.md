@@ -1,200 +1,139 @@
 # Inference and Agents
 
-Framework separates a model request, a complete tool-using turn, and the Actor whose authority is
-used. This lets a user-facing assistant run as its current User while an autonomous Agent runs as
-an Agent Actor with its own Membership and permission ceiling.
+Framework separates inference execution from Agent identity. `InferenceRuntime` is the only
+Kernel-facing inference contract. A runtime receives resolved instructions, model selection,
+messages, execution identity, and Framework's dynamic tool gateway, then emits a normalized event
+stream for the complete run.
 
 ## Code map
 
-- Contracts and default loop: [`src/kernel/agent-runtime.ts`](../src/kernel/agent-runtime.ts)
+- Runtime contract: [`src/kernel/inference-runtime.ts`](../src/kernel/inference-runtime.ts)
 - Persisted Agent settings: [`src/kernel/agent-config.ts`](../src/kernel/agent-config.ts)
-- Dynamic tool gateway: [`src/kernel/agent-tools.ts`](../src/kernel/agent-tools.ts)
+- Dynamic tool gateway: [`src/kernel/inference-tools.ts`](../src/kernel/inference-tools.ts)
 - Kernel composition: [`src/kernel/kernel.ts`](../src/kernel/kernel.ts)
-- Action tool metadata: [`src/kernel/action-registry.ts`](../src/kernel/action-registry.ts)
 - Context-bound client: [`src/client/workspace-client.ts`](../src/client/workspace-client.ts)
-- Deterministic contract tests: [`src/kernel/agent-runtime.spec.ts`](../src/kernel/agent-runtime.spec.ts)
+- Runtime contract tests: [`src/kernel/inference-runtime.spec.ts`](../src/kernel/inference-runtime.spec.ts)
+- YAIR implementation: [`packages/inference/yair/core`](../packages/inference/yair/core)
 
-## Three layers
+## One integration boundary
 
-`InferenceAdapter` performs one provider/model request. Its input is an immutable message and tool
-snapshot for that request. It translates provider events into `InferenceEvent` without deciding
-which tools exist or executing them.
-
-`AgentRuntime` coordinates a complete turn. `DefaultAgentRuntime` resolves tools, calls an
-`InferenceAdapter`, executes requested tools sequentially, adds results to the messages, and repeats
-until the turn completes. A host may replace the complete runtime when a higher-level agent library
-needs to own orchestration.
-
-The Kernel owns execution identity, authorization, Action and Rule projection, and the dynamic tool
-gateway. Every tool execution re-enters current Kernel checks.
-
-The simple composition path is one adapter:
+Hosts install one complete-run implementation:
 
 ```ts
 const kernel = await Kernel.open({
   persistence,
   environment: defineEnvironmentProfile({
     ...LOCAL_BROWSER_ENVIRONMENT,
-    agentRuntime: true,
+    inference: true,
   }),
   inference,
 });
 ```
 
-Framework constructs `DefaultAgentRuntime`. Advanced hosts pass `agentRuntime` instead. Supplying
-both is rejected so ownership of the loop is unambiguous.
+The runtime owns provider communication and the model/tool iteration loop. Framework owns Actor
+identity, persisted Agent configuration, Action and Rule projection, contextual tool availability,
+authorization, and tool execution. The runtime can never grant itself authority: it invokes tools
+through the supplied `InferenceToolGateway`, whose execution path re-enters current Kernel checks.
 
-No model SDK or schema library is a dependency of the Spec or Kernel. An adapter may use either
-internally.
+Runtime implementations may wrap a broad inference library or provide their own provider system.
+Framework does not depend on a model SDK, agent library, or schema library.
 
-## Actors
+## YAIR
 
-`Kernel.runAgent(context, input)` uses the Actor in `context`:
+YAIR—Yet Another Inference Runtime—is developed as the independent `@jthum/yair` workspace package.
+It contains the lightweight sequential loop previously built into Framework. YAIR resolves tools
+before every model step, executes calls in emitted order, feeds results and structured errors back
+to the model, aggregates usage, and enforces a step limit.
+
+YAIR provider packages implement its narrower `ModelProvider` contract for one model request. That
+contract belongs to YAIR, not Framework. Other complete runtimes integrate directly through
+`InferenceRuntime` and do not use `ModelProvider`.
+
+```ts
+import { yair, ModelProviderRegistry } from "@jthum/yair";
+
+const inference = yair({
+  provider: new ModelProviderRegistry([{ key: "provider", provider }]),
+});
+```
+
+YAIR is tightly integrated through Framework's public inference contract while remaining a
+separate package. Framework never imports YAIR.
+
+## Actors and Agent configuration
+
+`Kernel.runInference(context, input)` uses the Actor in `context`:
 
 - A user-facing assistant normally uses the current User. Its tool calls are authorized and
   attributed to that User.
 - An autonomous or independently permissioned Agent uses an Agent Actor and ordinary Membership.
 - A host may deliberately use a System Actor for system-owned work.
 
-An Agent Actor is persisted identity and authority. Inference is the reasoning operation. Keeping
-them separate supports chat, generation, extraction, and structured decisions without inventing an
-Actor for every model call.
+An Agent Actor has a persisted `AgentConfig` containing instructions, a selected `ModelConfig`, and
+tool-selection policy. `ModelConfig` stores a provider key, model key, optional provider settings,
+and an opaque `credentialRef`; the referenced secret stays in trusted host infrastructure.
 
-## Agent configuration
-
-`AgentConfig` is one-to-one with an Agent Actor and stores its system instructions, selected
-`ModelConfig`, and tool-selection policy. `ModelConfig` belongs to the Agent's issuing Workspace and
-stores a provider key, model key, optional provider settings, and an opaque `credentialRef`. The
-referenced secret stays in trusted host infrastructure.
-
-The compact creation path is atomic:
+The compact creation path remains atomic:
 
 ```ts
 const planner = await kernel.createAgent(context, {
   name: "Planner",
   instructions: "Plan and prioritize the team's work.",
-  provider: "openai",
+  provider: "provider",
   model: "reasoning-model",
-  credentialRef: "secret/openai/team",
+  credentialRef: "secret/provider/team",
   permissions: ["read", "create", "update"],
 });
 ```
 
-It creates the Actor, local Membership, ModelConfig, and AgentConfig together. Advanced hosts can
-create reusable ModelConfigs and connect them with `configureAgent`. Agent configuration is
-instance state rather than portable Spec: exporting the Spec does not export identities,
-credentials, or deployment choices.
-
-`InferenceRegistry` is an optional router for hosts with multiple provider adapters. Its keys match
-`ModelConfig.provider`. A single adapter can instead handle routing itself or be passed directly as
-`KernelOptions.inference`.
+Agent configuration is instance state rather than portable Spec. Exporting Spec does not export
+identities, credentials, or deployment choices.
 
 ## Dynamic tools
 
-Tools are resolved before every model step and remain stable for that provider request. This makes
-contextual tools natural: a host tool may be available on the first message, after a particular
-result, or only in one interface. `AgentToolProvider` is the trusted host extension point.
+`InferenceToolGateway.resolve()` returns a stable executable snapshot for one model step. A runtime
+resolves it again before the next step. This supports tools that exist only on the first message,
+after a particular result, or in one host interface.
 
-```ts
-const firstMessageTools: AgentToolProvider = {
-  resolve(context) {
-    if (context.step !== 1) return [];
-    return [
-      {
-        id: "set_title",
-        label: "Set title",
-        description: "Set the conversation title.",
-        input: {
-          type: "object",
-          properties: { title: { type: "string" } },
-          required: ["title"],
-        },
-        execute(input) {
-          return saveTitle(input.title);
-        },
-      },
-    ];
-  },
-};
-```
+Register trusted contextual providers with `KernelOptions.inferenceTools`. Business capabilities
+normally remain Actions or Rules so all callers share one implementation. Inference-only tools can
+come from a host provider.
 
-Register trusted providers with `KernelOptions.agentTools`. Business capabilities usually remain
-Actions or Rules so all callers share one implementation. Inference-only tools can live in a host
-provider.
+Action tool metadata may use `availability: "discoverable"`. Agent-exposed Rules are discoverable
+by default. When hidden matches exist, Framework offers `search_tools`; selected matches become
+active on the following step. Eager tools remain attached without requiring discovery.
 
-Action tool metadata may set `availability: "discoverable"`. Exposed Rules are discoverable by
-default. When discoverable tools exist, Framework offers `search_tools`; matches are activated for
-the next model step. Eager tools remain attached without requiring discovery. The resolver runs on
-every step, but stable ordering and definitions produce the same serialized tool prefix, preserving
-provider caching when the effective set has not changed.
+An Agent's persisted tool policy may include or exclude stable tool IDs and enable or disable
+discovery. It narrows the eligible catalog and never grants permission. When discovery is disabled,
+eligible discoverable tools are attached directly.
 
-An Agent's persisted tool policy can include or exclude stable tool IDs and enable or disable
-discovery. It only narrows the currently eligible catalog; it never grants a permission. When
-discovery is disabled, eligible discoverable tools are attached directly.
+Immediately before execution, the gateway resolves current availability and authorization again.
+A removed tool or revoked permission returns a structured tool error that the runtime can feed into
+the conversation. Parallel execution is not implied by the contract; YAIR executes multiple calls
+from one model step sequentially.
 
-A resolved `AgentToolSet` is a bound snapshot. The model can call only a tool offered in that step.
-Immediately before execution, the Kernel resolves current availability and re-enters authorization.
-If a tool was removed or authority was revoked, the runtime emits `tool_error`, adds that error to
-the conversation, and allows the model to recover on the next step. Multiple calls from one model
-step execute sequentially in emitted order.
+## Actions and Rules
 
-## Action and Rule tools
+Actions opt in with provider-neutral tool metadata. Rules opt in through `expose: ["agent"]`.
+Disabled and unexposed Rules are absent. Short Rules return their result; durable Rules return their
+execution identity and current status. Compact built-in tools cover Source and View discovery,
+generic record operations, and View operations without generating per-Collection CRUD tools.
 
-Actions opt in with provider-neutral metadata:
+`inference.run` is a built-in Action. A Rule inherits its current Actor unless an action uses an
+explicit semantic `runAs` binding. The host resolves that binding to an Actor without placing a
+concrete Actor ID in portable Spec.
 
-```ts
-const action = {
-  key: "documents.publish",
-  tool: {
-    label: "Publish document",
-    description: "Publish a reviewed document.",
-    availability: "discoverable",
-    keywords: ["release", "document"],
-    input: {
-      type: "object",
-      properties: { documentId: { type: "string" } },
-      required: ["documentId"],
-      additionalProperties: false,
-    },
-  },
-  run({ context, input }) {
-    return publishDocument(context, input.documentId);
-  },
-};
-```
+## Event contract
 
-Rules opt in through `expose: ["agent"]`. Disabled and unexposed Rules are absent. Short Rules
-return their result; durable Rules return their execution identity and current status. Built-in
-compact tools cover Source and View discovery, generic record operations, and View operations,
-avoiding per-Collection CRUD definitions.
-
-## Event contracts
-
-An `InferenceAdapter` emits zero or more content, structured-output, tool-call, and usage events,
-followed by exactly one of:
-
-- `finished` with `stop`, `tool_calls`, `length`, `refusal`, or `content_filter`;
-- `failed` with an `ErrorEnvelope`;
-- `cancelled`.
-
-No event may follow that terminal inference event.
-
-An `AgentRuntime` emits `started` first, monotonically numbered steps, their streamed content and
-tool activity, then exactly one turn terminal: `completed`, `refused`, `failed`, or `cancelled`.
-Completed model steps emit `step_finished`; provider failure or cancellation terminates the active
-step directly. No event may follow the turn terminal. `collectAgentRun` validates this terminal
-contract and returns the completed JSON value.
-
-## Rules and transports
-
-`agents.run` is a built-in Action. A Rule inherits its current Actor by default. It uses a semantic
-`runAs` binding when it should run as an independently permissioned Agent; the host resolves the
-binding to an Agent Actor without placing concrete Actor IDs in portable Spec.
+An `InferenceRuntime` emits `started`, monotonically numbered steps, streamed content and tool
+activity, then exactly one terminal event: `completed`, `refused`, `failed`, or `cancelled`. No event
+may follow the terminal. `collectInferenceRun` validates terminal behavior and returns completed
+JSON output or raises the normalized Framework error.
 
 An embedded host can consume the async stream directly. A server host resolves the authenticated
-Actor, runs the Kernel, and frames events for its transport. Conversation storage and bounded
-history are host state; provider credentials are resolved by trusted host infrastructure rather
-than stored in portable Spec.
+Actor, runs the Kernel, and frames events for its transport. Conversation persistence and bounded
+history are host state.
 
 Deterministic tests cover identity, authorization, discovery, changing tool availability, ordering,
-and event contracts. Behavioral model evals belong beside a concrete adapter.
+stream validity, refusal, cancellation, and step limits. Behavioral model evals belong beside a
+concrete runtime/provider integration.

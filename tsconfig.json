@@ -8,10 +8,16 @@
     "moduleResolution": "Bundler",
     "noEmit": true,
     "noUncheckedIndexedAccess": true,
+    "paths": {
+      "@jthum/framework": ["./src/index.ts"],
+      "@jthum/framework/errors": ["./src/errors/index.ts"],
+      "@jthum/framework/kernel": ["./src/kernel/index.ts"],
+      "@jthum/yair": ["./packages/inference/yair/core/src/index.ts"]
+    },
     "skipLibCheck": true,
     "strict": true,
     "target": "ES2023",
     "verbatimModuleSyntax": true
   },
-  "include": ["src", "vite.config.ts"]
+  "include": ["src", "packages/inference", "vite.config.ts"]
 }

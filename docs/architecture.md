@@ -199,14 +199,13 @@ Auth providers (password, magic link, SSO) are outside the Spec. After authentic
 | **PersistenceAdapter** | Catalog, records, and Kernel instance data. Physical layout and sync/CDC strategy are adapter policy.        |
 | **EnvironmentProfile** | Deployment capabilities only: durable waits, schedules, ACP, multiplayer, and similar.                       |
 | **SecretStore**        | Optional host/adapter port for credentials outside the Spec and profile.                                     |
-| **InferenceAdapter**   | One provider/model inference request and its normalized event stream.                                        |
-| **AgentRuntime**       | Complete inference/tool orchestration. The default runtime composes an InferenceAdapter with Kernel tools.   |
+| **InferenceRuntime**   | Complete provider/model inference and tool orchestration behind one normalized semantic contract.            |
 | **Host / Shell**       | Product chrome and information architecture.                                                                 |
 | **Module**             | Domain entities, invariants, Actions, Events, Sources, and optional UI. Code, not a v1 ModuleDefinition SPI. |
 | **Session**            | UI/process state.                                                                                            |
 
 ```text
-Spec + PersistenceAdapter + EnvironmentProfile [+ InferenceAdapter or AgentRuntime] -> Kernel
+Spec + PersistenceAdapter + EnvironmentProfile [+ InferenceRuntime] -> Kernel
 
 SecretStore -> host integrations and optional adapters
 ```
@@ -310,7 +309,7 @@ development.
 
 - exact optional View default-presentation contract;
 - `wait.signal` versus a dedicated Actor step inside a Rule;
-- optional concrete InferenceAdapter packages and their behavioral evals;
+- concrete inference runtime/provider integrations and their behavioral evals;
 - whether later Form presentation needs anything beyond the current success title/description;
 - future rolling Materialization semantics;
 - cross-root guest identity;
@@ -350,8 +349,7 @@ ACL                 member permissions plus others ceiling
 Attachment          cross-Workspace Source access with narrowed permissions
 ModelConfig         instance provider/model selection; secrets stay behind credentialRef
 AgentConfig         instructions and tool policy attached to an Agent Actor
-InferenceAdapter    one provider/model request
-AgentRuntime        complete inference/tool turn
+InferenceRuntime    complete inference/tool run
 Kernel              TypeScript reference engine
 Module              domain code
 PersistenceAdapter  storage implementation

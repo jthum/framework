@@ -1,5 +1,5 @@
 import type { FormSubmission, SubmitFormInput } from "../kernel/forms.ts";
-import type { AgentEvent, AgentInput, AgentTool } from "../kernel/agent-runtime.ts";
+import type { InferenceEvent, InferenceInput, InferenceTool } from "../kernel/inference-runtime.ts";
 import type {
   AgentBootstrap,
   ConfigureAgentInput,
@@ -40,9 +40,9 @@ export interface RuleExecutionClient {
 }
 
 /** Context-bound inference operations using the bound Actor's current authority. */
-export interface AgentClient {
-  listAgentTools(): Promise<readonly AgentTool[]>;
-  runAgent(input: AgentInput): Promise<AsyncIterable<AgentEvent>>;
+export interface InferenceClient {
+  listInferenceTools(): Promise<readonly InferenceTool[]>;
+  runInference(input: InferenceInput): Promise<AsyncIterable<InferenceEvent>>;
 }
 
 /** Context-bound management operations for Agent settings surfaces. */
@@ -76,7 +76,8 @@ import type {
  * A browser host can bind this directly to an in-process Kernel. A server or remote host can
  * implement the same contract over its transport without exposing Kernel lifecycle to the UI.
  */
-export interface WorkspaceClient extends RuleExecutionClient, AgentClient, AgentManagementClient {
+export interface WorkspaceClient
+  extends RuleExecutionClient, InferenceClient, AgentManagementClient {
   getWorkspace(): Promise<Workspace>;
   getActor(id: string): Promise<Actor | null>;
   updateActor(id: string, input: UpdateActorInput): Promise<Actor>;
@@ -138,12 +139,12 @@ class LocalWorkspaceClient implements WorkspaceClient {
     return this.kernel.updateActor(this.context, id, input);
   }
 
-  listAgentTools() {
-    return this.kernel.listAgentTools(this.context);
+  listInferenceTools() {
+    return this.kernel.listInferenceTools(this.context);
   }
 
-  runAgent(input: AgentInput) {
-    return this.kernel.runAgent(this.context, input);
+  runInference(input: InferenceInput) {
+    return this.kernel.runInference(this.context, input);
   }
 
   async listAgents() {

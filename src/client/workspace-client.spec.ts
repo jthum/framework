@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { collectAgentRun, type AgentRuntime } from "../kernel/agent-runtime.ts";
+import { collectInferenceRun, type InferenceRuntime } from "../kernel/inference-runtime.ts";
 import { defineEnvironmentProfile, LOCAL_BROWSER_ENVIRONMENT } from "../kernel/environment.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import { MemoryPersistenceAdapter } from "../persistence/memory.ts";
@@ -131,25 +131,28 @@ describe("WorkspaceClient", () => {
     }
   });
 
-  it("streams Agent operations through the bound Agent context", async () => {
-    const runtime: AgentRuntime = {
+  it("streams inference through the bound Actor context", async () => {
+    const runtime: InferenceRuntime = {
       async *run(context) {
         yield { type: "completed", output: { actorId: context.actor.id } };
       },
     };
     const kernel = await Kernel.open({
       persistence: new MemoryPersistenceAdapter(),
-      environment: defineEnvironmentProfile({ ...LOCAL_BROWSER_ENVIRONMENT, agentRuntime: true }),
-      agentRuntime: runtime,
+      environment: defineEnvironmentProfile({
+        ...LOCAL_BROWSER_ENVIRONMENT,
+        inference: true,
+      }),
+      inference: runtime,
     });
     try {
       const root = await kernel.createRootWorkspace({ name: "Space", user: { name: "Jane" } });
       const owner = { workspaceId: root.workspace.id, actorId: root.user.id };
       const client = await createWorkspaceClient(kernel, owner);
 
-      await expect(client.listAgentTools()).resolves.toEqual(expect.any(Array));
-      const events = await client.runAgent({ messages: [{ role: "user", content: "Hello" }] });
-      await expect(collectAgentRun(events)).resolves.toEqual({ actorId: root.user.id });
+      await expect(client.listInferenceTools()).resolves.toEqual(expect.any(Array));
+      const events = await client.runInference({ messages: [{ role: "user", content: "Hello" }] });
+      await expect(collectInferenceRun(events)).resolves.toEqual({ actorId: root.user.id });
     } finally {
       await kernel.close();
     }

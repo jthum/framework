@@ -93,7 +93,7 @@ function requiredPermission(operation: string): Permission {
     operation === "rules.resume" ||
     operation === "actor_requests.respond" ||
     operation === "rules.dispatch" ||
-    operation === "agents.run" ||
+    operation === "inference.run" ||
     operation === "actions.execute" ||
     operation === "forms.submit"
   )

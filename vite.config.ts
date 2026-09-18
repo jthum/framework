@@ -18,6 +18,12 @@ export default defineConfig({
         find: /^@jthum\/framework$/,
         replacement: fileURLToPath(new URL("./src/index.ts", import.meta.url)),
       },
+      {
+        find: /^@jthum\/yair$/,
+        replacement: fileURLToPath(
+          new URL("./packages/inference/yair/core/src/index.ts", import.meta.url),
+        ),
+      },
       ...["client", "kernel", "spec", "errors", "persistence", "blocks", "catalog", "sqlite"].map(
         (key) => ({
           find: new RegExp(`^@jthum/framework/${key}$`),
@@ -27,7 +33,7 @@ export default defineConfig({
     ],
     expect: { requireAssertions: true },
     environment: "node",
-    include: ["src/**/*.{test,spec}.{js,ts}"],
+    include: ["src/**/*.{test,spec}.{js,ts}", "packages/inference/**/*.{test,spec}.{js,ts}"],
   },
   pack: {
     entry: [

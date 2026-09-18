@@ -54,17 +54,15 @@ import {
 } from "./agent-config.ts";
 import { ActionRegistry, type ActionDefinition } from "./action-registry.ts";
 import {
-  collectAgentRun,
-  DefaultAgentRuntime,
-  type AgentInput,
-  type AgentEvent,
-  type AgentMessage,
-  type AgentRuntime,
-  type AgentTool,
-  type AgentToolProvider,
-  type AgentToolValueSchema,
-  type InferenceAdapter,
-} from "./agent-runtime.ts";
+  collectInferenceRun,
+  type InferenceInput,
+  type InferenceEvent,
+  type InferenceMessage,
+  type InferenceRuntime,
+  type InferenceTool,
+  type InferenceToolProvider,
+  type InferenceToolValueSchema,
+} from "./inference-runtime.ts";
 import {
   ConditionRegistry,
   coreConditions,
@@ -98,7 +96,7 @@ import {
   type RunRuleInput,
 } from "./rules.ts";
 import type { DurableRuleService, ResumeRuleInput } from "./durable-rules.ts";
-import { AgentToolService } from "./agent-tools.ts";
+import { InferenceToolService } from "./inference-tools.ts";
 
 export interface KernelOptions {
   readonly persistence: PersistenceAdapter;
@@ -108,11 +106,9 @@ export interface KernelOptions {
   readonly environment?: EnvironmentProfile;
   readonly actions?: readonly ActionDefinition[];
   readonly conditions?: readonly ConditionDefinition[];
-  readonly agentRuntime?: AgentRuntime;
-  /** Simple path: Framework supplies the tool loop around this one-step adapter. */
-  readonly inference?: InferenceAdapter;
+  readonly inference?: InferenceRuntime;
   /** Trusted host extensions for tools whose availability depends on the current step. */
-  readonly agentTools?: readonly AgentToolProvider[];
+  readonly inferenceTools?: readonly InferenceToolProvider[];
   readonly resolveActorBinding?: ActorBindingResolver;
   readonly ruleExecution?: RuleServiceOptions;
 }
@@ -179,7 +175,7 @@ export class Kernel {
   private readonly forms: FormService;
   private readonly pages: PageService;
   private readonly agentConfigs: AgentConfigService;
-  private readonly agentToolService: AgentToolService;
+  private readonly inferenceToolService: InferenceToolService;
   private readonly rules: RuleService;
   private readonly durableRules: DurableRuleService;
   private readonly actions: ActionRegistry;
@@ -192,8 +188,8 @@ export class Kernel {
     readonly environment: EnvironmentProfile,
     actions: readonly ActionDefinition[],
     conditions: readonly ConditionDefinition[],
-    private readonly agentRuntime: AgentRuntime | undefined,
-    agentTools: readonly AgentToolProvider[],
+    private readonly inference: InferenceRuntime | undefined,
+    inferenceTools: readonly InferenceToolProvider[],
     resolveActorBinding: ActorBindingResolver | undefined,
     ruleExecution: RuleServiceOptions | undefined,
   ) {
@@ -297,10 +293,10 @@ export class Kernel {
       },
       environment.durableRuleExecution,
     );
-    this.agentToolService = new AgentToolService(
+    this.inferenceToolService = new InferenceToolService(
       catalog,
       this.actions,
-      agentTools,
+      inferenceTools,
       {
         executeAction: (context, key, input) => this.executeAction(context, key, input),
         runRule: (context, key, input) => this.runRule(context, key, input),
@@ -491,12 +487,12 @@ export class Kernel {
     return this.rules.profile(events);
   }
 
-  async listAgentTools(context: ExecutionContext): Promise<readonly AgentTool[]> {
-    const actor = await this.requireAgentRuntimeContext(context);
-    await this.assertAgentRuntime();
+  async listInferenceTools(context: ExecutionContext): Promise<readonly InferenceTool[]> {
+    const actor = await this.requireInferenceRuntimeContext(context);
+    await this.assertInferenceRuntime();
     const policy = await this.agentPolicy(actor);
     return (
-      await this.agentToolService.list(
+      await this.inferenceToolService.list(
         context,
         { execution: context, actor, messages: [], step: 1, activeToolIds: new Set() },
         policy,
@@ -504,9 +500,12 @@ export class Kernel {
     ).tools;
   }
 
-  async runAgent(context: ExecutionContext, input: AgentInput): Promise<AsyncIterable<AgentEvent>> {
-    const actor = await this.requireAgentRuntimeContext(context);
-    const runtime = await this.assertAgentRuntime();
+  async runInference(
+    context: ExecutionContext,
+    input: InferenceInput,
+  ): Promise<AsyncIterable<InferenceEvent>> {
+    const actor = await this.requireInferenceRuntimeContext(context);
+    const runtime = await this.assertInferenceRuntime();
     const configured = await this.agentExecution(actor);
     return runtime.run({
       execution: { ...context },
@@ -529,13 +528,16 @@ export class Kernel {
         : { model: configured.model }),
       ...(input.metadata === undefined ? {} : { metadata: structuredClone(input.metadata) }),
       ...(input.signal === undefined ? {} : { signal: input.signal }),
-      tools: this.agentToolService.gateway(context, configured?.tools ?? defaultAgentToolPolicy()),
+      tools: this.inferenceToolService.gateway(
+        context,
+        configured?.tools ?? defaultAgentToolPolicy(),
+      ),
     });
   }
 
   private async agentExecution(actor: Actor): Promise<{
     readonly instructions: string;
-    readonly model: NonNullable<AgentInput["model"]>;
+    readonly model: NonNullable<InferenceInput["model"]>;
     readonly tools: AgentToolPolicy;
   } | null> {
     return this.agentConfigs.execution(actor);
@@ -545,29 +547,27 @@ export class Kernel {
     return (await this.agentExecution(actor))?.tools ?? defaultAgentToolPolicy();
   }
 
-  private async requireAgentRuntimeContext(context: ExecutionContext): Promise<Actor> {
+  private async requireInferenceRuntimeContext(context: ExecutionContext): Promise<Actor> {
     await this.assertContext(context);
     const actor = await this.requireActor(context.actorId);
     await this.assertAuthorized({
       context,
-      operation: "agents.run",
+      operation: "inference.run",
       resource: { kind: "actor", id: actor.id, workspaceId: context.workspaceId },
     });
     return actor;
   }
 
-  private async assertAgentRuntime(): Promise<AgentRuntime> {
-    if (!this.environment.agentRuntime || !this.agentRuntime)
+  private async assertInferenceRuntime(): Promise<InferenceRuntime> {
+    if (!this.environment.inference || !this.inference)
       throw new FrameworkError({
         code: ERROR_CODES.environmentCapabilityUnavailable,
-        message: "This environment does not enable an AgentRuntime.",
+        message: "This environment does not enable inference.",
       });
-    return this.agentRuntime;
+    return this.inference;
   }
 
   static async open(options: KernelOptions): Promise<Kernel> {
-    if (options.agentRuntime && options.inference)
-      throw resourceConflict("Provide either agentRuntime or inference, not both.");
     const persistence = await options.persistence.open();
     return new Kernel(
       persistence,
@@ -578,9 +578,8 @@ export class Kernel {
       options.environment ?? LOCAL_BROWSER_ENVIRONMENT,
       options.actions ?? [],
       options.conditions ?? [],
-      options.agentRuntime ??
-        (options.inference ? new DefaultAgentRuntime(options.inference) : undefined),
-      options.agentTools ?? [],
+      options.inference,
+      options.inferenceTools ?? [],
       options.resolveActorBinding,
       options.ruleExecution,
     );
@@ -1459,9 +1458,9 @@ export class Kernel {
         },
       },
       {
-        key: "agents.run",
+        key: "inference.run",
         run: async ({ context, input }) =>
-          collectAgentRun(await this.runAgent(context, actionAgentInput(input))),
+          collectInferenceRun(await this.runInference(context, actionInferenceInput(input))),
       },
     ];
   }
@@ -1943,7 +1942,7 @@ function stableActionValues(
 function actionTool(
   label: string,
   description: string,
-  properties: Readonly<Record<string, AgentToolValueSchema>>,
+  properties: Readonly<Record<string, InferenceToolValueSchema>>,
   required: readonly string[] = [],
 ): NonNullable<ActionDefinition["tool"]> {
   return {
@@ -1958,10 +1957,10 @@ function actionTool(
   };
 }
 
-function actionAgentInput(input: Readonly<Record<string, JsonValue>>): AgentInput {
+function actionInferenceInput(input: Readonly<Record<string, JsonValue>>): InferenceInput {
   if (!Array.isArray(input.messages))
     throw actionInputError("Action input messages must be an array.");
-  const messages: AgentMessage[] = input.messages.map((value, index) => {
+  const messages: InferenceMessage[] = input.messages.map((value, index) => {
     if (!isJsonObject(value))
       throw actionInputError(`Action input messages.${index} must be an object.`);
     if (value.role !== "user" && value.role !== "assistant")

@@ -1,9 +1,9 @@
 import type { JsonValue } from "../spec/model.ts";
 
 export const ERROR_CODES = {
-  agentCancelled: "AGENT.CANCELLED",
-  agentInvalidStream: "AGENT.INVALID_STREAM",
-  agentStepLimit: "AGENT.STEP_LIMIT",
+  inferenceCancelled: "INFERENCE.CANCELLED",
+  inferenceInvalidStream: "INFERENCE.INVALID_STREAM",
+  inferenceStepLimit: "INFERENCE.STEP_LIMIT",
   environmentCapabilityUnavailable: "ENVIRONMENT.CAPABILITY_UNAVAILABLE",
   internalUnexpected: "INTERNAL.UNEXPECTED",
   inferenceRefused: "INFERENCE.REFUSED",

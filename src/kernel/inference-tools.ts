@@ -9,20 +9,20 @@ import type { JsonValue, RuleInputDefinition } from "../spec/model.ts";
 import { agentToolAllowed } from "./agent-config.ts";
 import type { ActionRegistry } from "./action-registry.ts";
 import type {
-  AgentTool,
-  AgentToolCall,
-  AgentToolContext,
-  AgentToolGateway,
-  AgentToolInputSchema,
-  AgentToolProvider,
-  AgentToolValueSchema,
-} from "./agent-runtime.ts";
+  InferenceTool,
+  InferenceToolCall,
+  InferenceToolContext,
+  InferenceToolGateway,
+  InferenceToolInputSchema,
+  InferenceToolProvider,
+  InferenceToolValueSchema,
+} from "./inference-runtime.ts";
 import type { AuthorizationRequest } from "./authorization.ts";
 import type { AgentToolPolicy, ExecutionContext } from "./model.ts";
 import { requiresDurableExecution } from "./rule-compatibility.ts";
 import type { RuleRun, RunRuleInput } from "./rules.ts";
 
-interface AgentToolOperations {
+interface InferenceToolOperations {
   executeAction(
     context: ExecutionContext,
     key: string,
@@ -37,35 +37,35 @@ interface AgentToolOperations {
 }
 
 /** Resolves and executes the effective per-step Action, Rule, and host tool catalog. */
-export class AgentToolService {
+export class InferenceToolService {
   constructor(
     private readonly catalog: CatalogRepository,
     private readonly actions: ActionRegistry,
-    private readonly providers: readonly AgentToolProvider[],
-    private readonly operations: AgentToolOperations,
+    private readonly providers: readonly InferenceToolProvider[],
+    private readonly operations: InferenceToolOperations,
     private readonly isAuthorized: (request: AuthorizationRequest) => Promise<boolean>,
   ) {}
 
-  gateway(context: ExecutionContext, policy: AgentToolPolicy): AgentToolGateway {
+  gateway(context: ExecutionContext, policy: AgentToolPolicy): InferenceToolGateway {
     return { resolve: (toolContext) => this.project(context, toolContext, policy, false) };
   }
 
   list(
     context: ExecutionContext,
-    toolContext: AgentToolContext,
+    toolContext: InferenceToolContext,
     policy: AgentToolPolicy,
-  ): Promise<{ readonly tools: readonly AgentTool[] }> {
+  ): Promise<{ readonly tools: readonly InferenceTool[] }> {
     return this.project(context, toolContext, policy, true);
   }
 
   private async project(
     context: ExecutionContext,
-    toolContext: AgentToolContext,
+    toolContext: InferenceToolContext,
     policy: AgentToolPolicy,
     includeDiscoverable: boolean,
   ): Promise<{
-    readonly tools: readonly AgentTool[];
-    execute(call: AgentToolCall): Promise<JsonValue>;
+    readonly tools: readonly InferenceTool[];
+    execute(call: InferenceToolCall): Promise<JsonValue>;
   }> {
     const workspace = await this.catalog.getWorkspace(context.workspaceId);
     if (!workspace) throw resourceNotFound("Workspace", context.workspaceId);
@@ -73,8 +73,8 @@ export class AgentToolService {
       string,
       (input: Readonly<Record<string, JsonValue>>) => Promise<JsonValue>
     >();
-    const eager: AgentTool[] = [];
-    const discoverable: Array<AgentTool & { readonly keywords: readonly string[] }> = [];
+    const eager: InferenceTool[] = [];
+    const discoverable: Array<InferenceTool & { readonly keywords: readonly string[] }> = [];
 
     for (const action of this.actions.list()) {
       if (!action.tool) continue;
@@ -136,8 +136,8 @@ export class AgentToolService {
         if (!agentToolAllowed(policy, definition.id)) continue;
         const { availability = "eager", keywords = [] } = definition;
         if (executors.has(definition.id))
-          throw resourceConflict(`Agent tool ${definition.id} is already registered.`);
-        const projected: AgentTool = structuredClone({
+          throw resourceConflict(`Inference tool ${definition.id} is already registered.`);
+        const projected: InferenceTool = structuredClone({
           id: definition.id,
           label: definition.label,
           description: definition.description,
@@ -155,7 +155,7 @@ export class AgentToolService {
       includeDiscoverable || !policy.search
         ? discoverable
         : discoverable.filter((tool) => toolContext.activeToolIds.has(tool.id));
-    const tools: AgentTool[] = [...eager, ...visibleDiscoverable];
+    const tools: InferenceTool[] = [...eager, ...visibleDiscoverable];
     if (policy.search && !includeDiscoverable && discoverable.length > visibleDiscoverable.length)
       tools.push(searchToolsDefinition());
     tools.sort((left, right) => left.id.localeCompare(right.id));
@@ -164,8 +164,8 @@ export class AgentToolService {
     return {
       tools: tools.map((tool) => structuredClone(tool)),
       execute: async (call) => {
-        if (!offered.has(call.toolId)) throw resourceNotFound("AgentTool", call.toolId);
-        if (call.toolId === "search_tools") return searchAgentTools(discoverable, call.input);
+        if (!offered.has(call.toolId)) throw resourceNotFound("InferenceTool", call.toolId);
+        if (call.toolId === "search_tools") return searchInferenceTools(discoverable, call.input);
         const current = await this.project(
           context,
           { ...toolContext, activeToolIds: new Set([call.toolId]) },
@@ -173,9 +173,9 @@ export class AgentToolService {
           false,
         );
         if (!current.tools.some((tool) => tool.id === call.toolId))
-          throw resourceNotFound("AgentTool", call.toolId);
+          throw resourceNotFound("InferenceTool", call.toolId);
         const execute = executors.get(call.toolId);
-        if (!execute) throw resourceNotFound("AgentTool", call.toolId);
+        if (!execute) throw resourceNotFound("InferenceTool", call.toolId);
         return execute(structuredClone(call.input));
       },
     };
@@ -184,7 +184,7 @@ export class AgentToolService {
 
 function ruleInputSchema(
   input: Readonly<Record<string, RuleInputDefinition>> | undefined,
-): AgentToolInputSchema {
+): InferenceToolInputSchema {
   const entries = Object.entries(input ?? {});
   return {
     type: "object",
@@ -198,7 +198,7 @@ function ruleInputSchema(
   };
 }
 
-function ruleInputValueSchema(definition: RuleInputDefinition): AgentToolValueSchema {
+function ruleInputValueSchema(definition: RuleInputDefinition): InferenceToolValueSchema {
   if ("sourceId" in definition)
     return { type: "string", description: `Record ID from Source ${definition.sourceId}.` };
   if (definition.value === "text" || definition.value === "date") return { type: "string" };
@@ -208,7 +208,7 @@ function ruleInputValueSchema(definition: RuleInputDefinition): AgentToolValueSc
   return { type: "object", additionalProperties: true };
 }
 
-function searchToolsDefinition(): AgentTool {
+function searchToolsDefinition(): InferenceTool {
   return {
     id: "search_tools",
     label: "Search tools",
@@ -226,8 +226,8 @@ function searchToolsDefinition(): AgentTool {
   };
 }
 
-function searchAgentTools(
-  tools: readonly (AgentTool & { readonly keywords: readonly string[] })[],
+function searchInferenceTools(
+  tools: readonly (InferenceTool & { readonly keywords: readonly string[] })[],
   input: Readonly<Record<string, JsonValue>>,
 ): JsonValue {
   const query = requiredString(input.query, "query").toLocaleLowerCase();

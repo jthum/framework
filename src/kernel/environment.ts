@@ -3,7 +3,7 @@ export interface EnvironmentProfile {
   readonly schedules: boolean;
   readonly webhooks: boolean;
   readonly multiplayer: boolean;
-  readonly agentRuntime: boolean;
+  readonly inference: boolean;
 }
 
 export const LOCAL_BROWSER_ENVIRONMENT: EnvironmentProfile = Object.freeze({
@@ -11,7 +11,7 @@ export const LOCAL_BROWSER_ENVIRONMENT: EnvironmentProfile = Object.freeze({
   schedules: false,
   webhooks: false,
   multiplayer: false,
-  agentRuntime: false,
+  inference: false,
 });
 
 export function defineEnvironmentProfile(profile: EnvironmentProfile): EnvironmentProfile {

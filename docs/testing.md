@@ -49,7 +49,7 @@ Required suites should cover:
 - authorization decisions;
 - Action execution context propagation;
 - Block definitions and lazy loaders;
-- AgentRuntime event and authorization integration.
+- InferenceRuntime event and authorization integration.
 
 The SQLite adapter runs the same persistence contract suite as an in-memory fake or any future adapter. Adapter-specific tests supplement rather than replace the common contract.
 
@@ -108,7 +108,7 @@ Prefer stable semantic selectors and accessible roles. Do not make pixel coordin
 
 ### Agent evals
 
-Agent evals are separate from deterministic tests. Add them when AgentRuntime behaviour exists and measure such outcomes as:
+Agent evals are separate from deterministic tests. Add them when InferenceRuntime behaviour exists and measure such outcomes as:
 
 - correct Action/tool selection;
 - valid Spec changes;
@@ -125,7 +125,7 @@ Inject deterministic dependencies where behaviour depends on them:
 - clock;
 - ID generator;
 - scheduler;
-- AgentRuntime;
+- InferenceRuntime;
 - external Sources;
 - SecretStore;
 - authorization policy.

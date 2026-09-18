@@ -22,7 +22,7 @@ canonical path.
 | 5     | Complete    | Actions, Conditions, Events, short Rules, snapshots, and attached mutations                 |
 | 6     | Complete    | Membership ACL, `others`, explicit re-share, spawn policy, delegated-Workspace proof        |
 | 7     | Complete    | Durable Rules, waits, User requests, execution UI, and durable Event subscriptions          |
-| 8     | In progress | Provider-neutral AgentRuntime, execution Actor propagation, and authorized tool projection  |
+| 8     | In progress | InferenceRuntime, execution Actor propagation, authorized tools, and the YAIR package       |
 | 9     | Planned     | Module scope binding                                                                        |
 
 ## Conformance scenarios
@@ -155,23 +155,25 @@ schedule, webhook, deadline, and signal delivery remain host responsibilities.
 Reusable execution history, launcher, inspector, and Actor-request components consume the smaller
 `RuleExecutionClient`. They never import a Kernel, adapter, router, or global session.
 
-## Phase 8 — AgentRuntime
+## Phase 8 — Inference runtime
 
-**Goal:** Inference is provider-neutral, Agent Actors carry independent authority, and the default
-runtime supports dynamic authorized tools while SDK details remain outside the Kernel.
+**Goal:** Inference has one provider-neutral Kernel boundary, Agent Actors carry independent
+authority, and runtime implementations use dynamic authorized tools without entering the Kernel.
 
 **In:**
 
-- one-step `InferenceAdapter` and complete-turn `AgentRuntime` contracts;
+- one complete-run `InferenceRuntime` contract;
 - tools projected from authorized primitive Actions and callable Rules;
 - per-step contextual resolution, discoverable tools, and `search_tools`;
 - User, Agent, and System execution Actor propagation;
+- YAIR as a separate workspace package containing the existing lightweight loop and its own
+  `ModelProvider` extension point;
 - deterministic contract tests and agent evals kept separate.
 
-The event model, default sequential tool loop, Action/Rule projection, contextual providers,
-discovery, persisted Agent and model configuration, provider routing, context-bound client, and
-deterministic tests are in place. One optional concrete provider adapter and behavioral evals remain;
-they do not add a provider SDK to the Kernel package.
+The event model, Action/Rule projection, contextual providers, discovery, persisted Agent and model
+configuration, context-bound client, and deterministic tests are in place. YAIR contains the
+sequential loop and model-provider registry. Concrete YAIR providers or third-party runtime bridges
+and their behavioral evals remain; they do not add an SDK dependency to Framework.
 
 **Out:** mandatory schema-library or agent-SDK dependency in the Spec/Kernel; implicit authority;
 conversation history as the Agent's only mode; multiple speculative adapters.
@@ -189,7 +191,7 @@ portable Spec or inventing a broad module-definition SPI.
 - rolling Materialization and writable overlays;
 - synchronization products and CDC;
 - external API Source implementations;
-- additional AgentRuntime transports;
+- additional InferenceRuntime integrations and transports;
 - remote catalog trust, signatures, and installation transactions;
 - cross-root identity federation;
 - independently versioned packages before distribution pressure justifies them.

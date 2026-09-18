@@ -2,7 +2,7 @@ import { ERROR_CODES, FrameworkError, resourceNotFound } from "../errors/error.t
 import type { CatalogRepository } from "../persistence/catalog.ts";
 import type { JsonValue } from "../spec/model.ts";
 import type { AuthorizationRequest } from "./authorization.ts";
-import type { ModelSelection } from "./agent-runtime.ts";
+import type { ModelSelection } from "./inference-runtime.ts";
 import type { Clock, IdGenerator } from "./defaults.ts";
 import type {
   Actor,
@@ -56,7 +56,7 @@ export interface AgentExecutionConfig {
   readonly tools: AgentToolPolicy;
 }
 
-/** Persists Agent identity settings while provider execution stays behind InferenceAdapter. */
+/** Persists Agent identity settings while execution stays behind InferenceRuntime. */
 export class AgentConfigService {
   constructor(
     private readonly catalog: CatalogRepository,

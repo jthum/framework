@@ -4,7 +4,7 @@ import type { JsonValue } from "../spec/model.ts";
 import type { ExecutionContext } from "./model.ts";
 import type { RuleEvent } from "./rules.ts";
 import type { SourceRow } from "./sources.ts";
-import type { AgentToolInputSchema } from "./agent-runtime.ts";
+import type { InferenceToolInputSchema } from "./inference-runtime.ts";
 
 export type ActionOrigin =
   | { readonly kind: "call" }
@@ -54,11 +54,11 @@ export interface ActionExecution {
 export interface ActionDefinition {
   /** Immutable semantic contract key, for example `records.create`. */
   readonly key: string;
-  /** Optional opt-in metadata for projecting this Action as an Agent tool. */
+  /** Optional opt-in metadata for projecting this Action as an Inference tool. */
   readonly tool?: {
     readonly label: string;
     readonly description: string;
-    readonly input: AgentToolInputSchema;
+    readonly input: InferenceToolInputSchema;
     /** Discoverable tools are activated through `search_tools` instead of sent on every step. */
     readonly availability?: "eager" | "discoverable";
     readonly keywords?: readonly string[];
