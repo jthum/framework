@@ -47,8 +47,8 @@ import { PageService } from "./pages.ts";
 import { ActionRegistry, type ActionDefinition } from "./action-registry.ts";
 import {
   collectAgentRun,
-  type AgentRunInput,
-  type AgentRunEvent,
+  type AgentInput,
+  type AgentEvent,
   type AgentMessage,
   type AgentRuntime,
   type AgentTool,
@@ -459,15 +459,12 @@ export class Kernel {
     return (await this.projectAgentTools(context)).tools;
   }
 
-  async runAgent(
-    context: ExecutionContext,
-    input: AgentRunInput,
-  ): Promise<AsyncIterable<AgentRunEvent>> {
+  async runAgent(context: ExecutionContext, input: AgentInput): Promise<AsyncIterable<AgentEvent>> {
     const actor = await this.requireAgentRuntimeContext(context);
     const runtime = await this.assertAgentRuntime();
     const projected = await this.projectAgentTools(context);
     return runtime.run({
-      context: { ...context },
+      execution: { ...context },
       actor,
       messages: input.messages.map((message) => ({ ...message })),
       ...(input.instructions === undefined ? {} : { instructions: input.instructions }),
@@ -1950,7 +1947,7 @@ function ruleInputValueSchema(definition: RuleInputDefinition): AgentToolValueSc
   return { type: "object", additionalProperties: true };
 }
 
-function actionAgentInput(input: Readonly<Record<string, JsonValue>>): AgentRunInput {
+function actionAgentInput(input: Readonly<Record<string, JsonValue>>): AgentInput {
   if (!Array.isArray(input.messages))
     throw actionInputError("Action input messages must be an array.");
   const messages: AgentMessage[] = input.messages.map((value, index) => {

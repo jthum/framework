@@ -4,9 +4,9 @@
 execution Actor, which may be a User, Agent, or System. Model SDKs, provider credentials, and
 tool-loop implementations remain optional adapter concerns.
 
-An Agent Actor is therefore an identity choice, not a requirement for using inference. A personal
-assistant normally runs as its User. Create an Agent Actor only when the work needs an independent
-identity, Membership, permission ceiling, or autonomous lifecycle.
+An Agent Actor is therefore an identity choice, not a requirement for using inference. By default,
+inference uses the current Actor. Choose an Agent Actor only when the work needs an independent
+identity, Membership, or permission ceiling.
 
 ## Code map
 
@@ -43,7 +43,7 @@ internally without making it part of Framework's public contract.
 Implement the small port and inject it when opening the Kernel:
 
 ```ts
-import type { AgentRunEvent, AgentRuntime, AgentRuntimeRequest } from "@jthum/framework/kernel";
+import type { AgentContext, AgentEvent, AgentRuntime } from "@jthum/framework/kernel";
 import {
   defineEnvironmentProfile,
   Kernel,
@@ -51,9 +51,9 @@ import {
 } from "@jthum/framework/kernel";
 
 class RuntimeAdapter implements AgentRuntime {
-  async *run(request: AgentRuntimeRequest): AsyncIterable<AgentRunEvent> {
-    // A real adapter passes request.messages and request.tools to its provider.
-    // When the provider requests a tool, call request.invokeTool(toolId, input).
+  async *run(context: AgentContext): AsyncIterable<AgentEvent> {
+    // A real adapter passes context.messages and context.tools to its provider.
+    // When the provider requests a tool, call context.invokeTool(toolId, input).
     yield { type: "completed", output: { message: "Ready" } };
   }
 }
@@ -70,7 +70,7 @@ const kernel = await Kernel.open({
 
 The explicit environment capability prevents a deployment from appearing to support Agents merely
 because a runtime object was accidentally present. `Kernel.runAgent` and `AgentClient.runAgent`
-return an `AsyncIterable<AgentRunEvent>` so embedded and server transports can preserve streaming.
+return an `AsyncIterable<AgentEvent>` so embedded and server transports can preserve streaming.
 `collectAgentRun` is the convenience for callers, such as Rules, that need one final JSON value.
 
 ## Choose the execution Actor
@@ -79,9 +79,9 @@ For a user-facing assistant, bind `AgentClient` to the current User exactly like
 interface. Tool calls are authorized and attributed to that User. No extra Actor or Membership is
 required.
 
-For autonomous or separately permissioned work, create an Agent Actor and add an ordinary
-Membership. That Membership—not the model, prompt, or runtime adapter—defines its ceiling. System
-Actors may also run inference when a host deliberately uses one for system-owned work.
+For work that needs a separate identity or permission ceiling, create an Agent Actor and add an
+ordinary Membership. That Membership—not the model, prompt, or runtime adapter—defines its ceiling.
+System Actors may also run inference when a host deliberately uses one for system-owned work.
 
 The projected tool list is not an authority grant. Every invocation re-enters the existing Kernel
 path. For example, `records.create` still checks create permission for its concrete Collection. A
@@ -167,7 +167,7 @@ trusted server resolves `{ workspaceId, actorId }`, calls the Kernel, and transl
 streaming transport. A browser must never select a trusted execution Actor ID by itself.
 
 `tool_call` and `tool_result` events are observational stream events emitted by the adapter. The
-only authorized invocation path is the `request.invokeTool` callback supplied by the Kernel.
+only authorized invocation path is the `context.invokeTool` callback supplied by the Kernel.
 Conversation persistence is deliberately not Kernel state: a host may store it in its own module,
 send only a bounded message window, or run an Agent without a chat surface at all.
 

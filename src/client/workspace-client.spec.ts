@@ -133,8 +133,8 @@ describe("WorkspaceClient", () => {
 
   it("streams Agent operations through the bound Agent context", async () => {
     const runtime: AgentRuntime = {
-      async *run(request) {
-        yield { type: "completed", output: { actorId: request.actor.id } };
+      async *run(context) {
+        yield { type: "completed", output: { actorId: context.actor.id } };
       },
     };
     const kernel = await Kernel.open({

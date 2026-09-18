@@ -1,5 +1,5 @@
 import type { FormSubmission, SubmitFormInput } from "../kernel/forms.ts";
-import type { AgentRunEvent, AgentRunInput, AgentTool } from "../kernel/agent-runtime.ts";
+import type { AgentEvent, AgentInput, AgentTool } from "../kernel/agent-runtime.ts";
 import type { Kernel, UpdateActorInput } from "../kernel/kernel.ts";
 import type {
   ActorRequest,
@@ -28,7 +28,7 @@ export interface RuleExecutionClient {
 /** Context-bound inference operations using the bound Actor's current authority. */
 export interface AgentClient {
   listAgentTools(): Promise<readonly AgentTool[]>;
-  runAgent(input: AgentRunInput): Promise<AsyncIterable<AgentRunEvent>>;
+  runAgent(input: AgentInput): Promise<AsyncIterable<AgentEvent>>;
 }
 import type { Actor, ExecutionContext, Workspace } from "../kernel/model.ts";
 import type { SourceDescriptor, SourceResult, SourceRow } from "../kernel/sources.ts";
@@ -116,7 +116,7 @@ class LocalWorkspaceClient implements WorkspaceClient {
     return this.kernel.listAgentTools(this.context);
   }
 
-  runAgent(input: AgentRunInput) {
+  runAgent(input: AgentInput) {
     return this.kernel.runAgent(this.context, input);
   }
 

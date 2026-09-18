@@ -5,21 +5,21 @@ import { createEmptySpec, type JsonValue, type Spec } from "../spec/model.ts";
 import type { ActionDefinition } from "./action-registry.ts";
 import {
   collectAgentRun,
-  type AgentRunEvent,
+  type AgentEvent,
   type AgentRuntime,
-  type AgentRuntimeRequest,
+  type AgentContext,
 } from "./agent-runtime.ts";
 import { defineEnvironmentProfile, LOCAL_BROWSER_ENVIRONMENT } from "./environment.ts";
 import { Kernel } from "./kernel.ts";
 
 describe("AgentRuntime", () => {
   it("projects opted-in Actions and Rules and executes tools through the Kernel", async () => {
-    const runtime = new RecordingAgentRuntime(async (request) => {
-      const created = await request.invokeTool("action:records.create", {
+    const runtime = new RecordingAgentRuntime(async (context) => {
+      const created = await context.invokeTool("action:records.create", {
         sourceId: "collection-task",
         values: { "field-title": "Draft release notes" },
       });
-      const rule = await request.invokeTool("rule:rule-summarize", { topic: "Release" });
+      const rule = await context.invokeTool("rule:rule-summarize", { topic: "Release" });
       return { created, rule };
     });
     const { kernel, owner, agent } = await bootstrap(runtime, [echoAction]);
@@ -33,7 +33,7 @@ describe("AgentRuntime", () => {
 
     expect(runtime.requests).toHaveLength(1);
     expect(runtime.requests[0]?.actor).toMatchObject({ id: agent.actorId, kind: "agent" });
-    expect(runtime.requests[0]?.context).toEqual(agent);
+    expect(runtime.requests[0]?.execution).toEqual(agent);
     expect(runtime.requests[0]?.metadata).toEqual({ requestId: "request-1" });
     expect(runtime.requests[0]?.tools.map((tool) => tool.id)).toEqual(
       expect.arrayContaining([
@@ -70,9 +70,9 @@ describe("AgentRuntime", () => {
   });
 
   it("allows a User Actor while requiring an enabled runtime capability", async () => {
-    const runtime = new RecordingAgentRuntime(async (request) => ({
-      actorId: request.actor.id,
-      actorKind: request.actor.kind,
+    const runtime = new RecordingAgentRuntime(async (context) => ({
+      actorId: context.actor.id,
+      actorKind: context.actor.kind,
     }));
     const enabled = await bootstrap(runtime);
     await expect(
@@ -93,8 +93,8 @@ describe("AgentRuntime", () => {
   });
 
   it("keeps tool invocation inside the underlying authorization boundary", async () => {
-    const runtime = new RecordingAgentRuntime((request) =>
-      request.invokeTool("action:records.create", {
+    const runtime = new RecordingAgentRuntime((context) =>
+      context.invokeTool("action:records.create", {
         sourceId: "collection-task",
         values: { "field-title": "Forbidden" },
       }),
@@ -116,8 +116,8 @@ describe("AgentRuntime", () => {
   });
 
   it("lets a Rule call the same runtime through an explicit Agent binding", async () => {
-    const runtime = new RecordingAgentRuntime(async (request) => ({
-      actorId: request.actor.id,
+    const runtime = new RecordingAgentRuntime(async (context) => ({
+      actorId: context.actor.id,
       answer: "Ready",
     }));
     let agentId = "";
@@ -164,15 +164,15 @@ describe("AgentRuntime", () => {
     const run = await kernel.runRule(owner, "ask_agent");
 
     expect(run.vars.response).toEqual({ actorId: actor.id, answer: "Ready" });
-    expect(runtime.requests[0]?.context).toEqual({ ...owner, actorId: actor.id });
+    expect(runtime.requests[0]?.execution).toEqual({ ...owner, actorId: actor.id });
     await kernel.close();
   });
 
   it("rejects invalid runtime completion streams deterministically", async () => {
-    async function* incomplete(): AsyncIterable<AgentRunEvent> {
+    async function* incomplete(): AsyncIterable<AgentEvent> {
       yield { type: "text_delta", delta: "hello" };
     }
-    async function* duplicate(): AsyncIterable<AgentRunEvent> {
+    async function* duplicate(): AsyncIterable<AgentEvent> {
       yield { type: "completed", output: "first" };
       yield { type: "completed", output: "second" };
     }
@@ -186,15 +186,15 @@ describe("AgentRuntime", () => {
 });
 
 class RecordingAgentRuntime implements AgentRuntime {
-  readonly requests: AgentRuntimeRequest[] = [];
+  readonly requests: AgentContext[] = [];
 
   constructor(
-    private readonly execute: (request: AgentRuntimeRequest) => Promise<JsonValue> | JsonValue,
+    private readonly execute: (request: AgentContext) => Promise<JsonValue> | JsonValue,
   ) {}
 
-  async *run(request: AgentRuntimeRequest): AsyncIterable<AgentRunEvent> {
-    this.requests.push(request);
-    yield { type: "completed", output: await this.execute(request) };
+  async *run(context: AgentContext): AsyncIterable<AgentEvent> {
+    this.requests.push(context);
+    yield { type: "completed", output: await this.execute(context) };
   }
 }
 

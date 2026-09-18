@@ -54,7 +54,7 @@ export interface AgentUsage {
   readonly totalTokens?: number;
 }
 
-export type AgentRunEvent =
+export type AgentEvent =
   | { readonly type: "text_delta"; readonly delta: string }
   | ({ readonly type: "tool_call" } & AgentToolCall)
   | {
@@ -69,15 +69,15 @@ export type AgentRunEvent =
       readonly usage?: AgentUsage;
     };
 
-export interface AgentRunInput {
+export interface AgentInput {
   readonly messages: readonly AgentMessage[];
   readonly instructions?: string;
   readonly metadata?: Readonly<Record<string, JsonValue>>;
   readonly signal?: AbortSignal;
 }
 
-export interface AgentRuntimeRequest extends AgentRunInput {
-  readonly context: ExecutionContext;
+export interface AgentContext extends AgentInput {
+  readonly execution: ExecutionContext;
   /** Effective Actor whose current authority applies to every tool invocation. */
   readonly actor: Actor;
   readonly tools: readonly AgentTool[];
@@ -92,10 +92,10 @@ export interface AgentRuntimeRequest extends AgentRunInput {
  * execution Actor. Provider SDKs belong in optional adapters.
  */
 export interface AgentRuntime {
-  run(request: AgentRuntimeRequest): AsyncIterable<AgentRunEvent>;
+  run(context: AgentContext): AsyncIterable<AgentEvent>;
 }
 
-export async function collectAgentRun(events: AsyncIterable<AgentRunEvent>): Promise<JsonValue> {
+export async function collectAgentRun(events: AsyncIterable<AgentEvent>): Promise<JsonValue> {
   let completed: JsonValue | undefined;
   for await (const event of events) {
     if (event.type !== "completed") continue;
