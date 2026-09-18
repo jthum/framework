@@ -48,7 +48,7 @@ aliases or migration baggage.
 - [Choose package boundaries](docs/host-architecture.md)
 - [Extend a host safely](docs/extensions.md)
 - [Find public APIs and authoritative code](docs/public-api.md)
-- [Integrate an Agent runtime](docs/agents.md)
+- [Integrate inference and Agents](docs/agents.md)
 - [Develop Framework itself](docs/developing-framework.md)
 - [Browse all documentation](docs/README.md)
 
