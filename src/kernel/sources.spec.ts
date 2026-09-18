@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import { ERROR_CODES } from "../errors/error.ts";
 import type { PersistenceAdapter, PersistenceSession } from "../persistence/catalog.ts";
+import { MemoryScopeStore } from "../persistence/scopes.ts";
 import { MemoryExecutionStore } from "../persistence/executions.ts";
 import {
   MemoryCatalogRepository,
@@ -352,6 +353,7 @@ function memoryAdapter(records: MemoryRecordStore): PersistenceAdapter {
     kind: "memory-test",
     async open(): Promise<PersistenceSession> {
       return {
+        scopes: new MemoryScopeStore(),
         executions: new MemoryExecutionStore(),
         catalog,
         records,

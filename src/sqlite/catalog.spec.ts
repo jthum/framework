@@ -25,6 +25,43 @@ afterEach(async () => {
 });
 
 describe("SQLite catalog adapter", () => {
+  it("persists module scope bindings across reopen and removes them with the Collection", async () => {
+    const path = join(await makeTemporaryDirectory(), "scopes.sqlite");
+    const first = await openKernel(path);
+    const { workspace, user } = await first.createRootWorkspace({
+      name: "Team",
+      user: { name: "Jane" },
+    });
+    const context = { workspaceId: workspace.id, actorId: user.id };
+    const scope = { kind: "topic", id: "launch" };
+    const spec = {
+      ...workspace.spec,
+      collections: [{ id: "tasks", key: "tasks", label: "Tasks", fields: [] }],
+    };
+    await first.applySpec(context, spec);
+    await first.executeAction(context, "collections.bind", { collectionId: "tasks", scope });
+    const record = await first.createRecord({ ...context, scope }, "tasks", {});
+    await first.close();
+    const second = await openKernel(path);
+    try {
+      expect(await second.listCollectionScopes(context)).toEqual([
+        { collectionId: "tasks", scope },
+      ]);
+      expect(await second.getRecord({ ...context, scope }, "tasks", record.id)).toEqual(record);
+      await expect(second.listRecords(context, "tasks")).rejects.toMatchObject({
+        code: ERROR_CODES.resourceNotFound,
+      });
+      await second.applySpec(context, {
+        ...spec,
+        collections: [{ ...spec.collections[0]!, key: "renamed_tasks" }],
+      });
+      expect(await second.listRecords({ ...context, scope }, "renamed_tasks")).toEqual([record]);
+      await second.applySpec(context, { ...spec, collections: [] });
+      expect(await second.listCollectionScopes(context)).toEqual([]);
+    } finally {
+      await second.close();
+    }
+  });
   it("persists live Attachment bindings and revocation across sessions", async () => {
     expect.hasAssertions();
     const path = join(await makeTemporaryDirectory(), "attachments.sqlite");
@@ -203,7 +240,7 @@ describe("SQLite catalog adapter", () => {
 
     await expect(persistence.open()).rejects.toMatchObject({
       code: ERROR_CODES.persistenceUnsupported,
-      details: { actualVersion: 99, supportedVersion: 10 },
+      details: { actualVersion: 99, supportedVersion: 11 },
     });
 
     await expect(database.get("SELECT 1")).rejects.toThrow();

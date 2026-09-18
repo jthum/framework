@@ -1,5 +1,6 @@
 import { resourceConflict, resourceNotFound } from "../errors/error.ts";
 import { MemoryExecutionStore } from "./executions.ts";
+import { MemoryScopeStore } from "./scopes.ts";
 import type {
   Actor,
   AgentConfig,
@@ -45,9 +46,11 @@ export class MemoryPersistenceAdapter implements PersistenceAdapter {
   private readonly repository = new MemoryCatalogRepository();
   private readonly records = new MemoryRecordStore();
   private readonly executions = new MemoryExecutionStore();
+  private readonly scopes = new MemoryScopeStore();
 
   async open(): Promise<PersistenceSession> {
     return {
+      scopes: this.scopes,
       executions: this.executions,
       catalog: this.repository,
       records: this.records,
@@ -60,6 +63,10 @@ export class MemoryPersistenceAdapter implements PersistenceAdapter {
               await this.records.create(workspace.id, seed.collection, record);
           await this.repository.transaction((transaction) =>
             transaction.updateWorkspace(workspace),
+          );
+          this.scopes.reconcile(
+            workspace.id,
+            new Set(workspace.spec.collections.map((item) => item.id)),
           );
         } catch (error) {
           this.records.restore(snapshot);
@@ -74,6 +81,7 @@ export class MemoryPersistenceAdapter implements PersistenceAdapter {
           this.records.deleteWorkspace(workspaceId);
           this.executions.deleteWorkspace(workspaceId);
           this.repository.deleteWorkspace(workspaceId);
+          this.scopes.reconcile(workspaceId, new Set());
         } catch (error) {
           this.repository.restore(catalog);
           this.records.restore(records);

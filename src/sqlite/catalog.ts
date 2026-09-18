@@ -20,6 +20,7 @@ import type {
   PersistenceSession,
 } from "../persistence/catalog.ts";
 import { SqliteRecordStore } from "./records.ts";
+import { SqliteScopeStore } from "./scopes.ts";
 import { SqliteExecutionStore } from "./executions.ts";
 import {
   assertActorIntegrity,
@@ -65,6 +66,7 @@ export class SqlitePersistenceAdapter implements PersistenceAdapter {
       throw error;
     }
     return {
+      scopes: new SqliteScopeStore(database),
       executions,
       catalog: new SqliteCatalogRepository(database),
       records,
@@ -75,6 +77,11 @@ export class SqlitePersistenceAdapter implements PersistenceAdapter {
             for (const record of seed.records)
               await records.createWith(connection, workspace.id, seed.collection, record);
           await updateWorkspace(connection, workspace);
+          const scopes = new SqliteScopeStore(connection);
+          const ids = new Set(workspace.spec.collections.map((item) => item.id));
+          for (const binding of await scopes.list(workspace.id))
+            if (!ids.has(binding.collectionId))
+              await scopes.set(workspace.id, binding.collectionId, null);
         }),
       deleteWorkspace: (workspaceId) =>
         database.transaction(async (connection) => {
@@ -88,7 +95,7 @@ export class SqlitePersistenceAdapter implements PersistenceAdapter {
   }
 }
 
-export const SQLITE_CATALOG_SCHEMA_VERSION = 10;
+export const SQLITE_CATALOG_SCHEMA_VERSION = 11;
 
 export class SqliteCatalogRepository implements CatalogRepository {
   constructor(private readonly database: SqliteDatabase) {}
@@ -637,6 +644,14 @@ async function initializeCatalog(database: SqliteDatabase): Promise<void> {
 
     CREATE INDEX IF NOT EXISTS workspaces_parent_id ON workspaces(parent_id);
     CREATE INDEX IF NOT EXISTS workspaces_root_id ON workspaces(root_id);
+
+    CREATE TABLE IF NOT EXISTS collection_scopes (
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      collection_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      scope_id TEXT NOT NULL,
+      PRIMARY KEY (workspace_id, collection_id)
+    );
 
     CREATE TABLE IF NOT EXISTS actors (
       id TEXT PRIMARY KEY,

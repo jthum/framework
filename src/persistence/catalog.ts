@@ -10,6 +10,7 @@ import type { RecordStore } from "./records.ts";
 import type { CollectionRecord } from "./records.ts";
 import type { CollectionDefinition } from "../spec/model.ts";
 import type { ExecutionStore } from "./executions.ts";
+import type { ScopeStore } from "./scopes.ts";
 
 export interface CollectionSeed {
   readonly collection: CollectionDefinition;
@@ -63,6 +64,7 @@ export interface PersistenceAdapter {
 }
 
 export interface PersistenceSession {
+  readonly scopes: ScopeStore;
   readonly executions: ExecutionStore;
   readonly catalog: CatalogRepository;
   readonly records: RecordStore;

@@ -30,7 +30,8 @@ export class ViewService {
   async list(context: ExecutionContext): Promise<readonly ViewDefinition[]> {
     const workspace = await this.workspace(context);
     await this.authorizeRead(context, "views.list");
-    return structuredClone(workspace.spec.views);
+    const sources = new Set((await this.sources.list(context)).map((source) => source.key));
+    return structuredClone(workspace.spec.views.filter((view) => sources.has(view.source)));
   }
 
   async get(context: ExecutionContext, key: string): Promise<ViewDefinition | null> {

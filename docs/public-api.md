@@ -49,6 +49,9 @@ dependency direction remains visible.
 
 ## Behavioral sources of truth
 
+- Module scope selection and isolation: [`ScopeHandle`](../src/kernel/model.ts),
+  [`ScopeStore`](../src/persistence/scopes.ts), and [`src/kernel/scopes.spec.ts`](../src/kernel/scopes.spec.ts)
+
 - Spec validity and field capabilities: [`src/spec/validate.spec.ts`](../src/spec/validate.spec.ts)
 - Workspace, Actor, and authorization behavior: [`src/kernel/kernel.spec.ts`](../src/kernel/kernel.spec.ts)
 - Record and schema behavior: [`src/kernel/records.spec.ts`](../src/kernel/records.spec.ts)

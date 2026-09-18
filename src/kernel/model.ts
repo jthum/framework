@@ -87,6 +87,13 @@ export interface Membership {
 export interface ExecutionContext {
   readonly workspaceId: string;
   readonly actorId: string;
+  readonly scope?: ScopeHandle;
+}
+
+/** Opaque host/module entity inside one Workspace; not a people or ACL boundary. */
+export interface ScopeHandle {
+  readonly kind: string;
+  readonly id: string;
 }
 
 export const ATTACHMENT_PERMISSIONS = ["read", "update", "delete"] as const;

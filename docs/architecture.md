@@ -315,7 +315,7 @@ development.
 - cross-root guest identity;
 - exact external Source contracts;
 - whether Block layout grows beyond explicit non-Block layout nodes;
-- Phase 9: Collection-per-module-entity versus one Collection filtered by scope id (tests require topic-local isolation, not a final schema).
+- A future shared-schema scope-partitioned record store may complement the current Collection-per-module-entity binding.
 
 ---
 

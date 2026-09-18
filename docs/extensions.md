@@ -75,3 +75,30 @@ existing definitions, module code, or a host envelope. A new primitive requires:
 
 This threshold keeps simple hosts small without preventing advanced products from extending the
 system deliberately.
+
+## Module scope
+
+A host selects an optional `ExecutionContext.scope` handle `{ kind, id }` for a domain entity inside
+one Workspace. Bind a local Collection through `Kernel.bindCollection(context, key, scope)`, or
+the registered `collections.bind` Action with `{ collectionId, scope }`. Passing `null` removes
+the binding. Binding requires manage permission; `listCollectionScopes` is also a management read.
+
+Bindings are instance data in `PersistenceSession.scopes`, never part of exported Spec. The current
+model binds each Collection to one entity, rather than adding hidden scope columns to records.
+Hosts create separate Collection definitions when separate entities need separate record sets.
+Collection key renames preserve the binding; deleting a Collection or Workspace removes it.
+
+Scoped Collections require an exact matching kind/id context for local record operations and
+Source queries. Source and View listings omit other scopes. Unbound Collections remain available
+in scoped contexts, so topic-local data can reference shared workspace-local data. Relationships
+use the same scope checks. A context-bound WorkspaceClient carries the selection into existing
+Forms, Views, Pages, and Studio surfaces; Rules, domain Events, and durable executions retain it.
+
+Scope is selection, not authority. A host must authenticate and authorize domain access through
+its Authorizer; a caller knowing a topic ID does not acquire permissions. Module trees and entity
+lifecycle remain module-owned. Deleting a module entity should explicitly remove its bindings or
+Collections. An Attachment is explicit cross-Workspace sharing and does not require the recipient
+to select the origin's module entity.
+
+Behavioral source of truth: [scope contracts](../src/kernel/scopes.spec.ts) and
+[SQLite persistence tests](../src/sqlite/catalog.spec.ts).

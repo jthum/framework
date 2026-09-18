@@ -11,6 +11,8 @@ import type {
   PersistenceSession,
 } from "../persistence/catalog.ts";
 import type { CollectionRecord, RecordValues } from "../persistence/records.ts";
+import type { ScopeHandle } from "./model.ts";
+import { assertScope, assertCollectionScope } from "./scopes.ts";
 import {
   createEmptySpec,
   type CollectionDefinition,
@@ -204,6 +206,7 @@ export class Kernel {
     this.sources = new SourceService(
       catalog,
       persistence.records,
+      persistence.scopes,
       this.attachments,
       (context) => this.assertContext(context),
       (request) => this.assertAuthorized(request),
@@ -326,6 +329,33 @@ export class Kernel {
   listSources(context: ExecutionContext) {
     return this.sources.list(context);
   }
+  async bindCollection(
+    context: ExecutionContext,
+    key: string,
+    scope: ScopeHandle | null,
+  ): Promise<void> {
+    await this.assertContext(context);
+    if (scope !== null) assertScope(scope);
+    const workspace = await this.requireWorkspace(context.workspaceId);
+    const collection = workspace.spec.collections.find((item) => item.key === key);
+    if (!collection) throw resourceNotFound("Collection", key);
+    await this.assertAuthorized({
+      context,
+      operation: "collections.bind",
+      resource: { kind: "collection", id: collection.id, workspaceId: workspace.id },
+    });
+    await this.persistence.scopes.set(workspace.id, collection.id, scope);
+  }
+
+  async listCollectionScopes(context: ExecutionContext) {
+    await this.assertContext(context);
+    await this.assertAuthorized({
+      context,
+      operation: "collections.bindings",
+      resource: { kind: "workspace", id: context.workspaceId, workspaceId: context.workspaceId },
+    });
+    return this.persistence.scopes.list(context.workspaceId);
+  }
   getSource(context: ExecutionContext, key: string) {
     return this.sources.describe(context, key);
   }
@@ -347,7 +377,11 @@ export class Kernel {
     if (!workspace.spec.sources.some((source) => source.key === key))
       throw resourceNotFound("Source", key);
     const target = await this.attachments.resolveMutation(context, key, "update", id);
-    const originContext = { ...context, workspaceId: target.attachment.originId };
+    const originContext = await this.originContext(
+      context,
+      target.attachment.originId,
+      target.collection.id,
+    );
     return this.updateRecord(originContext, target.collection.key, id, patch);
   }
   async deleteSourceRecord(context: ExecutionContext, key: string, id: string): Promise<void> {
@@ -357,7 +391,11 @@ export class Kernel {
     if (!workspace.spec.sources.some((source) => source.key === key))
       throw resourceNotFound("Source", key);
     const target = await this.attachments.resolveMutation(context, key, "delete", id);
-    const originContext = { ...context, workspaceId: target.attachment.originId };
+    const originContext = await this.originContext(
+      context,
+      target.attachment.originId,
+      target.collection.id,
+    );
     return this.deleteRecord(originContext, target.collection.key, id);
   }
   listViews(context: ExecutionContext) {
@@ -1148,7 +1186,10 @@ export class Kernel {
 
   async resolveContext(context: ExecutionContext): Promise<ExecutionContext> {
     await this.assertContext(context);
-    return Object.freeze({ ...context });
+    return Object.freeze({
+      ...context,
+      ...(context.scope === undefined ? {} : { scope: Object.freeze({ ...context.scope }) }),
+    });
   }
 
   close(): Promise<void> {
@@ -1170,6 +1211,39 @@ export class Kernel {
 
   private coreActions(): readonly ActionDefinition[] {
     return [
+      {
+        key: "collections.bind",
+        run: async ({ context, input }) => {
+          const collectionId = requiredActionString(input.collectionId, "collectionId");
+          const workspace = await this.requireWorkspace(context.workspaceId);
+          const collection = workspace.spec.collections.find((item) => item.id === collectionId);
+          if (!collection) throw resourceNotFound("Collection", collectionId);
+          const value = input.scope;
+          if (
+            value !== null &&
+            (!value ||
+              typeof value !== "object" ||
+              Array.isArray(value) ||
+              typeof value.kind !== "string" ||
+              typeof value.id !== "string")
+          )
+            throw new FrameworkError({
+              code: ERROR_CODES.validationInvalidInput,
+              message: "Scope must be null or a kind/id object.",
+            });
+          await this.bindCollection(
+            context,
+            collection.key,
+            value === null
+              ? null
+              : {
+                  kind: requiredActionString(value.kind, "scope.kind"),
+                  id: requiredActionString(value.id, "scope.id"),
+                },
+          );
+          return null;
+        },
+      },
       {
         key: "sources.list",
         tool: actionTool(
@@ -1631,6 +1705,7 @@ export class Kernel {
   }
 
   private async assertContext(context: ExecutionContext): Promise<void> {
+    if (context.scope !== undefined) assertScope(context.scope);
     const workspace = await this.catalog.getWorkspace(context.workspaceId);
     if (!workspace) throw resourceNotFound("Workspace", context.workspaceId);
     const actor = await this.catalog.getActor(context.actorId);
@@ -1678,7 +1753,17 @@ export class Kernel {
     const workspace = await this.requireWorkspace(context.workspaceId);
     const collection = workspace.spec.collections.find((candidate) => candidate.key === key);
     if (!collection) throw resourceNotFound("Collection", key);
+    await assertCollectionScope(this.persistence.scopes, context, collection.id);
     return collection;
+  }
+
+  private async originContext(
+    context: ExecutionContext,
+    workspaceId: string,
+    collectionId: string,
+  ): Promise<ExecutionContext> {
+    const scope = await this.persistence.scopes.get(workspaceId, collectionId);
+    return { workspaceId, actorId: context.actorId, ...(scope === null ? {} : { scope }) };
   }
 
   private async requireRecord(
@@ -1725,9 +1810,10 @@ export class Kernel {
       const previous = currentCollections.get(collection.id);
       if (!previous) continue;
       const records = await this.persistence.records.list(current.id, previous);
+      const collectionContext = await this.originContext(context, current.id, collection.id);
       for (const record of records) {
         const values = prepareMigratedValues(previous, collection, record.values);
-        await this.assertMigratedReferences(context, current, next, collection, values);
+        await this.assertMigratedReferences(collectionContext, current, next, collection, values);
       }
     }
   }

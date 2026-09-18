@@ -1,5 +1,7 @@
 import { ERROR_CODES, FrameworkError, resourceNotFound } from "../errors/error.ts";
 import type { CatalogRepository } from "../persistence/catalog.ts";
+import type { ScopeStore } from "../persistence/scopes.ts";
+import { assertCollectionScope, sameScope } from "./scopes.ts";
 import type { CollectionRecord, RecordStore, RecordValues } from "../persistence/records.ts";
 import type {
   CollectionDefinition,
@@ -98,6 +100,7 @@ export class SourceService implements SourceProvider {
   constructor(
     private readonly catalog: CatalogRepository,
     private readonly records: RecordStore,
+    private readonly scopes: ScopeStore,
     private readonly attachments: AttachmentService,
     private readonly assertContext: (context: ExecutionContext) => Promise<void>,
     private readonly authorize: (request: AuthorizationRequest) => Promise<void>,
@@ -106,9 +109,10 @@ export class SourceService implements SourceProvider {
   async list(context: ExecutionContext): Promise<SourceDescriptor[]> {
     await this.assertContext(context);
     const workspace = await this.requireWorkspace(context.workspaceId);
-    const local = await Promise.all(
-      workspace.spec.collections.map((collection) => this.describeLocal(context, collection)),
-    );
+    const local: SourceDescriptor[] = [];
+    for (const collection of workspace.spec.collections)
+      if (sameScope(await this.scopes.get(workspace.id, collection.id), context.scope))
+        local.push(await this.describeLocal(context, collection));
     const attached: SourceDescriptor[] = [];
     for (const binding of workspace.spec.sources) {
       try {
@@ -227,6 +231,7 @@ export class SourceService implements SourceProvider {
     collectionId: string,
     recordId?: string,
   ): Promise<void> {
+    await assertCollectionScope(this.scopes, context, collectionId);
     await this.authorize({
       context,
       operation,

@@ -22,8 +22,8 @@ canonical path.
 | 5     | Complete    | Actions, Conditions, Events, short Rules, snapshots, and attached mutations                 |
 | 6     | Complete    | Membership ACL, `others`, explicit re-share, spawn policy, delegated-Workspace proof        |
 | 7     | Complete    | Durable Rules, waits, User requests, execution UI, and durable Event subscriptions          |
-| 8     | In progress | InferenceRuntime, execution Actor propagation, authorized tools, and the YAIR package       |
-| 9     | Planned     | Module scope binding                                                                        |
+| 8     | Complete    | InferenceRuntime, execution Actor propagation, authorized tools, and the YAIR package       |
+| 9     | In progress | Collection scope binding, scoped Sources/Views, module Event proof, and adapter tests       |
 
 ## Conformance scenarios
 
@@ -188,6 +188,12 @@ conversation history as the Agent's only mode; multiple speculative adapters.
 A scope handle contains a module-defined `kind` and `id`. Sources and Views respect the binding.
 A stub module proves topic-local isolation and a domain Event without adding module entities to the
 portable Spec or inventing a broad module-definition SPI.
+
+The first slice uses one Collection per module entity, with bindings stored as instance data.
+Local CRUD, Sources, Views, and context-bound clients respect the scope; domain Events and Rules
+carry it unchanged. Memory and SQLite share isolation tests; SQLite tests reopen and key renames.
+See [module scope](extensions.md#module-scope). Remaining closure work is targeted review of scope
+propagation, relation edges, and adapter lifecycle—not a new module entity registry.
 
 ## Later, deliberately unscheduled
 
