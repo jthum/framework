@@ -2,6 +2,17 @@
 
 Studio owns the editor interfaces, draft interactions and reusable controls. A host owns navigation, authorization, persistence, execution and data previews. There are no SvelteKit imports, global sessions or SQL in these components.
 
+## Code map
+
+- Public exports: [`src/svelte/studio/index.ts`](../src/svelte/studio/index.ts)
+- Working models and host-facing data contracts: [`src/svelte/studio/data.ts`](../src/svelte/studio/data.ts)
+- Canonical adapter barrel: [`src/svelte/studio/adapters.ts`](../src/svelte/studio/adapters.ts)
+- Context projection: [`src/svelte/studio/context-adapter.ts`](../src/svelte/studio/context-adapter.ts)
+- Authoring tests: [`src/svelte/studio`](../src/svelte/studio)
+
+Editor props in the Svelte source are authoritative. This guide documents composition and
+ownership rather than duplicating every prop signature.
+
 `CollectionEditor` takes a collection working model, editor context, explicit actions and navigation callbacks. Lifecycle editing is part of this surface. A host supplies its plural naming policy.
 
 `ViewEditor` takes explicit save/delete/query actions, a reactive revision and a `previewContent` snippet. Querying is debounced and stale responses are ignored; rejected previews display a recoverable error. Filters, columns, sorting, aggregates and dragging remain part of Studio. The preview snippet receives draft rows, View configuration and exposed-filter state with an explicit change callback.

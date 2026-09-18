@@ -3,6 +3,13 @@
 A Catalog is host-selected discovery metadata for reusable resources. It is not a Kernel entity,
 a Spec extension, an installer, or a remote-code loader.
 
+## Code map
+
+- Generic entry and query contracts: [`src/catalog/model.ts`](../src/catalog/model.ts)
+- Discovery implementation: [`src/catalog/catalog.ts`](../src/catalog/catalog.ts)
+- Behavioral tests: [`src/catalog/catalog.spec.ts`](../src/catalog/catalog.spec.ts)
+- Block-specific catalog metadata: [`src/blocks/catalog.ts`](../src/blocks/catalog.ts)
+
 `Catalog<Entry>` combines one or more explicitly installed `CatalogSource<Entry>` values. Entry
 identity is the pair `source.key` and `entry.key`, so an app-owned source may use the same local key
 as an official source without shadowing it. Listing retains provenance and supports source,

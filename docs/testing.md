@@ -181,4 +181,8 @@ Choose verification proportional to the change:
 | Persistence adapter           | shared contract + adapter tests + reload/cleanup path |
 | Svelte interaction            | focused test or browser inspection + `vp check`       |
 | Critical user flow            | browser smoke or focused browser test                 |
-| Documentation only            | link/content review; no runtime suite required        |
+| Documentation only            | content review + `vp test src/docs.spec.ts`           |
+
+`src/docs.spec.ts` checks local Markdown targets and requires every package export to appear in
+the public API map. It intentionally does not validate prose or remote links. Executable examples
+receive their own behavior tests.

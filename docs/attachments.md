@@ -2,6 +2,16 @@
 
 An Attachment is an instance binding from an origin Collection to a declared Source in a target Workspace. It does not duplicate schema or records. Portable Specs contain the Source declaration, never concrete Workspace or Attachment IDs.
 
+## Code map
+
+- Instance model: [`Attachment`](../src/kernel/model.ts)
+- Kernel operations: [`src/kernel/attachments.ts`](../src/kernel/attachments.ts) and [`Kernel`](../src/kernel/kernel.ts)
+- Shared adapter behavior: [`src/kernel/attachments.contract.ts`](../src/kernel/attachments.contract.ts)
+- Delegated authorization scenario: [`src/kernel/delegated-rules.spec.ts`](../src/kernel/delegated-rules.spec.ts)
+
+Change the model, persistence implementations, shared contract suite, and this guide together when
+Attachment semantics change.
+
 ## Current API
 
 The creator must be a member of both Workspaces. Creation runs in the origin context and checks `attachments.create` there plus `attachments.accept` in the target. The target declares a semantic Source such as:

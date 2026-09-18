@@ -46,6 +46,7 @@ aliases or migration baggage.
 - [Understand the core model](docs/concepts.md)
 - [Choose package boundaries](docs/host-architecture.md)
 - [Extend a host safely](docs/extensions.md)
+- [Find public APIs and authoritative code](docs/public-api.md)
 - [Develop Framework itself](docs/developing-framework.md)
 - [Browse all documentation](docs/README.md)
 

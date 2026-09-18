@@ -7,6 +7,14 @@ Source -> View -> Block
  data     query    presentation
 ```
 
+## Code map
+
+- Portable query and View definitions: [`src/spec/model.ts`](../src/spec/model.ts)
+- Source execution: [`src/kernel/sources.ts`](../src/kernel/sources.ts) and [`src/kernel/source-query.ts`](../src/kernel/source-query.ts)
+- View execution: [`src/kernel/views.ts`](../src/kernel/views.ts)
+- Block contracts and lazy loading: [`src/blocks`](../src/blocks)
+- Behavioral tests: [`src/kernel/sources.spec.ts`](../src/kernel/sources.spec.ts), [`src/kernel/views.spec.ts`](../src/kernel/views.spec.ts), and [`src/blocks/registry.spec.ts`](../src/blocks/registry.spec.ts)
+
 ## Sources
 
 A Source exposes structured rows, schema, and explicit capabilities. The built-in Workspace provider resolves both local Collections and semantic Source bindings backed by live Attachments. Consumers discover capabilities instead of assuming that every Source can filter, sort, traverse relationships, aggregate, paginate, or suggest values.

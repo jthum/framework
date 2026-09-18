@@ -7,9 +7,10 @@ This guide is for changing Framework itself. Application authors should begin wi
 
 1. Identify the layer that owns the behavior.
 2. Read the relevant capability guide and [architecture](architecture.md).
-3. Check the dependency direction in [coding standards](coding-standards.md).
-4. Find the existing contract or conformance suite before adding another path.
-5. Decide whether the change is portable Framework behavior or host/module policy.
+3. Locate the authoritative exports and tests in the [public API map](public-api.md).
+4. Check the dependency direction in [coding standards](coding-standards.md).
+5. Find the existing contract or conformance suite before adding another path.
+6. Decide whether the change is portable Framework behavior or host/module policy.
 
 Do not promote a host convenience into the Kernel merely because multiple screens need it. Do not
 leave a missing cross-layer capability in host code merely to avoid changing a public contract.
@@ -52,8 +53,8 @@ vp test
 vp pack
 ```
 
-See [Testing strategy](testing.md) for proportional gates. Documentation-only changes require link
-and content review, but executable examples remain deterministic tests.
+See [Testing strategy](testing.md) for proportional gates. Documentation-only changes require
+content review and the focused documentation test; executable examples remain deterministic tests.
 
 ## Documentation discipline
 
@@ -61,5 +62,6 @@ and content review, but executable examples remain deterministic tests.
 - Put application-authoring guidance in the “Build an application” path.
 - Put internals and contribution rules in the “Develop Framework” path.
 - Describe generic capabilities and scenarios; do not couple Framework docs to named products.
+- Link to authoritative source files and symbols instead of copying complete interfaces.
 - Update status text when a planned capability becomes implemented.
 - Prefer links to a canonical explanation over copying the same contract into several files.

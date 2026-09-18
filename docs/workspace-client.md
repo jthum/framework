@@ -2,6 +2,16 @@
 
 `@jthum/framework/client` exposes `WorkspaceClient`, a context-bound contract for interface code, and `createWorkspaceClient(kernel, context)`, its in-process implementation.
 
+## Code map
+
+- Public client contracts and local implementation: [`src/client/workspace-client.ts`](../src/client/workspace-client.ts)
+- Rule launch convenience: [`src/client/rule-launch.ts`](../src/client/rule-launch.ts)
+- Context and administrative operations: [`src/kernel/kernel.ts`](../src/kernel/kernel.ts)
+- Behavioral tests: [`src/client/workspace-client.spec.ts`](../src/client/workspace-client.spec.ts) and [`src/client/rule-launch.spec.ts`](../src/client/rule-launch.spec.ts)
+
+When adding an interface-facing operation, decide whether it belongs on the context-bound client or
+is a trusted administrative Kernel operation. Keep remote implementation safety in the contract.
+
 ```ts
 const client = await createWorkspaceClient(kernel, { workspaceId, actorId });
 const views = await client.listViews();

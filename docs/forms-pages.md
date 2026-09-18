@@ -3,6 +3,14 @@
 Forms and Pages are portable surface primitives. Neither one owns host navigation, Svelte
 components, or persistence-specific behavior.
 
+## Code map
+
+- Portable definitions: [`src/spec/model.ts`](../src/spec/model.ts)
+- Form execution: [`src/kernel/forms.ts`](../src/kernel/forms.ts)
+- Page reads: [`src/kernel/pages.ts`](../src/kernel/pages.ts)
+- Behavioral tests: [`src/kernel/forms-pages.spec.ts`](../src/kernel/forms-pages.spec.ts)
+- Reusable editors: [`src/svelte/studio/form-editor.svelte`](../src/svelte/studio/form-editor.svelte) and [`src/svelte/studio/page-editor.svelte`](../src/svelte/studio/page-editor.svelte)
+
 ## Forms
 
 A Form has one of three modes:

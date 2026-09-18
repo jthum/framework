@@ -2,6 +2,15 @@
 
 Framework failures use stable semantic codes and a safe, serializable envelope. Codes let hosts, agents, logs, tests, and alternative Spec consumers react consistently without depending on English message text or leaking internals.
 
+## Code map
+
+- Error codes and `FrameworkError`: [`src/errors/error.ts`](../src/errors/error.ts)
+- Public entry point: [`src/errors/index.ts`](../src/errors/index.ts)
+- Failure-path assertions: search `toMatchObject({ code:` in [`src`](../src)
+
+Change a published code only when its semantic meaning changes. Add or update the smallest
+failure-path test with any new public error.
+
 ## Code format
 
 ```text

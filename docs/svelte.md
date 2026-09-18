@@ -3,6 +3,14 @@
 Framework supplies a polished Svelte implementation without making that implementation mandatory.
 The portable Spec and Kernel do not depend on Svelte.
 
+## Code map
+
+- Semantic theme: [`src/svelte/theme.css`](../src/svelte/theme.css)
+- UI primitives: [`src/svelte/ui`](../src/svelte/ui)
+- Studio public barrel: [`src/svelte/studio/index.ts`](../src/svelte/studio/index.ts)
+- Studio dependency guard: [`src/svelte/studio/editor-boundaries.test.ts`](../src/svelte/studio/editor-boundaries.test.ts)
+- Exact package exports: [`package.json`](../package.json)
+
 ## Ownership
 
 | Layer                            | Owns                                                                                        |

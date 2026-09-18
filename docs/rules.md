@@ -4,6 +4,16 @@ A Rule is portable orchestration built from nested primitives. The canonical Spe
 and `ruleId`; Studio's editable working model may use friendlier or older UI terms internally, but
 its adapter never persists those terms as a second Spec format.
 
+## Code map
+
+- Portable Rule shape: [`src/spec/model.ts`](../src/spec/model.ts)
+- Structural validation: [`src/spec/validate.ts`](../src/spec/validate.ts)
+- Short execution and Event dispatch: [`src/kernel/rules.ts`](../src/kernel/rules.ts)
+- Durable execution: [`src/kernel/durable-rules.ts`](../src/kernel/durable-rules.ts)
+- Action and Condition extension points: [`src/kernel/action-registry.ts`](../src/kernel/action-registry.ts) and [`src/kernel/condition-registry.ts`](../src/kernel/condition-registry.ts)
+- Compatibility planning: [`src/kernel/rule-compatibility.ts`](../src/kernel/rule-compatibility.ts)
+- Behavioral tests: [`src/kernel/rules.spec.ts`](../src/kernel/rules.spec.ts), [`src/kernel/durable-rules.spec.ts`](../src/kernel/durable-rules.spec.ts), and [`src/kernel/delegated-rules.spec.ts`](../src/kernel/delegated-rules.spec.ts)
+
 ```ts
 {
   id: "…",

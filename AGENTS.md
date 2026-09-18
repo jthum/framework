@@ -17,6 +17,9 @@ Before changing code, select the relevant reading path:
 | Change errors               | `docs/errors.md`                                                           |
 | Plan a new phase            | `docs/implementation-plan.md`                                              |
 
+Use `docs/public-api.md` to locate authoritative exported symbols and their behavioral tests.
+Prefer links to source and contract tests over restating complete TypeScript shapes in prose.
+
 ## Invariants
 
 - The portable Spec is plain JSON-compatible data. It contains definitions, not records, secrets,
@@ -45,5 +48,5 @@ Oxfmt, and Vite Task. Use the global `vp` CLI.
 - Use `vp run <name>` for package scripts or configured tasks; built-in commands take precedence.
 - Run `vp env doctor` when toolchain or package-manager behavior appears incorrect.
 
-Documentation-only changes require link/content review rather than the runtime suite. Any code
-example described as executable must remain covered by a deterministic test.
+Documentation-only changes require content review plus `vp test src/docs.spec.ts`. Any code example
+described as executable must remain covered by a deterministic test.
