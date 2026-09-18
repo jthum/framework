@@ -59,7 +59,8 @@ are errors, even when they sit in a branch that would not have run.
 and runs them in stable priority order, routing each to the short or durable runner from its actual
 nested capabilities. `Kernel.executeAction` is the high-level Action path. Source inputs accept a
 record ID and resolve through the unified Source boundary, so attached records remain valid Rule inputs.
-Built-in `records.create`, `records.get`, `records.list`, `records.update`, and `records.delete`
+Built-in `sources.list`, `views.list`, `records.create`, `records.get`, `records.list`,
+`records.update`, and `records.delete`
 Actions deliberately call the same Kernel CRUD methods as direct consumers; validation and
 authorization therefore cannot drift. Custom Actions and Conditions are installed when the Kernel
 opens, and every Action receives a coarse `actions.execute` policy check before its own
@@ -87,6 +88,10 @@ The execution Actor is inherited by Actions and nested Rules. The built-in `syst
 System Actor that is actually a member of the active Workspace; a host may install a resolver for
 other semantic bindings. The resolved Actor is passed back through ordinary context and Action
 authorization rather than becoming a permission shortcut.
+
+`agents.run` calls an installed AgentRuntime and collects its final JSON result. It requires an
+Agent execution Actor, so an ordinary Rule uses a semantic Agent binding in `runAs`. Model/provider
+selection and conversation storage remain host concerns. See [Agents](agents.md).
 
 The short runner bounds nesting, cascaded steps, loops, and repeats. Retries are process-local, parallel
 branches use deterministic in-process emulation, and successful compensations capture their

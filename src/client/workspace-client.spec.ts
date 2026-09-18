@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
+import { collectAgentRun, type AgentRuntime } from "../kernel/agent-runtime.ts";
+import { defineEnvironmentProfile, LOCAL_BROWSER_ENVIRONMENT } from "../kernel/environment.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import { MemoryPersistenceAdapter } from "../persistence/memory.ts";
 import { createEmptySpec } from "../spec/model.ts";
@@ -124,6 +126,36 @@ describe("WorkspaceClient", () => {
         client.executeAction("records.create", { sourceId: "notes", values: { title: "Blocked" } }),
       ).rejects.toMatchObject({ code: "PERMISSION.DENIED" });
       await expect(client.runRule("count")).rejects.toMatchObject({ code: "PERMISSION.DENIED" });
+    } finally {
+      await kernel.close();
+    }
+  });
+
+  it("streams Agent operations through the bound Agent context", async () => {
+    const runtime: AgentRuntime = {
+      async *run(request) {
+        yield { type: "completed", output: { actorId: request.agent.id } };
+      },
+    };
+    const kernel = await Kernel.open({
+      persistence: new MemoryPersistenceAdapter(),
+      environment: defineEnvironmentProfile({ ...LOCAL_BROWSER_ENVIRONMENT, agentRuntime: true }),
+      agentRuntime: runtime,
+    });
+    try {
+      const root = await kernel.createRootWorkspace({ name: "Space", user: { name: "Jane" } });
+      const owner = { workspaceId: root.workspace.id, actorId: root.user.id };
+      const agent = await kernel.createActor(owner, { kind: "agent", name: "Assistant" });
+      await kernel.addMembership(owner, {
+        actorId: agent.id,
+        workspaceId: root.workspace.id,
+        permissions: ["read"],
+      });
+      const client = await createWorkspaceClient(kernel, { ...owner, actorId: agent.id });
+
+      await expect(client.listAgentTools()).resolves.toEqual(expect.any(Array));
+      const events = await client.runAgent({ messages: [{ role: "user", content: "Hello" }] });
+      await expect(collectAgentRun(events)).resolves.toEqual({ actorId: agent.id });
     } finally {
       await kernel.close();
     }

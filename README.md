@@ -33,6 +33,7 @@ Framework is greenfield and pre-release. The implemented surface includes:
 - create, edit, and standalone Forms;
 - Page layout trees and lazily loaded Blocks;
 - short and durable Rules, Events, waits, and User requests;
+- provider-neutral Agent execution with authorized Action and Rule tools;
 - interchangeable memory and SQLite persistence;
 - reusable Svelte editors for Collections, Views, Forms, Rules, and Pages;
 - inert catalogs for host-owned template and resource discovery.
@@ -47,6 +48,7 @@ aliases or migration baggage.
 - [Choose package boundaries](docs/host-architecture.md)
 - [Extend a host safely](docs/extensions.md)
 - [Find public APIs and authoritative code](docs/public-api.md)
+- [Integrate an Agent runtime](docs/agents.md)
 - [Develop Framework itself](docs/developing-framework.md)
 - [Browse all documentation](docs/README.md)
 

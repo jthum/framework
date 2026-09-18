@@ -12,18 +12,18 @@ canonical path.
 
 ## Progress
 
-| Phase | Status   | Delivered                                                                                   |
-| ----- | -------- | ------------------------------------------------------------------------------------------- |
-| 0     | Complete | Package boundary, Kernel, Workspace, Actor, Membership, authorization, environment, SQLite  |
-| 1     | Complete | Collection and Field Spec, validation, RecordStore contracts, CRUD, schema materialization  |
-| 2     | Complete | Live Attachments, semantic Source binding, filtered reads, attenuation, and revocation      |
-| 3     | Complete | Sources, Views, declared relationships, Block contracts, lazy renderer registry             |
-| 4     | Complete | Forms, Pages, reusable Svelte Studio, context-bound client, browser-capable SQLite boundary |
-| 5     | Complete | Actions, Conditions, Events, short Rules, snapshots, and attached mutations                 |
-| 6     | Complete | Membership ACL, `others`, explicit re-share, spawn policy, delegated-Workspace proof        |
-| 7     | Complete | Durable Rules, waits, User requests, execution UI, and durable Event subscriptions          |
-| 8     | Planned  | AgentRuntime and Agent Actor integration                                                    |
-| 9     | Planned  | Module scope binding                                                                        |
+| Phase | Status      | Delivered                                                                                   |
+| ----- | ----------- | ------------------------------------------------------------------------------------------- |
+| 0     | Complete    | Package boundary, Kernel, Workspace, Actor, Membership, authorization, environment, SQLite  |
+| 1     | Complete    | Collection and Field Spec, validation, RecordStore contracts, CRUD, schema materialization  |
+| 2     | Complete    | Live Attachments, semantic Source binding, filtered reads, attenuation, and revocation      |
+| 3     | Complete    | Sources, Views, declared relationships, Block contracts, lazy renderer registry             |
+| 4     | Complete    | Forms, Pages, reusable Svelte Studio, context-bound client, browser-capable SQLite boundary |
+| 5     | Complete    | Actions, Conditions, Events, short Rules, snapshots, and attached mutations                 |
+| 6     | Complete    | Membership ACL, `others`, explicit re-share, spawn policy, delegated-Workspace proof        |
+| 7     | Complete    | Durable Rules, waits, User requests, execution UI, and durable Event subscriptions          |
+| 8     | In progress | Provider-neutral AgentRuntime, Agent Actor integration, and authorized tool projection      |
+| 9     | Planned     | Module scope binding                                                                        |
 
 ## Conformance scenarios
 
@@ -163,11 +163,13 @@ outside the Kernel.
 **In:**
 
 - transport-neutral AgentRuntime contract;
-- one embedded adapter selected during the phase;
 - tools projected from authorized primitive Actions and callable Rules;
 - Agent execution Actor propagation;
-- injected SecretStore for credentials;
 - deterministic contract tests and agent evals kept separate.
+
+The Kernel contract, Action/Rule projection, context-bound client, and deterministic tests are in
+place. A host-selected provider adapter and behavioral eval suite remain. Credentials are injected
+into that adapter (or another host integration), not routed through the portable Spec or Kernel.
 
 **Out:** mandatory schema-library or agent-SDK dependency in the Spec/Kernel; implicit authority;
 conversation history as the Agent's only mode; multiple speculative adapters.

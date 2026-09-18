@@ -198,14 +198,16 @@ Auth providers (password, magic link, SSO) are outside the Spec. After authentic
 | **Kernel**             | Reference engine: Spec + adapters + environment -> running system.                                           |
 | **PersistenceAdapter** | Catalog, records, and Kernel instance data. Physical layout and sync/CDC strategy are adapter policy.        |
 | **EnvironmentProfile** | Deployment capabilities only: durable waits, schedules, ACP, multiplayer, and similar.                       |
-| **SecretStore**        | Credentials outside the Spec and profile.                                                                    |
+| **SecretStore**        | Optional host/adapter port for credentials outside the Spec and profile.                                     |
 | **AgentRuntime**       | How an Agent reasons. The only `*Runtime`; adapters may be Embedded, ACP, or future implementations.         |
 | **Host / Shell**       | Product chrome and information architecture.                                                                 |
 | **Module**             | Domain entities, invariants, Actions, Events, Sources, and optional UI. Code, not a v1 ModuleDefinition SPI. |
 | **Session**            | UI/process state.                                                                                            |
 
 ```text
-Spec + PersistenceAdapter + EnvironmentProfile [+ SecretStore] -> Kernel
+Spec + PersistenceAdapter + EnvironmentProfile [+ AgentRuntime] -> Kernel
+
+SecretStore -> host integrations and optional adapters
 ```
 
 Do not grow a `KernelConfig` junk drawer. Adapter URLs belong to adapters. Secrets belong to SecretStore. Permissions belong to Membership, ACL, Attachment, and module policy.

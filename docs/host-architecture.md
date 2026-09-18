@@ -32,6 +32,7 @@ The host owns:
 - persistence adapter and deployment environment;
 - routes, navigation, layout, product vocabulary, and error presentation;
 - application-specific Actions, Conditions, Sources, Blocks, and modules;
+- Agent provider/model adapters, credentials, conversation storage, and stream transport;
 - Spec import/export envelope and validation of host extensions;
 - catalogs, template installation, registry trust, and optional library UI.
 
@@ -48,6 +49,9 @@ logical persistence contracts, context-bound clients, and reusable editors.
 | Reusable authoring                | granular `@jthum/framework/svelte/studio/*` imports   |
 | Fully custom interface            | canonical Spec and client contracts, without Studio   |
 | Another language/runtime          | implement the documented Spec semantics independently |
+
+An optional `AgentRuntime` is another injected Kernel port, not a provider SDK embedded in the
+Kernel. See [Agents](agents.md) for the ownership boundary.
 
 ## Persistence
 

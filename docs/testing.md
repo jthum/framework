@@ -49,7 +49,7 @@ Required suites should cover:
 - authorization decisions;
 - Action execution context propagation;
 - Block definitions and lazy loaders;
-- AgentRuntime when introduced.
+- AgentRuntime event and authorization integration.
 
 The SQLite adapter runs the same persistence contract suite as an in-memory fake or any future adapter. Adapter-specific tests supplement rather than replace the common contract.
 
