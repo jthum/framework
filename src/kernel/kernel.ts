@@ -252,6 +252,7 @@ export class Kernel {
         await this.assertReferences(context, collection, values);
         return { ...values };
       },
+      environment.durableRuleExecution,
     );
   }
 

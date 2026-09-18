@@ -18,6 +18,7 @@ import type { ExecutionStore } from "../persistence/executions.ts";
 import type { FieldDefinition } from "../spec/model.ts";
 import {
   checkRuleCompatibility,
+  requiresDurableExecution,
   type RuleCompatibilityDiagnostic,
   type RuleRuntimeProfile,
 } from "./rule-compatibility.ts";
@@ -51,6 +52,18 @@ export interface RuleRun {
   readonly vars: Readonly<Record<string, JsonValue>>;
   readonly trace: readonly RuleStepTrace[];
 }
+
+/** Result of delivering one Event to one matching Rule subscription. */
+export type RuleDispatch =
+  | (RuleRun & { readonly mode: "short" })
+  | {
+      readonly mode: "durable";
+      readonly ruleId: string;
+      readonly ruleKey: string;
+      readonly actorId: string;
+      readonly executionId: string;
+      readonly status: import("../persistence/executions.ts").RuleExecution["status"];
+    };
 
 export interface ActorBindingRequest {
   readonly binding: string;
@@ -104,6 +117,8 @@ type RuleStepKind =
 export class RuleService {
   private readonly maxSteps: number;
   private readonly maxDepth: number;
+  private durable?: DurableRuleService;
+  private durableSubscriptions = false;
 
   constructor(
     private readonly catalog: CatalogRepository,
@@ -142,8 +157,9 @@ export class RuleService {
       fields: readonly FieldDefinition[],
       values: Readonly<Record<string, JsonValue>>,
     ) => Promise<Record<string, JsonValue>>,
+    eventSubscriptions = true,
   ): DurableRuleService {
-    return new DurableRuleService(
+    const runner = new DurableRuleService(
       store,
       this.catalog,
       ids,
@@ -176,6 +192,9 @@ export class RuleService {
       this.assertContext,
       this.authorize,
     );
+    this.durable = runner;
+    this.durableSubscriptions = eventSubscriptions;
+    return runner;
   }
 
   profile(events: ReadonlySet<string> = new Set()): RuleRuntimeProfile {
@@ -227,7 +246,7 @@ export class RuleService {
     return this.invokeAction(key, input, context, { kind: "call" }, state);
   }
 
-  async dispatch(context: ExecutionContext, event: RuleEvent): Promise<readonly RuleRun[]> {
+  async dispatch(context: ExecutionContext, event: RuleEvent): Promise<readonly RuleDispatch[]> {
     await this.assertContext(context);
     await this.authorize({
       context,
@@ -244,7 +263,7 @@ export class RuleService {
     event: RuleEvent,
     state: RunState,
     knownWorkspace?: Awaited<ReturnType<CatalogRepository["getWorkspace"]>>,
-  ): Promise<readonly RuleRun[]> {
+  ): Promise<readonly RuleDispatch[]> {
     const workspace = knownWorkspace ?? (await this.catalog.getWorkspace(context.workspaceId));
     if (!workspace) throw resourceNotFound("Workspace", context.workspaceId);
     const matches = workspace.spec.rules
@@ -254,18 +273,36 @@ export class RuleService {
         (left, right) =>
           (right.rule.priority ?? 0) - (left.rule.priority ?? 0) || left.index - right.index,
       );
-    for (const { rule } of matches)
-      await this.assertExecutable(context, rule, new Set([event.event]));
-    const runs: RuleRun[] = [];
     for (const { rule } of matches) {
-      runs.push(
-        await this.execute(
-          context,
-          rule,
-          { input: eventInput(rule, event), trigger: event },
-          state,
-        ),
-      );
+      if (requiresDurableExecution(rule, workspace.spec.rules)) {
+        if (!this.durable || !this.durableSubscriptions)
+          throw unsupportedRule(
+            rule,
+            checkRuleCompatibility(rule, this.durable?.profile(false) ?? this.profile())
+              .diagnostics,
+          );
+        this.durable.assertCompatible(rule, workspace.spec.rules);
+      } else await this.assertExecutable(context, rule, new Set([event.event]));
+    }
+    const runs: RuleDispatch[] = [];
+    for (const { rule } of matches) {
+      const input = { input: eventInput(rule, event), trigger: event };
+      if (requiresDurableExecution(rule, workspace.spec.rules)) {
+        const execution = await this.durable!.start(context, rule.key, input);
+        runs.push({
+          mode: "durable",
+          ruleId: rule.id,
+          ruleKey: rule.key,
+          actorId: context.actorId,
+          executionId: execution.id,
+          status: execution.status,
+        });
+      } else {
+        runs.push({
+          ...(await this.execute(context, rule, input, state)),
+          mode: "short",
+        });
+      }
     }
     return runs;
   }

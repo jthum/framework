@@ -19,13 +19,16 @@ const rule = (steps: readonly RuleStep[]): RuleDefinition => ({
   steps,
 });
 
-async function setup(persistence: PersistenceAdapter = new MemoryPersistenceAdapter()) {
+async function setup(
+  persistence: PersistenceAdapter = new MemoryPersistenceAdapter(),
+  durableRuleExecution = true,
+) {
   let time = Date.parse("2026-09-17T00:00:00.000Z");
   let next = 0;
   const observed: string[] = [];
   const options: Parameters<typeof Kernel.open>[0] = {
     persistence,
-    environment: { ...LOCAL_BROWSER_ENVIRONMENT, durableRuleExecution: true },
+    environment: { ...LOCAL_BROWSER_ENVIRONMENT, durableRuleExecution },
     clock: { now: () => new Date(time).toISOString() },
     ids: { create: (kind) => `${kind}-${++next}` },
     actions: [
@@ -33,6 +36,12 @@ async function setup(persistence: PersistenceAdapter = new MemoryPersistenceAdap
         key: "test.capture",
         run: ({ context }) => {
           observed.push(context.actorId);
+        },
+      },
+      {
+        key: "test.publish",
+        async run({ publish }) {
+          await publish({ event: "test.happened", payload: { source: "action" } });
         },
       },
     ],
@@ -59,6 +68,61 @@ async function setup(persistence: PersistenceAdapter = new MemoryPersistenceAdap
 }
 
 describe("Durable Rules", () => {
+  it("automatically starts a durable subscription when an Action publishes its Event", async () => {
+    const app = await setup();
+    await app.install([
+      {
+        ...rule([delay, capture]),
+        trigger: { event: "test.happened" },
+      },
+    ]);
+
+    await app.kernel.executeAction(app.context, "test.publish");
+
+    const [execution] = await app.kernel.listRuleExecutions(app.context);
+    expect(execution).toMatchObject({
+      actorId: app.context.actorId,
+      rule: { id: "rule-test", key: "test" },
+      status: "waiting",
+    });
+    expect(app.observed).toEqual([]);
+    app.advance();
+    await app.kernel.resumeRule(app.context, execution!.id);
+    expect(app.observed).toEqual([app.context.actorId]);
+    await app.kernel.close();
+  });
+
+  it("reports whether Event subscriptions used the short or durable runner", async () => {
+    const app = await setup();
+    await app.install([
+      { ...rule([capture]), id: "rule-short", key: "short", trigger: { event: "mixed" } },
+      { ...rule([delay]), id: "rule-durable", key: "durable", trigger: { event: "mixed" } },
+    ]);
+
+    const delivered = await app.kernel.dispatchEvent(app.context, { event: "mixed" });
+
+    expect(delivered).toEqual([
+      expect.objectContaining({ mode: "short", ruleId: "rule-short", status: "completed" }),
+      expect.objectContaining({ mode: "durable", ruleId: "rule-durable", status: "waiting" }),
+    ]);
+    await app.kernel.close();
+  });
+
+  it("rejects a durable subscription before running any matching subscriber when disabled", async () => {
+    const app = await setup(new MemoryPersistenceAdapter(), false);
+    await app.install([
+      { ...rule([capture]), id: "rule-short", key: "short", trigger: { event: "mixed" } },
+      { ...rule([delay]), id: "rule-durable", key: "durable", trigger: { event: "mixed" } },
+    ]);
+
+    await expect(app.kernel.dispatchEvent(app.context, { event: "mixed" })).rejects.toMatchObject({
+      code: "PERSISTENCE.UNSUPPORTED",
+    });
+    expect(app.observed).toEqual([]);
+    expect(await app.kernel.listRuleExecutions(app.context)).toEqual([]);
+    await app.kernel.close();
+  });
+
   it("checkpoints the current-time binding across a durable wait", async () => {
     const app = await setup();
     await app.install([

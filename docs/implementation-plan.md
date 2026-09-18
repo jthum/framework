@@ -12,16 +12,16 @@ No compatibility with the current Spec, `Host`, `TypeDef`, `WorkflowDef`, widget
 
 ## Progress
 
-| Phase | Status      | Delivered                                                                                                     |
-| ----- | ----------- | ------------------------------------------------------------------------------------------------------------- |
-| 0     | Complete    | Package boundary, Kernel, Workspace/Actor/Membership, authorization, environment, SQLite                      |
-| 1     | Complete    | Collection/Field Spec, runtime validation, RecordStore contracts, CRUD, schema materialization                |
-| 2     | Complete    | Persisted live Attachments, semantic binding, filtered reads, origin schema, permissions and revocation       |
-| 3     | Complete    | Sources, Views, relationship traversal, Block contracts, lazy renderer registry                               |
-| 4     | Complete    | Forms, Pages, reusable Svelte Studio, canonical Builder cutover, browser SQLite bridge                        |
-| 5     | Complete    | Short Rules, Action/Condition registries, Events, snapshots, attached mutations                               |
-| 6     | Complete    | Membership ACL, `others`, attenuation, explicit re-share, spawn policy, S3 proof                              |
-| 7     | In progress | Durable waits/User requests, context-bound client and reusable execution UI; automatic durable Events pending |
+| Phase | Status   | Delivered                                                                                                           |
+| ----- | -------- | ------------------------------------------------------------------------------------------------------------------- |
+| 0     | Complete | Package boundary, Kernel, Workspace/Actor/Membership, authorization, environment, SQLite                            |
+| 1     | Complete | Collection/Field Spec, runtime validation, RecordStore contracts, CRUD, schema materialization                      |
+| 2     | Complete | Persisted live Attachments, semantic binding, filtered reads, origin schema, permissions and revocation             |
+| 3     | Complete | Sources, Views, relationship traversal, Block contracts, lazy renderer registry                                     |
+| 4     | Complete | Forms, Pages, reusable Svelte Studio, canonical Builder cutover, browser SQLite bridge                              |
+| 5     | Complete | Short Rules, Action/Condition registries, Events, snapshots, attached mutations                                     |
+| 6     | Complete | Membership ACL, `others`, attenuation, explicit re-share, spawn policy, S3 proof                                    |
+| 7     | Complete | Durable waits/User requests, context-bound client, reusable execution UI, and automatic durable Event subscriptions |
 
 Later phases remain intentionally unimplemented; their entries below are the source of truth for scope.
 
@@ -316,8 +316,8 @@ shares Action mutation publication, including conditional hidden-field clearing,
 Form-submission Event. Deterministic Builder.run tests author a record approval, create the
 record through an Action, pause/reopen SQLite, respond, and update that original record with a
 short Event-triggered follow-up as the original Actor. This proves one canonical record/execution
-store. The main shell cutover and Host removal are complete; automatic durable Event subscribers
-remain pending. No dual-write or old-database migration bridge introduced.
+store. The main shell cutover and Host removal are complete. No dual-write or old-database
+migration bridge was introduced.
 
 **Query authoring checkpoint:** Studio's friendly record query compiles to the canonical
 `records.list` or `views.query` Action, with stable Source/View identities and validated field or
@@ -325,7 +325,17 @@ declared-parameter inputs. Both built-ins execute through the authorized Source/
 `editorContextFromSpec` now derives the full key-oriented Studio context from a canonical Spec and
 optional attached Source schemas, rejecting shapes the current editors cannot preserve. Query-step
 translation is therefore complete. The canonical App selector and complete App lifecycle are
-authoritative. Automatic durable Event subscribers remain pending.
+authoritative.
+
+**Automatic subscription checkpoint:** Event delivery now preflights every matching Rule before
+running any subscriber, preserves authored priority and the publishing Actor, and routes each Rule
+to the short or durable runner from its actual nested capabilities. Durable subscriptions create
+ordinary persisted RuleExecutions and return execution receipts; short subscriptions retain their
+bounded shared cascade state. Action-published, record, and Form Events all use this single path.
+Environments that do not advertise durable execution reject a matching durable subscription rather
+than silently skipping its wait. Deterministic coverage proves Action publication, automatic pause,
+persisted discovery, resume, Actor preservation, and mixed short/durable delivery. Phase 7 is closed;
+external schedule, webhook, deadline, and signal delivery remain host responsibilities as planned.
 
 ### Phase 8 — AgentRuntime
 

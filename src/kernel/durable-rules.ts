@@ -182,6 +182,11 @@ export class DurableRuleService {
     };
   }
 
+  /** Preflight a root Rule and every nested invocation before an Event causes side effects. */
+  assertCompatible(rule: RuleDefinition, rules: readonly RuleDefinition[]): void {
+    this.snapshotRules(rule, rules);
+  }
+
   async start(
     context: ExecutionContext,
     key: string,
@@ -189,38 +194,12 @@ export class DurableRuleService {
   ): Promise<RuleExecution> {
     await this.assertContext(context);
     const workspace = await this.catalog.getWorkspace(context.workspaceId);
-    const rule = workspace?.spec.rules.find((item) => item.key === key);
+    if (!workspace) throw resourceNotFound("Workspace", context.workspaceId);
+    const rule = workspace.spec.rules.find((item) => item.key === key);
     if (!rule) throw resourceNotFound("Rule", key);
     await this.checkAuthority(context, "rules.run", "rule", rule.id);
     if (rule.enabled === false) throw resourceConflict("The Rule is disabled.");
-    const rules: Record<string, RuleDefinition> = {};
-    const collect = (definition: RuleDefinition): void => {
-      if (rules[definition.id]) return;
-      const profile = this.profile();
-      const compatibility = checkRuleCompatibility(definition, {
-        ...profile,
-        events: new Set(definition.trigger ? [definition.trigger.event] : []),
-      });
-      if (!compatibility.compatible)
-        throw unsupported("The Rule is not compatible with durable execution.");
-      rules[definition.id] = structuredClone(definition);
-      visitSteps(definition.steps, (step) => {
-        if ("delay" in step) deadline(this.clock.now(), step.delay.duration);
-        if ("wait" in step && step.wait.timeout !== undefined)
-          deadline(this.clock.now(), step.wait.timeout);
-        if (
-          ("foreach" in step && step.foreach.onItemFailure === "continue") ||
-          ("repeat" in step && step.repeat.onItemFailure === "continue")
-        )
-          throw unsupported("Durable per-item failure continuation is not implemented.");
-        if ("invoke" in step) {
-          const nested = workspace!.spec.rules.find((item) => item.id === step.invoke.ruleId);
-          if (!nested) throw resourceNotFound("Rule", step.invoke.ruleId);
-          collect(nested);
-        }
-      });
-    };
-    collect(rule);
+    const rules = this.snapshotRules(rule, workspace.spec.rules);
     const checkpoint: Checkpoint = {
       rules,
       scopes: [await this.hooks.scope(context, rule, input)],
@@ -241,6 +220,42 @@ export class DurableRuleService {
     };
     await this.store.create(execution);
     return this.drive(execution, checkpoint);
+  }
+
+  private snapshotRules(
+    root: RuleDefinition,
+    definitions: readonly RuleDefinition[],
+  ): Record<string, RuleDefinition> {
+    const byId = new Map(definitions.map((definition) => [definition.id, definition]));
+    const snapshot: Record<string, RuleDefinition> = {};
+    const collect = (definition: RuleDefinition): void => {
+      if (snapshot[definition.id]) return;
+      const profile = this.profile();
+      const compatibility = checkRuleCompatibility(definition, {
+        ...profile,
+        events: new Set(definition.trigger ? [definition.trigger.event] : []),
+      });
+      if (!compatibility.compatible)
+        throw unsupported("The Rule is not compatible with durable execution.");
+      snapshot[definition.id] = structuredClone(definition);
+      visitSteps(definition.steps, (step) => {
+        if ("delay" in step) deadline(this.clock.now(), step.delay.duration);
+        if ("wait" in step && step.wait.timeout !== undefined)
+          deadline(this.clock.now(), step.wait.timeout);
+        if (
+          ("foreach" in step && step.foreach.onItemFailure === "continue") ||
+          ("repeat" in step && step.repeat.onItemFailure === "continue")
+        )
+          throw unsupported("Durable per-item failure continuation is not implemented.");
+        if ("invoke" in step) {
+          const nested = byId.get(step.invoke.ruleId);
+          if (!nested) throw resourceNotFound("Rule", step.invoke.ruleId);
+          collect(nested);
+        }
+      });
+    };
+    collect(root);
+    return snapshot;
   }
 
   async get(context: ExecutionContext, id: string): Promise<RuleExecution | null> {
