@@ -196,6 +196,45 @@ describe("OpenAIProvider", () => {
     ]);
   });
 
+  it("separates tagged reasoning from visible content across stream chunks", async () => {
+    const provider = openAI({
+      defaultModel: "model-test",
+      fetch: async () =>
+        sseResponse([
+          {
+            choices: [
+              {
+                delta: { content: "<thi" },
+                finish_reason: null,
+              },
+            ],
+          },
+          {
+            choices: [
+              {
+                delta: { content: "nk>Check carefully.</think>Visible " },
+                finish_reason: null,
+              },
+            ],
+          },
+          {
+            choices: [{ delta: { content: "answer." }, finish_reason: "stop" }],
+          },
+        ]),
+    });
+
+    expect(await collect(provider.infer({ messages: [], tools: [] }))).toEqual([
+      { type: "reasoning_delta", delta: "Check carefully." },
+      { type: "text_delta", delta: "Visible " },
+      { type: "text_delta", delta: "answer." },
+      {
+        type: "finished",
+        reason: "stop",
+        providerState: { reasoning_content: "Check carefully." },
+      },
+    ]);
+  });
+
   it("normalizes provider errors and cancellation", async () => {
     const failed = openAI({
       defaultModel: "model-test",

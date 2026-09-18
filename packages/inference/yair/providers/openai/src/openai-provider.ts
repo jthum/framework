@@ -241,6 +241,7 @@ async function* readCompletionStream(
   const names = toolNames(request);
   const calls = new Map<number, ToolCallParts>();
   const reasoning = new ReasoningState();
+  const taggedReasoning = new TaggedReasoningState();
   let finish: InferenceFinishReason | undefined;
   let finishMessage: string | undefined;
   for await (const data of sseData(body)) {
@@ -252,12 +253,18 @@ async function* readCompletionStream(
     if (!choice) continue;
     const delta = asObject(choice.delta);
     for (const part of reasoning.collect(delta)) yield { type: "reasoning_delta", delta: part };
-    if (typeof delta.content === "string" && delta.content) {
-      yield { type: "text_delta", delta: delta.content };
-    }
+    if (typeof delta.content === "string" && delta.content)
+      for (const part of taggedReasoning.push(delta.content)) {
+        if (part.type === "reasoning_delta") reasoning.appendContent(part.delta);
+        yield part;
+      }
     if (typeof delta.refusal === "string") finishMessage = (finishMessage ?? "") + delta.refusal;
     collectToolCalls(delta.tool_calls, calls);
     if (typeof choice.finish_reason === "string") finish = mapFinishReason(choice.finish_reason);
+  }
+  for (const part of taggedReasoning.flush()) {
+    if (part.type === "reasoning_delta") reasoning.appendContent(part.delta);
+    yield part;
   }
   yield* finishCompletion(calls, names, finish, finishMessage, reasoning.providerState());
 }
@@ -271,8 +278,13 @@ async function* readCompletion(value: unknown, request: ModelRequest): AsyncIter
   const message = asObject(choice.message);
   const reasoning = new ReasoningState();
   for (const part of reasoning.collect(message)) yield { type: "reasoning_delta", delta: part };
-  if (typeof message.content === "string" && message.content)
-    yield { type: "text_delta", delta: message.content };
+  if (typeof message.content === "string" && message.content) {
+    const taggedReasoning = new TaggedReasoningState();
+    for (const part of [...taggedReasoning.push(message.content), ...taggedReasoning.flush()]) {
+      if (part.type === "reasoning_delta") reasoning.appendContent(part.delta);
+      yield part;
+    }
+  }
   const calls = new Map<number, ToolCallParts>();
   collectToolCalls(message.tool_calls, calls);
   const finish =
@@ -312,15 +324,72 @@ class ReasoningState {
     return deltas;
   }
 
-  providerState(): Readonly<Record<string, JsonValue>> | undefined {
-    if (this.details.size > 0)
-      return {
-        reasoning_details: [...this.details]
-          .sort(([left], [right]) => left - right)
-          .map(([, detail]) => detail),
-      };
-    return this.content ? { reasoning_content: this.content } : undefined;
+  appendContent(value: string): void {
+    this.content += value;
   }
+
+  providerState(): Readonly<Record<string, JsonValue>> | undefined {
+    if (this.details.size > 0 || this.content) {
+      const state: Record<string, JsonValue> = {};
+      if (this.details.size > 0)
+        state.reasoning_details = [...this.details]
+          .sort(([left], [right]) => left - right)
+          .map(([, detail]) => detail);
+      if (this.content) state.reasoning_content = this.content;
+      return state;
+    }
+    return undefined;
+  }
+}
+
+type ContentPart =
+  | { readonly type: "reasoning_delta"; readonly delta: string }
+  | { readonly type: "text_delta"; readonly delta: string };
+
+/** Normalizes compatible providers that place reasoning inside content tags. */
+class TaggedReasoningState {
+  private buffer = "";
+  private reasoning = false;
+
+  push(value: string): ContentPart[] {
+    this.buffer += value;
+    return this.drain(false);
+  }
+
+  flush(): ContentPart[] {
+    return this.drain(true);
+  }
+
+  private drain(final: boolean): ContentPart[] {
+    const result: ContentPart[] = [];
+    while (this.buffer) {
+      const tag = this.reasoning ? "</think>" : "<think>";
+      const index = this.buffer.indexOf(tag);
+      if (index >= 0) {
+        this.emit(result, this.buffer.slice(0, index));
+        this.buffer = this.buffer.slice(index + tag.length);
+        this.reasoning = !this.reasoning;
+        continue;
+      }
+      const retained = final ? 0 : trailingTagPrefix(this.buffer, tag);
+      const ready = retained ? this.buffer.slice(0, -retained) : this.buffer;
+      this.emit(result, ready);
+      this.buffer = retained ? this.buffer.slice(-retained) : "";
+      break;
+    }
+    return result;
+  }
+
+  private emit(result: ContentPart[], value: string): void {
+    if (!value) return;
+    result.push({ type: this.reasoning ? "reasoning_delta" : "text_delta", delta: value });
+  }
+}
+
+function trailingTagPrefix(value: string, tag: string): number {
+  for (let length = Math.min(value.length, tag.length - 1); length > 0; length -= 1)
+    if (tag.startsWith(value.slice(-length))) return length;
+  return 0;
 }
 
 interface ToolCallParts {
