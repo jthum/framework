@@ -12,18 +12,18 @@ canonical path.
 
 ## Progress
 
-| Phase | Status      | Delivered                                                                                   |
-| ----- | ----------- | ------------------------------------------------------------------------------------------- |
-| 0     | Complete    | Package boundary, Kernel, Workspace, Actor, Membership, authorization, environment, SQLite  |
-| 1     | Complete    | Collection and Field Spec, validation, RecordStore contracts, CRUD, schema materialization  |
-| 2     | Complete    | Live Attachments, semantic Source binding, filtered reads, attenuation, and revocation      |
-| 3     | Complete    | Sources, Views, declared relationships, Block contracts, lazy renderer registry             |
-| 4     | Complete    | Forms, Pages, reusable Svelte Studio, context-bound client, browser-capable SQLite boundary |
-| 5     | Complete    | Actions, Conditions, Events, short Rules, snapshots, and attached mutations                 |
-| 6     | Complete    | Membership ACL, `others`, explicit re-share, spawn policy, delegated-Workspace proof        |
-| 7     | Complete    | Durable Rules, waits, User requests, execution UI, and durable Event subscriptions          |
-| 8     | Complete    | InferenceRuntime, execution Actor propagation, authorized tools, and the YAIR package       |
-| 9     | In progress | Local scope configuration, shared-row policies, subscriptions; database routing remains     |
+| Phase | Status   | Delivered                                                                                      |
+| ----- | -------- | ---------------------------------------------------------------------------------------------- |
+| 0     | Complete | Package boundary, Kernel, Workspace, Actor, Membership, authorization, environment, SQLite     |
+| 1     | Complete | Collection and Field Spec, validation, RecordStore contracts, CRUD, schema materialization     |
+| 2     | Complete | Live Attachments, semantic Source binding, filtered reads, attenuation, and revocation         |
+| 3     | Complete | Sources, Views, declared relationships, Block contracts, lazy renderer registry                |
+| 4     | Complete | Forms, Pages, reusable Svelte Studio, context-bound client, browser-capable SQLite boundary    |
+| 5     | Complete | Actions, Conditions, Events, short Rules, snapshots, and attached mutations                    |
+| 6     | Complete | Membership ACL, `others`, explicit re-share, spawn policy, delegated-Workspace proof           |
+| 7     | Complete | Durable Rules, waits, User requests, execution UI, and durable Event subscriptions             |
+| 8     | Complete | InferenceRuntime, execution Actor propagation, authorized tools, and the YAIR package          |
+| 9     | Complete | Local scope configuration, shared-row policies, subscriptions, optional SQLite scope databases |
 
 ## Conformance scenarios
 
@@ -193,8 +193,12 @@ Scope-local Collections, Views, Forms, Pages, and Rules are instance configurati
 to the global portable Spec. Shared Collections optionally enforce module row policies. Event
 subscriptions and executions remain central. Memory and SQLite share isolation and policy tests;
 SQLite tests reopening and key renames. See [module scope](extensions.md#module-scope).
-Remaining work: optional database-per-scope routing, coordinated lifecycle recovery, and targeted
-relation/concurrency closure tests. Single-database operation remains the default.
+SQLite supports optional database-per-scope routing with a forward-recovery lifecycle journal;
+single-database operation remains the default. Tests cover shared/attached relations, local
+snapshots, isolation, reopening, renames, seed replay, destructive schema recovery, and cleanup.
+Routed sessions serialize their operations; multi-process hosts coordinate structural changes and
+recovery as documented in [host architecture](host-architecture.md#optional-sqlite-scope-databases).
+This phase does not add general cross-database transactions or distributed locking.
 
 ## Later, deliberately unscheduled
 

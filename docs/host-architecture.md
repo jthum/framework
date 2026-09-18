@@ -61,6 +61,50 @@ adapters. A host may use the included in-memory adapter, a SQLite gateway, or an
 passes the shared contracts. Analytics engines may sit beside primary persistence as Sources; they
 do not have to replace transactional storage.
 
+### Optional SQLite scope databases
+
+`SqlitePersistenceAdapter` accepts optional `scopeDatabases` callbacks. Without them, all data stays
+in the catalog database. With them, Workspace Collections remain there, while scope-local record
+tables live in separate databases. Scope configuration, subscriptions, and executions remain central.
+
+```ts
+const persistence = new SqlitePersistenceAdapter(openCatalogDatabase, {
+  scopeDatabases: {
+    open: ({ workspaceId, scope }) => openLocalDatabase(workspaceId, scope.kind, scope.id),
+    remove: ({ workspaceId, scope }) => removeLocalDatabase(workspaceId, scope.kind, scope.id),
+  },
+});
+```
+
+These are host-provided functions; Framework does not choose filesystem paths, OPFS names, or
+database credentials. Resolve a stable, distinct database for each Workspace/kind/id tuple. Never
+route by renameable Collection keys. An ownership marker rejects accidentally reused scope files
+and catalog files. Persisted layout selection rejects opening an existing database in a different
+mode; changing layouts is an explicit data-transfer concern, not a compatibility path.
+
+Only scopes with local Collections open record databases. Handles are cached for the session and
+closed on session close or scope cleanup. A scope containing only Pages or Rules needs no record
+database. `remove` is optional: without it, cleanup removes tables but retains the empty database.
+If supplied, removal must tolerate retries and already-missing storage. The host owns WAL/sidecar
+cleanup where its gateway requires it. Shared Collections are not copied into each scope database.
+
+Multi-database schema changes use a small forward-recovery journal. The adapter records an accepted
+operation, applies local schema/seed changes transactionally, publishes central configuration and
+subscriptions, finishes cleanup, then clears the journal. A failure may leave the change pending;
+reopening with the same routing completes it before returning a session. Initial records replay
+idempotently. Record operations and further lifecycle changes reject pending recovery instead of
+using a partly changed schema. Single-database changes retain their existing atomic transactions.
+
+This is not a cross-database transaction for arbitrary Actions. A routed session serializes its
+record/lifecycle operations. A multi-process host must coordinate schema changes, recovery/opening,
+and affected requests with an application-level maintenance barrier or single lifecycle writer;
+separate live sessions are not a distributed locking protocol. Persistence catalog/Scope stores are
+trusted ports: change scoped configuration through `applyScopeConfig`/`deleteScope`, not direct
+metadata writes. Direct `RecordStore.applySchema` manages central, unscoped record schemas.
+
+Executable behavior: [routing and recovery tests](../src/sqlite/scope-databases.spec.ts) and
+[shared scope contracts](../src/kernel/scopes.spec.ts).
+
 ## UI and code splitting
 
 Framework's Svelte components inherit semantic tokens from the host. Import full editors from

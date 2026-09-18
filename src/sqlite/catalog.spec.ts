@@ -243,7 +243,7 @@ describe("SQLite catalog adapter", () => {
 
     await expect(persistence.open()).rejects.toMatchObject({
       code: ERROR_CODES.persistenceUnsupported,
-      details: { actualVersion: 99, supportedVersion: 12 },
+      details: { actualVersion: 99, supportedVersion: 13 },
     });
 
     await expect(database.get("SELECT 1")).rejects.toThrow();

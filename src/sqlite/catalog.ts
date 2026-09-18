@@ -23,6 +23,7 @@ import { SqliteRecordStore } from "./records.ts";
 import { SqliteScopeStore } from "./scopes.ts";
 import { SqliteRuleSubscriptionStore } from "./subscriptions.ts";
 import { SqliteExecutionStore } from "./executions.ts";
+import { routeScopeDatabases, type SqliteScopeDatabases } from "./scope-databases.ts";
 import {
   assertActorIntegrity,
   assertActorIdentityUnchanged,
@@ -48,7 +49,10 @@ import type {
 export class SqlitePersistenceAdapter implements PersistenceAdapter {
   readonly kind = "sqlite";
 
-  constructor(private readonly openDatabase: OpenSqliteDatabase) {}
+  constructor(
+    private readonly openDatabase: OpenSqliteDatabase,
+    private readonly options: { readonly scopeDatabases?: SqliteScopeDatabases } = {},
+  ) {}
 
   async open(): Promise<PersistenceSession> {
     const database = await this.openDatabase();
@@ -56,6 +60,21 @@ export class SqlitePersistenceAdapter implements PersistenceAdapter {
     const executions = new SqliteExecutionStore(database);
     try {
       await initializeCatalog(database);
+      await database.transaction(async (connection) => {
+        const desired = this.options.scopeDatabases ? "scoped" : "single";
+        const row = await connection.get<{ mode: string }>(
+          "SELECT mode FROM persistence_layout WHERE id = 1",
+        );
+        if (row && row.mode !== desired)
+          throw new FrameworkError({
+            code: ERROR_CODES.persistenceUnsupported,
+            message: "The configured SQLite layout does not match persisted storage.",
+          });
+        if (!row)
+          await connection.run("INSERT INTO persistence_layout (id, mode) VALUES (1, ?)", [
+            desired,
+          ]);
+      });
       await records.initialize();
       await executions.initialize();
     } catch (error) {
@@ -66,7 +85,7 @@ export class SqlitePersistenceAdapter implements PersistenceAdapter {
       }
       throw error;
     }
-    return {
+    const session: PersistenceSession = {
       scopes: new SqliteScopeStore(database),
       subscriptions: new SqliteRuleSubscriptionStore(database),
       executions,
@@ -77,7 +96,9 @@ export class SqlitePersistenceAdapter implements PersistenceAdapter {
           const scopes = new SqliteScopeStore(connection);
           await records.applySchemaWith(connection, workspace.id, [
             ...workspace.spec.collections,
-            ...(await scopes.list(workspace.id)).flatMap((entry) => entry.config.collections),
+            ...(this.options.scopeDatabases
+              ? []
+              : (await scopes.list(workspace.id)).flatMap((entry) => entry.config.collections)),
           ]);
           for (const seed of seeds)
             for (const record of seed.records)
@@ -125,10 +146,17 @@ export class SqlitePersistenceAdapter implements PersistenceAdapter {
         }),
       close: () => database.close(),
     };
+    if (!this.options.scopeDatabases) return session;
+    try {
+      return await routeScopeDatabases(database, session, this.options.scopeDatabases);
+    } catch (error) {
+      await database.close().catch(() => undefined);
+      throw error;
+    }
   }
 }
 
-export const SQLITE_CATALOG_SCHEMA_VERSION = 12;
+export const SQLITE_CATALOG_SCHEMA_VERSION = 13;
 
 export class SqliteCatalogRepository implements CatalogRepository {
   constructor(private readonly database: SqliteDatabase) {}
@@ -657,6 +685,15 @@ async function initializeCatalog(database: SqliteDatabase): Promise<void> {
   await database.execute(`
     PRAGMA foreign_keys = ON;
 
+    CREATE TABLE IF NOT EXISTS persistence_layout (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      mode TEXT NOT NULL CHECK (mode IN ('single', 'scoped'))
+    );
+    CREATE TABLE IF NOT EXISTS scope_changes (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      change_json TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS workspaces (
       id TEXT PRIMARY KEY,
       is_root INTEGER NOT NULL CHECK (is_root IN (0, 1)),
@@ -685,6 +722,16 @@ async function initializeCatalog(database: SqliteDatabase): Promise<void> {
       config_json TEXT NOT NULL,
       PRIMARY KEY (workspace_id, kind, scope_id)
     );
+
+    CREATE TABLE IF NOT EXISTS scope_record_routes (
+      workspace_id TEXT NOT NULL,
+      collection_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      scope_id TEXT NOT NULL,
+      PRIMARY KEY (workspace_id, collection_id),
+      FOREIGN KEY (workspace_id, kind, scope_id) REFERENCES scope_configs(workspace_id, kind, scope_id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS scope_record_routes_scope ON scope_record_routes(workspace_id, kind, scope_id);
 
     CREATE TABLE IF NOT EXISTS rule_subscriptions (
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,

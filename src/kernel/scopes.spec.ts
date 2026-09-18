@@ -16,6 +16,15 @@ describe.each([
       return new SqlitePersistenceAdapter(() => database);
     },
   ],
+  [
+    "SQLite scope databases",
+    () => {
+      const database = openNodeSqlite();
+      return new SqlitePersistenceAdapter(() => database, {
+        scopeDatabases: { open: () => openNodeSqlite() },
+      });
+    },
+  ],
 ] as const)("%s module scope", (_name, persistence) => {
   it("composes on-demand local definitions with shared Workspace definitions", async () => {
     const adapter = persistence();

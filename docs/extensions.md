@@ -108,8 +108,9 @@ rejects deletion while a scoped durable execution is running or waiting. Hosts m
 module-entity deletion and concurrent operations. An Attachment is explicit cross-Workspace
 sharing; origin policies still apply and may reject access without the required origin context.
 
-SQLite currently keeps scope data in one database. Optional database-per-scope routing is the next
-persistence slice; the logical Scope contract does not prescribe a physical database layout.
+SQLite defaults to one database and optionally routes scope-local records to separate databases.
+See [SQLite scope databases](host-architecture.md#optional-sqlite-scope-databases) for callbacks,
+forward recovery, and host coordination. The logical Scope contract does not prescribe layout.
 
 Behavioral source of truth: [scope contracts](../src/kernel/scopes.spec.ts) and
 [SQLite persistence tests](../src/sqlite/catalog.spec.ts).

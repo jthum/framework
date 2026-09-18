@@ -120,6 +120,31 @@ export class SqliteRecordStore implements RecordStore {
     }
   }
 
+  /** Idempotent initial data for replaying an accepted lifecycle operation. */
+  async seedWith(
+    connection: SqliteConnection,
+    workspaceId: string,
+    collection: CollectionDefinition,
+    record: CollectionRecord,
+  ): Promise<void> {
+    const table = await requireTableWith(connection, workspaceId, collection.id);
+    const row = await connection.get<DataRow>(
+      `SELECT * FROM ${quoteIdentifier(table)} WHERE ${quoteIdentifier("_id")} = ?`,
+      [record.id],
+    );
+    if (!row) return this.createWith(connection, workspaceId, collection, record);
+    const canonical = (value: unknown) =>
+      JSON.stringify(value, (_key, item: unknown) =>
+        item !== null && typeof item === "object" && !Array.isArray(item)
+          ? Object.fromEntries(
+              Object.entries(item).sort(([left], [right]) => left.localeCompare(right)),
+            )
+          : item,
+      );
+    if (canonical(decodeRecord(row, collection)) !== canonical(record))
+      throw resourceConflict("Lifecycle seed conflicts with an existing record.");
+  }
+
   async get(
     workspaceId: string,
     collection: CollectionDefinition,

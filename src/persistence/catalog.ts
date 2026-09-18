@@ -81,7 +81,7 @@ export interface PersistenceSession {
     seeds?: readonly CollectionSeed[],
   ): Promise<void>;
   deleteScope(workspace: Workspace, scope: ScopeHandle): Promise<void>;
-  /** Atomically removes one already-validated Workspace and all instance state it owns. */
+  /** Removes one validated Workspace and its instance state; multi-database adapters recover interrupted cleanup. */
   deleteWorkspace(workspaceId: string): Promise<void>;
   close(): Promise<void>;
 }
