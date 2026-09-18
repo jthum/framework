@@ -272,6 +272,15 @@ importers:
         specifier: workspace:*
         version: link:../../../..
 
+  packages/inference/yair/providers/openai:
+    dependencies:
+      '@jthum/framework':
+        specifier: workspace:*
+        version: link:../../../../..
+      '@jthum/yair':
+        specifier: workspace:*
+        version: link:../../core
+
 packages:
 
   '@babel/code-frame@7.29.7':

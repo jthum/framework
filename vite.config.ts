@@ -24,6 +24,12 @@ export default defineConfig({
           new URL("./packages/inference/yair/core/src/index.ts", import.meta.url),
         ),
       },
+      {
+        find: /^@jthum\/yair-openai$/,
+        replacement: fileURLToPath(
+          new URL("./packages/inference/yair/providers/openai/src/index.ts", import.meta.url),
+        ),
+      },
       ...["client", "kernel", "spec", "errors", "persistence", "blocks", "catalog", "sqlite"].map(
         (key) => ({
           find: new RegExp(`^@jthum/framework/${key}$`),

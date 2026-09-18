@@ -3,6 +3,7 @@ import type { JsonValue } from "../spec/model.ts";
 export const ERROR_CODES = {
   inferenceCancelled: "INFERENCE.CANCELLED",
   inferenceInvalidStream: "INFERENCE.INVALID_STREAM",
+  inferenceProviderError: "INFERENCE.PROVIDER_ERROR",
   inferenceStepLimit: "INFERENCE.STEP_LIMIT",
   environmentCapabilityUnavailable: "ENVIRONMENT.CAPABILITY_UNAVAILABLE",
   internalUnexpected: "INTERNAL.UNEXPECTED",

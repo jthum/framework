@@ -60,6 +60,10 @@ const inference = yair({
 YAIR is tightly integrated through Framework's public inference contract while remaining a
 separate package. Framework never imports YAIR.
 
+The optional `@jthum/yair-openai` package supplies a zero-SDK-dependency provider for OpenAI and
+OpenAI-compatible Chat Completions endpoints. Its base URL, headers, credential resolver, and
+streaming mode are host-configurable; provider secrets never enter Framework configuration.
+
 ## Actors and Agent configuration
 
 `Kernel.runInference(context, input)` uses the Actor in `context`:

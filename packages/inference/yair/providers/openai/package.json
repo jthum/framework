@@ -1,0 +1,26 @@
+{
+  "name": "@jthum/yair-openai",
+  "version": "0.0.0",
+  "private": true,
+  "description": "OpenAI-compatible model provider for YAIR.",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "scripts": {
+    "build": "vp pack",
+    "check": "vp check",
+    "test": "vp test"
+  },
+  "dependencies": {
+    "@jthum/framework": "workspace:*",
+    "@jthum/yair": "workspace:*"
+  }
+}

@@ -172,8 +172,9 @@ authority, and runtime implementations use dynamic authorized tools without ente
 
 The event model, Action/Rule projection, contextual providers, discovery, persisted Agent and model
 configuration, context-bound client, and deterministic tests are in place. YAIR contains the
-sequential loop and model-provider registry. Concrete YAIR providers or third-party runtime bridges
-and their behavioral evals remain; they do not add an SDK dependency to Framework.
+sequential loop and model-provider registry. Its first optional provider implements OpenAI-compatible
+Chat Completions without adding an SDK dependency to Framework or YAIR core. Third-party runtime
+bridges and behavioral evals remain.
 
 **Out:** mandatory schema-library or agent-SDK dependency in the Spec/Kernel; implicit authority;
 conversation history as the Agent's only mode; multiple speculative adapters.
