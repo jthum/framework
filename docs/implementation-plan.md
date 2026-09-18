@@ -182,8 +182,12 @@ separately by the host and remain outside the portable Spec. Navigation, Spec in
 rendering now read canonical definitions too; the existing block catalog receives a one-way,
 non-persisted presentation projection. Actor profile updates now pass through the canonical
 client, Kernel authorization, and catalog adapter. Space names and appearance preferences also
-persist in Framework; appearance remains a host-owned Spec metadata convention. Builder still
-uses its old Host for app/Space lifecycle, diagnostics, and WebMCP projection; those are the remaining cutover
+persist in Framework; appearance remains a host-owned Spec metadata convention.
+App listing, selection, renaming, and deletion now use the canonical catalog too. Selection is
+only a local navigation preference; context resolution still checks persisted Memberships. Stale
+App selections fall back to an existing App without recreating deleted starter definitions.
+Breadcrumbs follow canonical definitions. Builder still uses its old Host for template App
+creation, Space lifecycle, diagnostics, and WebMCP projection; those are the remaining cutover
 boundary before the old projection and persisted shape can be deleted.
 
 **Phase 4 Studio extraction checkpoint:** Framework owns the semantic Svelte theme,
