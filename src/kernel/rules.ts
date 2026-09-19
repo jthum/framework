@@ -301,7 +301,10 @@ export class RuleService {
               .diagnostics,
           );
         await this.durable.assertCompatible(context, rule, workspace.spec.rules);
-      } else await this.assertExecutable(context, rule, new Set([event.event]));
+      } else {
+        await this.authorizeRule(context, "rules.run", rule);
+        await this.assertExecutable(context, rule, new Set([event.event]));
+      }
     }
     const runs: RuleDispatch[] = [];
     for (const { rule } of matches) {

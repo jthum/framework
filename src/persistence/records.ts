@@ -49,6 +49,7 @@ export interface RecordStore {
     collection: CollectionDefinition,
     recordIds: readonly string[],
   ): Promise<CollectionRecord[]>;
+  /** List records in stable createdAt/id order. */
   list(workspaceId: string, collection: CollectionDefinition): Promise<CollectionRecord[]>;
   /** List visible rows with a storage-executed restriction. */
   listFiltered?(

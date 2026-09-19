@@ -1,10 +1,6 @@
 import { ERROR_CODES, FrameworkError, type ValidationIssue } from "../errors/error.ts";
-import type {
-  CollectionDefinition,
-  FieldCondition,
-  FieldDefinition,
-  JsonValue,
-} from "../spec/model.ts";
+import type { CollectionDefinition, FieldDefinition, JsonValue } from "../spec/model.ts";
+import { evaluateCondition } from "../spec/conditions.ts";
 import { validateFieldValue } from "../spec/validate.ts";
 import type { RecordValues } from "../persistence/records.ts";
 
@@ -160,70 +156,11 @@ function validateLifecycleTransition(
   }
 }
 
-export function evaluateCondition(
-  condition: FieldCondition | undefined,
-  collection: CollectionDefinition,
-  values: RecordValues,
-  fallback: boolean,
-): boolean {
-  if (!condition) return fallback;
-  if ("all" in condition)
-    return condition.all.every((item) => evaluateCondition(item, collection, values, true));
-  if ("any" in condition)
-    return condition.any.some((item) => evaluateCondition(item, collection, values, false));
-  if ("not" in condition) return !evaluateCondition(condition.not, collection, values, false);
-  const field = fieldById(collection, condition.fieldId);
-  const actual = values[field.key];
-  const expected = condition.value;
-  switch (condition.operator) {
-    case "eq":
-      return scalarEqual(actual, expected);
-    case "neq":
-      return !scalarEqual(actual, expected);
-    case "contains":
-      return typeof actual === "string"
-        ? actual.includes(scalarText(expected))
-        : Array.isArray(actual) && actual.some((item) => scalarEqual(item, expected));
-    case "empty":
-      return (
-        actual === undefined ||
-        actual === null ||
-        actual === "" ||
-        (Array.isArray(actual) && actual.length === 0)
-      );
-    case "notEmpty":
-      return !evaluateCondition({ ...condition, operator: "empty" }, collection, values, false);
-    case "gt":
-      return comparable(actual) > comparable(expected);
-    case "gte":
-      return comparable(actual) >= comparable(expected);
-    case "lt":
-      return comparable(actual) < comparable(expected);
-    case "lte":
-      return comparable(actual) <= comparable(expected);
-  }
-}
-
 function fieldById(collection: CollectionDefinition, id: string): FieldDefinition {
   const field = collection.fields.find((candidate) => candidate.id === id);
   if (!field)
     throw new TypeError(`Collection ${collection.key} has an unresolved Field reference.`);
   return field;
-}
-
-function scalarEqual(left: JsonValue | undefined, right: JsonValue | undefined): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
-}
-
-function comparable(value: JsonValue | undefined): number | string {
-  if (typeof value === "boolean") return Number(value);
-  return typeof value === "number" || typeof value === "string" ? value : "";
-}
-
-function scalarText(value: JsonValue | undefined): string {
-  return typeof value === "string" || typeof value === "number" || typeof value === "boolean"
-    ? `${value}`
-    : "";
 }
 
 function valueLabel(value: JsonValue | undefined): string {

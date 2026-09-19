@@ -1,5 +1,9 @@
-import type { FieldDefinition, JsonValue, ReferenceFieldDefinition } from "@jthum/framework/spec";
-import { evaluateCondition } from "../../kernel/record-values.js";
+import {
+  evaluateCondition,
+  type FieldDefinition,
+  type JsonValue,
+  type ReferenceFieldDefinition,
+} from "@jthum/framework/spec";
 import type { Snippet } from "svelte";
 
 export type ReferenceInput = Snippet<

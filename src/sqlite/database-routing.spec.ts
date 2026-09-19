@@ -9,6 +9,7 @@ import { emptyScopeConfig } from "../kernel/scopes.ts";
 import { catalogAdapterContract } from "../persistence/catalog.contract.ts";
 import { recordStoreContract } from "../persistence/records.contract.ts";
 import type { CollectionRecord } from "../persistence/records.ts";
+import type { CollectionDefinition } from "../spec/model.ts";
 import { SqlitePersistenceAdapter } from "./catalog.ts";
 import { SqliteRecordStore } from "./records.ts";
 import type { SqliteConnection } from "./gateway.ts";
@@ -702,11 +703,17 @@ describe("SQLite Workspace databases", () => {
     const app = await fixture(true);
     await app.kernel.close();
     const session = await app.adapter().open();
-    const collection = notes("global");
+    const collection: CollectionDefinition = {
+      ...notes("global"),
+      fields: [
+        ...notes("global").fields,
+        { id: "instant", key: "instant", label: "Instant", type: "datetime" },
+      ],
+    };
     const record: CollectionRecord = {
       id: "seed",
       collectionId: collection.id,
-      values: { title: "Seed" },
+      values: { title: "Seed", instant: "2026-09-18T00:00:00.000Z" },
       createdBy: app.root.actorId,
       updatedBy: app.root.actorId,
       createdAt: "2026-09-18T00:00:00Z",

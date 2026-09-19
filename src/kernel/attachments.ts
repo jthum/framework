@@ -22,7 +22,7 @@ import {
   type AttachmentPermission,
   type ExecutionContext,
 } from "./model.ts";
-import { evaluateCondition } from "./record-values.ts";
+import { evaluateCondition } from "../spec/conditions.ts";
 
 export interface CreateAttachmentInput {
   readonly collectionKey: string;

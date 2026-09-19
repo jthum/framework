@@ -65,6 +65,27 @@ export function recordStoreContract(name: string, createAdapter: () => Persisten
       await persistence.close();
     });
 
+    it("lists records in stable creation-time and ID order", async () => {
+      expect.hasAssertions();
+      const persistence = await createAdapter().open();
+      const collection = taskCollection();
+      await persistence.records.applySchema("workspace-1", [collection]);
+      for (const record of [
+        taskRecord(collection.id, "record-2", "Second lexical ID"),
+        taskRecord(collection.id, "record-10", "First lexical ID"),
+        {
+          ...taskRecord(collection.id, "record-z", "Earlier"),
+          createdAt: "2026-09-16T00:00:00.000Z",
+        },
+      ])
+        await persistence.records.create("workspace-1", collection, record);
+
+      expect(
+        (await persistence.records.list("workspace-1", collection)).map((record) => record.id),
+      ).toEqual(["record-z", "record-10", "record-2"]);
+      await persistence.close();
+    });
+
     it("preserves data through stable Collection and Field key renames", async () => {
       expect.hasAssertions();
       const persistence = await createAdapter().open();

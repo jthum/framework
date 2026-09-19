@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { ERROR_CODES } from "../errors/error.ts";
-import { MemoryPersistenceAdapter } from "../persistence/memory.ts";
+import { MemoryPersistenceAdapter, MemoryRecordStore } from "../persistence/memory.ts";
 import type { Spec } from "../spec/model.ts";
 import type { AuthorizationRequest, Authorizer } from "./authorization.ts";
 import type { Clock, IdGenerator, IdKind } from "./defaults.ts";
@@ -62,7 +62,13 @@ describe("Kernel Collections and records", () => {
           key: "event",
           label: "Event",
           fields: [
-            { id: "field-instant", key: "instant", label: "Instant", type: "datetime" },
+            {
+              id: "field-instant",
+              key: "instant",
+              label: "Instant",
+              type: "datetime",
+              validation: { min: "2026-09-19T04:00:00.000Z" },
+            },
             {
               id: "field-count",
               key: "count",
@@ -89,6 +95,12 @@ describe("Kernel Collections and records", () => {
     ).rejects.toMatchObject({
       code: ERROR_CODES.validationInvalidInput,
       issues: [expect.objectContaining({ code: "VALIDATION.INTEGER" })],
+    });
+    await expect(
+      kernel.createRecord(context, "event", { instant: "2026-09-19T08:00:00+05:30" }),
+    ).rejects.toMatchObject({
+      code: ERROR_CODES.validationInvalidInput,
+      issues: [expect.objectContaining({ code: "VALIDATION.MIN" })],
     });
   });
 
@@ -118,6 +130,28 @@ describe("Kernel Collections and records", () => {
     expect(await kernel.getRecord(context, "work_item", project.id)).toMatchObject({
       values: { summary: "Keep me", status: "draft" },
     });
+  });
+
+  it("does not scan records for Spec changes outside record schemas", async () => {
+    expect.hasAssertions();
+    const { kernel, context } = await bootstrap();
+    const spec = projectSpec();
+    await kernel.applySpec(context, spec);
+    await kernel.createRecord(context, "project", { name: "Keep me" });
+    const list = vi.spyOn(MemoryRecordStore.prototype, "list");
+    try {
+      await kernel.applySpec(context, {
+        ...spec,
+        collections: spec.collections.map((collection) => ({
+          ...collection,
+          fields: collection.fields.map((field) => ({ ...field, label: `${field.label} label` })),
+        })),
+        pages: [{ id: "page-home", key: "home", label: "Home", layout: [] }],
+      });
+      expect(list).not.toHaveBeenCalled();
+    } finally {
+      list.mockRestore();
+    }
   });
 
   it("rejects incompatible schema changes and backfills explicit defaults", async () => {

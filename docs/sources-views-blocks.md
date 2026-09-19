@@ -35,6 +35,10 @@ Queries identify Fields with stable Field-ID paths:
 }
 ```
 
+Record lists and non-aggregate queries without an explicit sort use stable ascending
+`createdAt`, then record-ID order. Aggregate callers that need a stable presentation order should
+declare aggregate sorting; no semantic order is implied between otherwise unsorted groups.
+
 Every hop except the terminal Field must be an explicitly declared reference Field. The Kernel rejects unrelated joins. Related records are fetched in batches through the Source contract and are separately authorized. Field, Collection, and Source-binding key renames therefore do not invalidate a query.
 
 A local relationship may cross one declared Attachment boundary, such as `invoice.contact.name`. The attached record must be visible through the Attachment filter, and revocation invalidates both new reference writes and subsequent traversal. A path such as `invoice.contact.company.name` is not inferred through the origin Workspace: deeper traversal requires a separately exposed relationship rather than turning one Attachment into ambient access to its origin graph.

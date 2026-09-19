@@ -306,7 +306,10 @@ describe("SQLite Source queries", () => {
               paths: [["count"], ["quantity"]],
             },
           ],
-          sort: [{ key: "status", direction: "asc" }],
+          sort: [
+            { key: "status", direction: "asc" },
+            { key: "average_pair", direction: "asc" },
+          ],
         },
       },
       {

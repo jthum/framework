@@ -449,7 +449,17 @@ export class MemoryRecordStore implements RecordStore {
   }
 
   async list(workspaceId: string, collection: CollectionDefinition): Promise<CollectionRecord[]> {
-    return cloneValues(this.requireCollection(workspaceId, collection));
+    return cloneValues(this.requireCollection(workspaceId, collection)).sort((left, right) =>
+      left.createdAt === right.createdAt
+        ? left.id < right.id
+          ? -1
+          : left.id > right.id
+            ? 1
+            : 0
+        : left.createdAt < right.createdAt
+          ? -1
+          : 1,
+    );
   }
 
   async update(

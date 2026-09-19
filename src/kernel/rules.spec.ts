@@ -247,6 +247,43 @@ describe("Kernel Rules", () => {
     expect(runs.map((run) => run.ruleId)).toEqual(["rule-high", "rule-low"]);
   });
 
+  it("authorizes each short Rule selected by event dispatch", async () => {
+    expect.hasAssertions();
+    const calls: string[] = [];
+    const { kernel, context, spec } = await bootstrap(
+      {
+        async authorize(request) {
+          return { allowed: request.operation !== "rules.run" };
+        },
+      },
+      [
+        {
+          key: "tests.capture",
+          run() {
+            calls.push("ran");
+          },
+        },
+      ],
+    );
+    await kernel.applySpec(context, {
+      ...spec,
+      rules: [
+        {
+          id: "rule-event",
+          key: "on_event",
+          label: "On event",
+          trigger: { event: "test.happened" },
+          steps: [{ id: "capture", action: { key: "tests.capture" } }],
+        },
+      ],
+    });
+
+    await expect(kernel.dispatchEvent(context, { event: "test.happened" })).rejects.toMatchObject({
+      code: ERROR_CODES.permissionDenied,
+    });
+    expect(calls).toEqual([]);
+  });
+
   it("lets a module Action publish a string-key Event without entering the Kernel schema", async () => {
     expect.hasAssertions();
     const messages: JsonValue[] = [];

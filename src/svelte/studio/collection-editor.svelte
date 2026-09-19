@@ -184,7 +184,7 @@
 				collection_label: collectionName.trim(),
 				expose: type.expose,
 			});
-			toast.success("Type naming saved");
+			toast.success("Collection naming saved");
 		} finally {
 			namingPending = false;
 		}
@@ -207,7 +207,7 @@
 			toast.success("Technical key renamed");
 			await onOpen(key);
 		} catch (error) {
-			toast.error(error instanceof Error ? error.message : "Could not rename the type key");
+			toast.error(error instanceof Error ? error.message : "Could not rename the collection key");
 		} finally {
 			typeKeyPending = false;
 		}
@@ -349,7 +349,7 @@
 				: uniqueKey(baseKey, type.fields.map((field) => field.key), "field");
 		if (!key) return;
 		if (fieldType === "reference" && !fieldTarget) {
-			toast.error("Pick a record type to link to");
+				toast.error("Pick a collection to link to");
 			return;
 		}
 		if (fieldType === "enum" && fieldChoices.length === 0) {
@@ -482,10 +482,10 @@
 	async function removeType() {
 		try {
 			await actions.remove(type.key);
-			toast.success("Type removed");
+			toast.success("Collection removed");
 			await onDeleted();
 		} catch (error) {
-			toast.error(error instanceof Error ? error.message : "Could not remove type");
+			toast.error(error instanceof Error ? error.message : "Could not remove collection");
 		}
 	}
 
@@ -532,11 +532,11 @@
 			<Card.Description>Choose how one record and the full collection are named.</Card.Description>
 		</Card.Header>
 		<Card.Content>
-			<form id="type-naming" onsubmit={saveNaming}>
+			<form id="collection-naming" onsubmit={saveNaming}>
 				<Field.Group class="grid gap-4 sm:grid-cols-2">
 					<Field.Field>
-						<Field.Label for="type-label">Singular name</Field.Label>
-						<Input id="type-label" bind:value={typeLabel} placeholder="Person" />
+						<Field.Label for="collection-label">Singular name</Field.Label>
+						<Input id="collection-label" bind:value={typeLabel} placeholder="Person" />
 						<Field.Description>Used when referring to one record.</Field.Description>
 					</Field.Field>
 					<Field.Field>
@@ -550,7 +550,7 @@
 			</form>
 		</Card.Content>
 		<Card.Footer class="justify-end">
-			<Button type="submit" form="type-naming" disabled={!typeLabel.trim() || namingPending}>
+			<Button type="submit" form="collection-naming" disabled={!typeLabel.trim() || namingPending}>
 				{#if namingPending}<Spinner data-icon="inline-start" />{/if}
 				Save naming
 			</Button>
@@ -700,10 +700,10 @@
 				</Card.Header>
 				<Card.Content>
 					<Field.Field>
-						<Field.Label for="type-technical-key">Key</Field.Label>
-						<Input id="type-technical-key" bind:value={technicalKey} placeholder="project" />
+						<Field.Label for="collection-technical-key">Key</Field.Label>
+						<Input id="collection-technical-key" bind:value={technicalKey} placeholder="project" />
 						<Field.Description>
-							Renaming preserves the type identity and records, and updates references throughout the space.
+							Renaming preserves the collection identity and records, and updates references throughout the workspace.
 						</Field.Description>
 					</Field.Field>
 				</Card.Content>
@@ -792,7 +792,7 @@
 				{#if fieldType === "reference"}
 					<Field.Field>
 						<Field.Label>Links to</Field.Label>
-						<OptionSelect bind:value={fieldTarget} options={targetOptions} placeholder="Select a record type" />
+						<OptionSelect bind:value={fieldTarget} options={targetOptions} placeholder="Select a collection" />
 						<Field.Description>
 							{#if targetOptions.length}
 								The other record type this field points at.

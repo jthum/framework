@@ -157,6 +157,29 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
       await kernel.close();
     });
 
+    it("denies target-only mutations through a read-only Attachment", async () => {
+      expect.hasAssertions();
+      const { kernel, origin, target, candidate, collection } = await setup(createAdapter());
+      await kernel.createAttachment(origin, {
+        collectionKey: collection.key,
+        targetId: target.workspaceId,
+        sourceId: "source-jobs",
+      });
+      const record = await kernel.createRecord(origin, collection.key, {
+        title: "Engineer",
+        status: "open",
+      });
+
+      await expect(
+        kernel.updateSourceRecord(candidate, "shared_jobs", record.id, { title: "Changed" }),
+      ).rejects.toMatchObject({ code: ERROR_CODES.permissionDenied });
+      await expect(
+        kernel.deleteSourceRecord(candidate, "shared_jobs", record.id),
+      ).rejects.toMatchObject({ code: ERROR_CODES.permissionDenied });
+      expect(await kernel.getRecord(origin, collection.key, record.id)).toEqual(record);
+      await kernel.close();
+    });
+
     it("revokes live access, retains provenance, and allows explicit rebinding", async () => {
       expect.hasAssertions();
       const { kernel, origin, target, collection } = await setup(createAdapter());

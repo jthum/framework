@@ -10,7 +10,9 @@ describe("Studio dependency boundary", () => {
   );
   it.each(sources)("%s stays independent of host globals and adapters", (name) => {
     const source = readFileSync(new URL(name, directory), "utf8");
+    const runtimeSource = source.replace(/import\s+type\s+[^;]+;/g, "");
     expect(source).not.toMatch(/from\s+["']\$(?:app|lib)\//);
     expect(source).not.toMatch(/from\s+["'][^"']*(?:\/runtime\/|\/sqlite\/|session\.svelte)/);
+    expect(runtimeSource).not.toMatch(/from\s+["']\.\.\/\.\.\/kernel\//);
   });
 });

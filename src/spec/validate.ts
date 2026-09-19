@@ -2208,7 +2208,9 @@ function validateBoundedString(
   path: string,
   issues: ValidationIssue[],
 ): void {
-  if (field.validation?.min && value < field.validation.min) {
+  const comparable = (candidate: string) =>
+    field.type === "datetime" ? Date.parse(candidate) : candidate;
+  if (field.validation?.min && comparable(value) < comparable(field.validation.min)) {
     issue(
       issues,
       path,
@@ -2216,7 +2218,7 @@ function validateBoundedString(
       field.validation.message ?? `${field.label} is too early.`,
     );
   }
-  if (field.validation?.max && value > field.validation.max) {
+  if (field.validation?.max && comparable(value) > comparable(field.validation.max)) {
     issue(
       issues,
       path,

@@ -1984,6 +1984,7 @@ export class Kernel {
     for (const collection of next.collections) {
       const previous = currentCollections.get(collection.id);
       if (!previous) continue;
+      if (!recordShapeChanged(previous, collection)) continue;
       const records = await this.persistence.records.list(current.id, previous);
       const collectionContext = context;
       for (const record of records) {
@@ -2074,6 +2075,19 @@ function sourceDefinition(
     spec.collections.find((collection) => collection.id === id) ??
     spec.sources.find((source) => source.id === id)
   );
+}
+
+function recordShapeChanged(previous: CollectionDefinition, next: CollectionDefinition): boolean {
+  return (
+    JSON.stringify(previous.fields.map(recordFieldShape)) !==
+      JSON.stringify(next.fields.map(recordFieldShape)) ||
+    JSON.stringify(previous.lifecycle) !== JSON.stringify(next.lifecycle)
+  );
+}
+
+function recordFieldShape(field: FieldDefinition) {
+  const { label: _label, description: _description, meta: _meta, ...shape } = field;
+  return shape;
 }
 
 function membership(
