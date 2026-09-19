@@ -59,8 +59,14 @@
 
   {#if error}<Alert.Root variant="destructive"><Alert.Title>Run could not be updated</Alert.Title><Alert.Description>{error}</Alert.Description></Alert.Root>{/if}
   {#if execution.failure}<Alert.Root variant="destructive"><Alert.Title>Why this run stopped</Alert.Title><Alert.Description>{execution.failure}</Alert.Description></Alert.Root>{/if}
+  {#if execution.status === "completed" && execution.result !== undefined}
+    <Card.Root>
+      <Card.Header class="gap-0"><Card.Title>Result</Card.Title><Card.Description>The value returned by this workflow.</Card.Description></Card.Header>
+      <Card.Content><pre class="break-words whitespace-pre-wrap text-sm">{typeof execution.result === "string" ? execution.result : JSON.stringify(execution.result, null, 2)}</pre></Card.Content>
+    </Card.Root>
+  {/if}
   {#if execution.vars && Object.keys(execution.vars).length}
-    <Card.Root><Card.Header class="gap-0"><Card.Title>{execution.status === "completed" ? "Result" : "Current values"}</Card.Title><Card.Description>{execution.status === "completed" ? "Values returned by the completed workflow." : "The workflow inputs and values at this checkpoint."}</Card.Description></Card.Header><Card.Content><dl class="flex flex-col gap-4">{#each Object.entries(execution.vars) as [key, value] (key)}<div><dt class="text-xs text-muted-foreground">{key.replaceAll("_", " ")}</dt><dd class="break-words whitespace-pre-wrap text-sm">{typeof value === "string" ? value : JSON.stringify(value, null, 2)}</dd></div>{/each}</dl></Card.Content></Card.Root>
+    <Card.Root><Card.Header class="gap-0"><Card.Title>{execution.status === "completed" ? "Values" : "Current values"}</Card.Title><Card.Description>{execution.status === "completed" ? "Inputs and named step values retained by this workflow." : "The workflow inputs and values at this checkpoint."}</Card.Description></Card.Header><Card.Content><dl class="flex flex-col gap-4">{#each Object.entries(execution.vars) as [key, value] (key)}<div><dt class="text-xs text-muted-foreground">{key.replaceAll("_", " ")}</dt><dd class="break-words whitespace-pre-wrap text-sm">{typeof value === "string" ? value : JSON.stringify(value, null, 2)}</dd></div>{/each}</dl></Card.Content></Card.Root>
   {/if}
 
   {#each requests as request (request.id)}

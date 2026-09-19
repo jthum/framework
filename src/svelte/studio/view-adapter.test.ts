@@ -115,6 +115,25 @@ describe("View Studio adapter", () => {
     expect(viewDefinitionFromDraft(draft, schemas)).toEqual(view);
   });
 
+  it("authors a referenced record title as the default grouped label", () => {
+    const draft = {
+      id: "view-project-count",
+      key: "project_count",
+      label: "Projects by client",
+      source: "project",
+      fields: ["client", "project_count"],
+      group_by: "client",
+      measures: { project_count: { op: "count" as const } },
+    };
+
+    expect(viewDefinitionFromDraft(draft, schemas).query?.aggregate?.group).toEqual({
+      path: ["field-project-client"],
+      labelPath: ["field-project-client", "field-client-name"],
+      as: "client",
+      label: "Client",
+    });
+  });
+
   it("retains stable aliases, labels, and parameter contracts across Field-key changes", () => {
     const customAlias: ViewDefinition = {
       id: "view-custom",

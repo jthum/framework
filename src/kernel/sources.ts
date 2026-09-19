@@ -1,5 +1,10 @@
 import { ERROR_CODES, FrameworkError, resourceNotFound } from "../errors/error.ts";
-import type { CollectionRecord, RecordStore, RecordValues } from "../persistence/records.ts";
+import type {
+  CollectionRecord,
+  RecordQueryRelation,
+  RecordStore,
+  RecordValues,
+} from "../persistence/records.ts";
 import type {
   CollectionDefinition,
   FieldDefinition,
@@ -11,7 +16,7 @@ import type { AttachmentService } from "./attachments.ts";
 import type { AuthorizationRequest } from "./authorization.ts";
 import type { RecordPolicyService } from "./record-policy.ts";
 import type { ExecutionContext, Workspace } from "./model.ts";
-import { executeSourceQuery } from "./source-query.ts";
+import { executeSourceQuery, relatedQueryColumns, rootQueryColumns } from "./source-query.ts";
 
 export interface SourceCapabilities {
   readonly filter: boolean;
@@ -140,6 +145,7 @@ export class SourceService implements SourceProvider {
     const workspace = await this.resolveWorkspace(context);
     const local = workspace.spec.collections.find((collection) => collection.key === key);
     if (local) {
+      query = await this.withDefaultGroupLabel(context, workspace, local, query);
       assertValidSourceQuery(
         query,
         local,
@@ -147,6 +153,55 @@ export class SourceService implements SourceProvider {
         new Set(workspace.spec.sources.map((source) => source.id)),
       );
       await this.authorizeCollection(context, "records.list", workspace.id, local.id);
+      if (hasRelationalPredicateOrAggregate(query) && this.records.queryRelated) {
+        const { relations, attachmentIds } = await this.planRelations(
+          context,
+          workspace,
+          local,
+          query,
+        );
+        const restriction = await this.policies.readFilter(local, context);
+        const effective = restriction
+          ? {
+              ...query,
+              filter: query.filter ? ({ all: [restriction, query.filter] } as const) : restriction,
+            }
+          : query;
+        const source = await this.describeLocal(context, local);
+        const result = await this.records.queryRelated(workspace.id, local, effective, relations);
+        for (const id of attachmentIds) await this.attachments.assertQueryTargetLive(id);
+        return { source, columns: relatedQueryColumns(local, query, relations), ...result };
+      }
+      if (this.records.query && !hasRelationalPredicateOrAggregate(query)) {
+        const restriction = await this.policies.readFilter(local, context);
+        const effective = restriction
+          ? {
+              ...query,
+              filter: query.filter ? ({ all: [restriction, query.filter] } as const) : restriction,
+            }
+          : query;
+        const source = await this.describeLocal(context, local);
+        if (query.select?.some((item) => item.path.length > 1)) {
+          const { select: _selection, ...rootQuery } = effective;
+          const result = await this.records.query(workspace.id, local, rootQuery);
+          const projected = await executeSourceQuery(
+            source,
+            result.rows,
+            { select: query.select },
+            {
+              resolve: (sourceId, ids) => this.resolveRelation(context, workspace, sourceId, ids),
+            },
+          );
+          return { ...projected, total: result.total };
+        }
+        const result = await this.records.query(workspace.id, local, effective);
+        return { source, columns: rootQueryColumns(local, query), ...result };
+      }
+      if (this.records.queryMode !== "in-memory")
+        throw new FrameworkError({
+          code: "SOURCE.CAPABILITY_UNSUPPORTED",
+          message: "This RecordStore does not execute this Source query.",
+        });
       const records = await this.policies.filter(
         context,
         workspace.id,
@@ -163,9 +218,61 @@ export class SourceService implements SourceProvider {
     const collection = await this.attachments.schema(context, key);
     assertValidSourceQuery(query, collection);
     rejectRelationPaths(query);
+    if (this.records.query) {
+      const result = await this.attachments.queryRecords(context, key, query);
+      const source = await this.describeAttached(context, key, collection);
+      return { source, columns: rootQueryColumns(collection, query), ...result };
+    }
+    if (this.records.queryMode !== "in-memory")
+      throw new FrameworkError({
+        code: "SOURCE.CAPABILITY_UNSUPPORTED",
+        message: "This RecordStore does not execute attached Source queries.",
+      });
     const records = await this.attachments.listRecords(context, key);
     const source = await this.describeAttached(context, key, collection);
     return executeSourceQuery(source, records, query);
+  }
+
+  /** A reference groups by stable record identity while displaying the target record title. */
+  private async withDefaultGroupLabel(
+    context: ExecutionContext,
+    workspace: Workspace,
+    root: CollectionDefinition,
+    query: SourceQueryDefinition,
+  ): Promise<SourceQueryDefinition> {
+    const group = query.aggregate?.group;
+    if (!group || group.labelPath) return query;
+    let collection = root;
+    let terminal: FieldDefinition | undefined;
+    for (const [index, fieldId] of group.path.entries()) {
+      terminal = collection.fields.find((field) => field.id === fieldId);
+      if (!terminal || index === group.path.length - 1) break;
+      if (terminal.type !== "reference") return query;
+      collection = await this.relationSchema(context, workspace, terminal.sourceId);
+    }
+    if (terminal?.type !== "reference") return query;
+    const target = await this.relationSchema(context, workspace, terminal.sourceId);
+    const title = titleField(target);
+    if (!title) return query;
+    return {
+      ...query,
+      aggregate: {
+        ...query.aggregate!,
+        group: { ...group, labelPath: [...group.path, title.id] },
+      },
+    };
+  }
+
+  private async relationSchema(
+    context: ExecutionContext,
+    workspace: Workspace,
+    sourceId: string,
+  ): Promise<CollectionDefinition> {
+    const local = workspace.spec.collections.find((collection) => collection.id === sourceId);
+    if (local) return local;
+    const binding = workspace.spec.sources.find((source) => source.id === sourceId);
+    if (!binding) throw resourceNotFound("Source", sourceId);
+    return this.attachments.schema(context, binding.key);
   }
 
   async get(context: ExecutionContext, key: string, id: string): Promise<SourceRow | null> {
@@ -285,6 +392,90 @@ export class SourceService implements SourceProvider {
       traversable: false,
     };
   }
+
+  private async planRelations(
+    context: ExecutionContext,
+    workspace: Workspace,
+    root: CollectionDefinition,
+    query: SourceQueryDefinition,
+  ): Promise<{ relations: RecordQueryRelation[]; attachmentIds: string[] }> {
+    const relations: RecordQueryRelation[] = [];
+    const attachmentIds: string[] = [];
+    const known = new Map<string, CollectionDefinition>([["", root]]);
+    for (const path of allQueryPaths(query)) {
+      for (let length = 1; length < path.length; length += 1) {
+        const prefix = path.slice(0, length);
+        const key = prefix.join("\0");
+        if (known.has(key)) continue;
+        const parent = known.get(prefix.slice(0, -1).join("\0"));
+        const reference = parent?.fields.find((field) => field.id === prefix.at(-1));
+        if (!reference || reference.type !== "reference")
+          throw new FrameworkError({
+            code: "VALIDATION.INVALID_INPUT",
+            message: "Only declared reference Fields may be traversed.",
+          });
+        const local = workspace.spec.collections.find((item) => item.id === reference.sourceId);
+        if (local) {
+          await this.authorizeCollection(context, "records.list", workspace.id, local.id);
+          await this.describeLocal(context, local);
+          const filter = await this.policies.readFilter(local, context);
+          relations.push({
+            path: prefix,
+            workspaceId: workspace.id,
+            collection: local,
+            ...(filter ? { filter } : {}),
+          });
+          known.set(key, local);
+          continue;
+        }
+        const binding = workspace.spec.sources.find((item) => item.id === reference.sourceId);
+        if (!binding) throw resourceNotFound("Source", reference.sourceId);
+        const target = await this.attachments.queryTarget(context, binding.key);
+        relations.push({
+          path: prefix,
+          workspaceId: target.workspaceId,
+          collection: target.collection,
+          ...(target.filter ? { filter: target.filter } : {}),
+        });
+        attachmentIds.push(target.attachmentId);
+        known.set(key, target.collection);
+      }
+    }
+    return { relations, attachmentIds };
+  }
+}
+
+function titleField(collection: CollectionDefinition): FieldDefinition | undefined {
+  return (
+    collection.fields.find((field) => field.id === collection.titleFieldId) ??
+    collection.fields.find((field) => ["name", "title", "label"].includes(field.key)) ??
+    collection.fields.find((field) => field.type === "text")
+  );
+}
+
+function hasRelationalPredicateOrAggregate(query: SourceQueryDefinition): boolean {
+  const filter = (value: SourceQueryDefinition["filter"]): boolean => {
+    if (!value) return false;
+    if ("all" in value) return value.all.some(filter);
+    if ("any" in value) return value.any.some(filter);
+    if ("not" in value) return filter(value.not);
+    return value.path.length > 1;
+  };
+  return (
+    filter(query.filter) ||
+    Boolean(query.sort?.some((item) => item.path.length > 1)) ||
+    Boolean(
+      query.aggregate &&
+      [
+        query.aggregate.group.path,
+        ...(query.aggregate.group.labelPath ? [query.aggregate.group.labelPath] : []),
+        ...query.aggregate.measures.flatMap((measure) => [
+          ...(measure.path ? [measure.path] : []),
+          ...(measure.paths ?? []),
+        ]),
+      ].some((path) => path.length > 1),
+    )
+  );
 }
 
 function sourceDescriptor(
@@ -315,6 +506,22 @@ function queryPaths(query: SourceQueryDefinition): readonly (readonly string[])[
     ...filterPaths(query.filter),
     ...(query.sort?.map((item) => item.path) ?? []),
     ...(query.select?.map((item) => item.path) ?? []),
+  ];
+}
+
+function allQueryPaths(query: SourceQueryDefinition): readonly (readonly string[])[] {
+  return [
+    ...queryPaths(query),
+    ...(query.aggregate
+      ? [
+          query.aggregate.group.path,
+          ...(query.aggregate.group.labelPath ? [query.aggregate.group.labelPath] : []),
+          ...query.aggregate.measures.flatMap((measure) => [
+            ...(measure.path ? [measure.path] : []),
+            ...(measure.paths ?? []),
+          ]),
+        ]
+      : []),
   ];
 }
 

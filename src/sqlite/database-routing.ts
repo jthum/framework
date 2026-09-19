@@ -8,7 +8,7 @@ import type { ScopeHandle, ScopeConfig, Workspace } from "../kernel/model.ts";
 import { assertWorkspaceTopologyUnchanged } from "../persistence/catalog-integrity.ts";
 import type { CollectionDefinition } from "../spec/model.ts";
 import type { PersistenceSession, CollectionSeed } from "../persistence/catalog.ts";
-import type { RecordStore } from "../persistence/records.ts";
+import type { RecordQueryRelation, RecordStore } from "../persistence/records.ts";
 import type { SqliteDatabase } from "./gateway.ts";
 import { SqliteRecordStore } from "./records.ts";
 import { SqliteScopeStore } from "./scopes.ts";
@@ -328,6 +328,49 @@ export async function routeDatabases(
       ),
     list: (workspaceId, collection) =>
       schedule(async () => (await store(workspaceId, collection.id)).list(workspaceId, collection)),
+    listFiltered: (workspaceId, collection, filter) =>
+      schedule(async () =>
+        (await store(workspaceId, collection.id)).listFiltered!(workspaceId, collection, filter),
+      ),
+    query: (workspaceId, collection, query) =>
+      schedule(async () =>
+        (await store(workspaceId, collection.id)).query!(workspaceId, collection, query),
+      ),
+    queryRelated: (workspaceId, collection, query, relations: readonly RecordQueryRelation[]) =>
+      schedule(async () => {
+        const root = (await store(workspaceId, collection.id)) as SqliteRecordStore;
+        const external = new Map<SqliteDatabase, { schema: string; name: string }>();
+        const physical = [];
+        for (const relation of relations) {
+          const target = (await store(
+            relation.workspaceId,
+            relation.collection.id,
+          )) as SqliteRecordStore;
+          let schema: string | undefined;
+          if (target.databaseHandle !== root.databaseHandle) {
+            const database = target.databaseHandle;
+            if (!database.name)
+              throw new FrameworkError({
+                code: "SOURCE.CAPABILITY_UNSUPPORTED",
+                message: "A routed SQLite database cannot be attached by name.",
+              });
+            let item = external.get(database);
+            if (!item) {
+              item = { schema: `related_${external.size}`, name: database.name };
+              external.set(database, item);
+            }
+            schema = item.schema;
+          }
+          physical.push({
+            ...relation,
+            table: await target.tableFor(relation.workspaceId, relation.collection.id),
+            ...(schema ? { schema } : {}),
+          });
+        }
+        return root.queryRelatedRouted(workspaceId, collection, query, physical, [
+          ...external.values(),
+        ]);
+      }),
     update: (workspaceId, collection, record) =>
       schedule(async () =>
         (await store(workspaceId, collection.id)).update(workspaceId, collection, record),

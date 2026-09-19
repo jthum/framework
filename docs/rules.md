@@ -69,6 +69,21 @@ resource-level checks.
 Workspace-owned runtime Actions use the same execution path and may be called directly, from a
 Rule, or exposed directly as an Agent tool. See [Workspace settings and runtime Actions](workspace-actions.md).
 
+Action outputs are discarded unless an Action step names them with `as`; named values become part
+of `vars` for later steps. Rules are commands by default and require no output ceremony. A Rule
+that acts as a value-producing function may declare `result` using the same `RuleValue` binding
+language. Direct callers and agent tools receive that value. An `invoke` step stores a
+declared child result under its `as` name; when the child has no result declaration, it stores the
+child variable map instead. Actions and Rules remain separate even when either is callable or
+exposed as a tool.
+
+An Agent-exposed Rule uses its semantic `key` as the model-facing tool name and its Rule
+description as the tool description by default. Authors may set `tool: { name, description }`
+to make either more specific without changing the Rule key or internal ID. The tool name may be
+any provider-safe name (1–64 letters, numbers, underscores, or hyphens), provided it does not
+collide with another tool offered in the same model step. The internal `rule:<id>` identity still
+controls tool policy, dispatch, and authorization; agents see the authored name and description.
+
 Record Actions identify their target with a stable `sourceId`; their authored `values` maps use
 stable Field IDs, and resolved record values carry both the Source ID and an internal stable Field
 map. Studio and direct Form/record APIs remain key-oriented. This keeps simple authoring readable

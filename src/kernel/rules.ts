@@ -53,6 +53,7 @@ export interface RuleRun {
   readonly status: "completed";
   readonly vars: Readonly<Record<string, JsonValue>>;
   readonly trace: readonly RuleStepTrace[];
+  readonly result?: JsonValue;
 }
 
 /** Result of delivering one Event to one matching Rule subscription. */
@@ -196,6 +197,7 @@ export class RuleService {
         test: (predicate, scope) => this.test(predicate, scope),
         read: resolveReference,
         values: resolveObject,
+        value: resolveValue,
         actor: (context, rule, stepId, binding, scope) =>
           this.actionContext(context, rule, stepId, binding, scope),
         compensate: (state) => this.compensate(state, 0),
@@ -360,6 +362,7 @@ export class RuleService {
       status: "completed",
       vars: structuredClone(scope.vars),
       trace: structuredClone(state.trace),
+      ...(rule.result === undefined ? {} : { result: resolveValue(rule.result, scope) }),
     };
   }
 
@@ -431,7 +434,9 @@ export class RuleService {
           { input: resolveObject(step.invoke.input ?? {}, scope) },
           state,
         );
-        if (step.invoke.as) scope.vars[step.invoke.as] = { ...result.vars };
+        if (step.invoke.as)
+          scope.vars[step.invoke.as] =
+            result.result === undefined ? { ...result.vars } : structuredClone(result.result);
         state.trace.push({ stepId: step.id, kind, status: "completed" });
       } else if ("foreach" in step) {
         const items = resolveReference(step.foreach.source.$ref, scope);

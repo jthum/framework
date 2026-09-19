@@ -39,7 +39,13 @@ Every hop except the terminal Field must be an explicitly declared reference Fie
 
 A local relationship may cross one declared Attachment boundary, such as `invoice.contact.name`. The attached record must be visible through the Attachment filter, and revocation invalidates both new reference writes and subsequent traversal. A path such as `invoice.contact.company.name` is not inferred through the origin Workspace: deeper traversal requires a separately exposed relationship rather than turning one Attachment into ambient access to its origin graph.
 
-The current built-in provider evaluates a query after its RecordStore read. The contract allows a future provider or persistence adapter to push supported operations down without changing View or Block semantics.
+SQLite executes root and declared relationship filters, sorting, aggregation, and pagination in
+SQL, including Attachment and queryable row-policy restrictions. Relationship selections used only
+for display resolve after the returned page; paths used by predicates, sorting, or aggregation are
+projected inside SQLite before pagination. Routed record files are attached to the root query
+connection for the duration of that query, then detached. A host SQLite gateway must expose a
+stable attachable database name for each routed file. The memory adapter remains the reference
+evaluator.
 
 ## Views
 
@@ -61,7 +67,10 @@ A View is portable Spec data with exactly one root Source, an optional query, an
 A query may instead define one grouped aggregate with named measures. `count`, `sum`, `avg`,
 `min`, and `max` are portable operations; a multi-path average first averages each record and
 then the records in its group. Group and measure aliases are stable output keys. A relation group
-may retain its reference identity while using `labelPath` for display.
+retains its reference identity while using `labelPath` for display. When a relation group omits
+`labelPath`, the built-in Workspace Source uses the referenced Collection's title Field (falling
+back to a conventional `name`, `title`, `label`, or first text Field). An explicit `labelPath`
+always wins.
 
 Views may declare caller parameters separately from their stored query. Each parameter maps a
 semantic input key to a stable Field-ID path and operator. `queryView(key, { parameters })` validates

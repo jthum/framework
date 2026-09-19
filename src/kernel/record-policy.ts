@@ -1,7 +1,8 @@
 import { ERROR_CODES, FrameworkError, resourceConflict } from "../errors/error.ts";
 import type { CollectionRecord, RecordValues } from "../persistence/records.ts";
-import type { CollectionDefinition } from "../spec/model.ts";
+import type { CollectionDefinition, SourceFilter } from "../spec/model.ts";
 import type { ExecutionContext } from "./model.ts";
+import { matchesRootFilter } from "./source-query.ts";
 
 export type RecordPolicyOperation = "create" | "read" | "update" | "delete";
 
@@ -17,6 +18,8 @@ export interface RecordPolicyRequest {
 /** Optional row-level module policy. Collection ACL remains the coarse authorization boundary. */
 export interface RecordPolicy {
   readonly collectionId: string;
+  /** Queryable read restriction for list/View queries. Required by query-capable stores. */
+  readonly readFilter?: (context: ExecutionContext) => SourceFilter | Promise<SourceFilter>;
   authorize(request: RecordPolicyRequest): boolean | Promise<boolean>;
 }
 
@@ -41,6 +44,20 @@ export class RecordPolicyService {
     });
   }
 
+  async readFilter(
+    collection: CollectionDefinition,
+    context: ExecutionContext,
+  ): Promise<SourceFilter | undefined> {
+    const policy = this.policies.get(collection.id);
+    if (!policy) return undefined;
+    if (!policy.readFilter)
+      throw new FrameworkError({
+        code: "SOURCE.CAPABILITY_UNSUPPORTED",
+        message: `Record policy for ${collection.key} has no queryable read restriction.`,
+      });
+    return structuredClone(await policy.readFilter(context));
+  }
+
   async filter(
     context: ExecutionContext,
     workspaceId: string,
@@ -49,6 +66,10 @@ export class RecordPolicyService {
   ): Promise<CollectionRecord[]> {
     const policy = this.policies.get(collection.id);
     if (!policy) return [...records];
+    if (policy.readFilter) {
+      const filter = await policy.readFilter(context);
+      return records.filter((current) => matchesRootFilter(collection, current.values, filter));
+    }
     const accepted = await Promise.all(
       records.map(async (current) => ({
         current,
@@ -66,6 +87,13 @@ export class RecordPolicyService {
 
   private async allowed(request: RecordPolicyRequest): Promise<boolean> {
     const policy = this.policies.get(request.collection.id);
-    return policy ? policy.authorize(request) : true;
+    if (!policy) return true;
+    if (request.operation === "read" && policy.readFilter && request.current)
+      return matchesRootFilter(
+        request.collection,
+        request.current.values,
+        await policy.readFilter(request.context),
+      );
+    return policy.authorize(request);
   }
 }

@@ -373,6 +373,7 @@ export class MemoryCatalogRepository implements CatalogRepository, CatalogTransa
 }
 
 export class MemoryRecordStore implements RecordStore {
+  readonly queryMode = "in-memory" as const;
   private readonly collections = new Map<string, CollectionDefinition>();
   private readonly records = new Map<string, Map<string, CollectionRecord>>();
 

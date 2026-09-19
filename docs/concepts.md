@@ -64,9 +64,25 @@ input. Blocks never open a database, and Views never contain a component.
 
 ## Actions, Events, and Rules
 
-- An **Action** is a registered primitive operation.
+- An **Action** implements a callable capability. Framework and hosts register ordinary Actions;
+  an opted-in executor may also run a Workspace-defined implementation such as code, HTTP, WASM,
+  or a remote function.
 - An **Event** is a named occurrence with payload and Actor context.
 - A **Rule** composes Actions and control flow, optionally subscribing to an Event.
+
+Rules and Actions remain distinct even when both are callable. A one-step Rule is valid and may be
+invoked by another Rule. It does not become an Action merely because it is small. Both can be
+projected as agent tools. `action:*` and `rule:*` are stable internal tool IDs used for policy and
+execution; the model sees a semantic function name. An exposed Rule defaults to its key and
+description, and may override both through `tool` metadata. Tool names must be unique within an
+offered step. `Tool` is an exposure mechanism, not a third executable primitive.
+
+Rule Action results enter the shared variable context only when the step has `as`. Later steps can
+read those values through `vars`. Most Rules are commands and need no declared result. A
+value-producing Rule may opt into `result`, a `RuleValue` evaluated from its final context. Direct
+callers and agent tools then receive that value; an invoking Rule stores it under the invoke
+step's `as`. Without a declared result, a nested invocation retains the complete child variable
+map for inspection and composition. Durable Rule details expose a result only after completion.
 
 Direct local CRUD remains available through the client. Interactive mutations that should emit
 Events use Actions or Form submission. Short Rules execute synchronously; durable Rules persist

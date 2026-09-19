@@ -117,7 +117,6 @@ describe("Source contract", () => {
       aggregate: {
         group: {
           path: ["field-client"],
-          labelPath: ["field-client", "field-client-name"],
           as: "client",
         },
         measures: [{ as: "project_count", operation: "count" }],

@@ -71,6 +71,12 @@ Attachments, scope configuration, subscriptions, and executions remain in the ce
 Physical placement does not grant access: cross-Workspace sharing still uses explicit Attachments,
 which query the origin Workspace's record database without copying its data.
 
+Relationship queries across routed SQLite files use SQLite `ATTACH` for the duration of a read.
+Each routed `SqliteDatabase` handle therefore supplies its stable `name` (the same name passed to
+its gateway when opened). An in-memory SQLite handle with no attachable name can still serve local
+queries, but cannot join records in another independent in-memory handle. Attachment filters and
+row policies remain query restrictions regardless of physical placement.
+
 ```ts
 const persistence = new SqlitePersistenceAdapter(openCatalogDatabase, {
   workspaceDatabases: {

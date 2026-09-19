@@ -50,6 +50,8 @@ export interface InferenceToolInputSchema {
 export interface InferenceTool {
   /** Framework-stable identity. Runtimes may map it to a provider-safe function name. */
   readonly id: string;
+  /** Optional model-facing function name. Defaults to a provider-safe form of the ID. */
+  readonly name?: string;
   readonly label: string;
   readonly description: string;
   readonly input: InferenceToolInputSchema;
@@ -58,6 +60,8 @@ export interface InferenceTool {
 export interface InferenceToolCall {
   readonly id: string;
   readonly toolId: string;
+  /** Name used when this call was offered; preserved for conversation replay after tool churn. */
+  readonly toolName?: string;
   readonly input: Readonly<Record<string, JsonValue>>;
 }
 

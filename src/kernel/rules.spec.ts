@@ -30,6 +30,58 @@ describe("Kernel Rules", () => {
     expect(short.vars.today).toBe(fixedClock.now().slice(0, 10));
     await kernel.close();
   });
+  it("returns an optional result without requiring one for ordinary Rules", async () => {
+    const { kernel, context, spec } = await bootstrap();
+    await kernel.applySpec(
+      context,
+      specWithRules(spec, [
+        {
+          id: "rule-value",
+          key: "value_rule",
+          label: "Value Rule",
+          input: { topic: { value: "text", required: true } },
+          steps: [
+            {
+              id: "prepare",
+              compute: { assign: { answer: { topic: { $ref: "vars.topic" }, ready: true } } },
+            },
+          ],
+          result: { $ref: "vars.answer" },
+        },
+        { id: "rule-command", key: "command_rule", label: "Command Rule", steps: [] },
+      ]),
+    );
+
+    await expect(
+      kernel.runRule(context, "value_rule", { input: { topic: "Release" } }),
+    ).resolves.toMatchObject({ result: { topic: "Release", ready: true } });
+    expect(await kernel.runRule(context, "command_rule")).not.toHaveProperty("result");
+    await kernel.close();
+  });
+
+  it("lets a nested Rule expose its declared result to its caller", async () => {
+    const { kernel, context, spec } = await bootstrap();
+    const nested: RuleDefinition = {
+      id: "rule-child",
+      key: "child",
+      label: "Child",
+      steps: [{ id: "compute", compute: { assign: { public: "value", internal: "detail" } } }],
+      result: { $ref: "vars.public" },
+    };
+    const parent: RuleDefinition = {
+      id: "rule-parent-result",
+      key: "parent_result",
+      label: "Parent",
+      steps: [{ id: "invoke", invoke: { ruleId: nested.id, as: "childResult" } }],
+      result: { $ref: "vars.childResult" },
+    };
+    await kernel.applySpec(context, specWithRules(spec, [parent, nested]));
+
+    const run = await kernel.runRule(context, parent.key);
+    expect(run.vars.childResult).toBe("value");
+    expect(run.result).toBe("value");
+    await kernel.close();
+  });
   it("keeps authored predicates and Action values valid across Field key renames", async () => {
     const { kernel, context, spec } = await bootstrap();
     await kernel.applySpec(context, specWithRules(spec, [activateRule()]));

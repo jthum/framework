@@ -13,6 +13,10 @@ describe.each([
   it("enforces one optional policy across CRUD, Views, Forms, Actions, and relations", async () => {
     const policy: RecordPolicy = {
       collectionId: "tasks",
+      readFilter(context) {
+        const scope = context.scope?.kind === "topic" ? context.scope.id : undefined;
+        return scope ? { path: ["topic"], operator: "eq", value: scope } : { any: [] };
+      },
       authorize({ context, operation, current, values }) {
         const scope = context.scope?.kind === "topic" ? context.scope.id : undefined;
         if (!scope) return false;
@@ -128,6 +132,34 @@ describe.each([
       });
       await expect(kernel.createRecord(context, "notes", {})).resolves.toMatchObject({
         collectionId: "notes",
+      });
+    } finally {
+      await kernel.close();
+    }
+  });
+});
+
+describe("SQLite queryable record policy boundary", () => {
+  it("rejects a list-read policy that cannot be composed into SQL", async () => {
+    const kernel = await Kernel.open({
+      persistence: new SqlitePersistenceAdapter(() => openNodeSqlite()),
+      recordPolicies: [{ collectionId: "notes", authorize: () => true }],
+    });
+    try {
+      const { workspace, user } = await kernel.createRootWorkspace({
+        name: "Space",
+        user: { name: "Owner" },
+      });
+      const context = { workspaceId: workspace.id, actorId: user.id };
+      await kernel.applySpec(context, {
+        ...workspace.spec,
+        collections: [{ id: "notes", key: "notes", label: "Notes", fields: [] }],
+      });
+      await expect(kernel.querySource(context, "notes", { limit: 20 })).rejects.toMatchObject({
+        code: "SOURCE.CAPABILITY_UNSUPPORTED",
+      });
+      await expect(kernel.listRecords(context, "notes")).rejects.toMatchObject({
+        code: "SOURCE.CAPABILITY_UNSUPPORTED",
       });
     } finally {
       await kernel.close();

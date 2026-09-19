@@ -350,6 +350,47 @@ describe("OpenAIProvider", () => {
     expect(events).toEqual([{ type: "finished", reason: "refusal", message: "I cannot do that." }]);
   });
 
+  it("uses an authored tool name and replays it after that tool leaves the offer", async () => {
+    const bodies: unknown[] = [];
+    const provider = openAI({
+      defaultModel: "model-test",
+      stream: false,
+      fetch: async (_input, init) => {
+        bodies.push(JSON.parse(requestBody(init)));
+        return Response.json({
+          choices: [{ message: { role: "assistant", content: "Done" }, finish_reason: "stop" }],
+        });
+      },
+    });
+    const tool = {
+      id: "rule:opaque-id",
+      name: "summarize_topic",
+      label: "Summarize",
+      description: "Summarize a topic.",
+      input: { type: "object" as const },
+    };
+    await collect(provider.infer({ messages: [], tools: [tool] }));
+    await collect(
+      provider.infer({
+        messages: [
+          {
+            role: "assistant",
+            toolCalls: [{ id: "call_1", toolId: tool.id, toolName: tool.name, input: {} }],
+          },
+          { role: "tool", callId: "call_1", toolId: tool.id, output: "Done" },
+        ],
+        tools: [],
+      }),
+    );
+    expect(
+      (bodies[0] as { tools: Array<{ function: { name: string } }> }).tools[0]?.function.name,
+    ).toBe("summarize_topic");
+    expect(
+      (bodies[1] as { messages: Array<{ tool_calls?: Array<{ function: { name: string } }> }> })
+        .messages[0]?.tool_calls?.[0]?.function.name,
+    ).toBe("summarize_topic");
+  });
+
   it("reads non-streaming tool calls without stream-only indexes", async () => {
     const provider = openAI({
       defaultModel: "model-test",

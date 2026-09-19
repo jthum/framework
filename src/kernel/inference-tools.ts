@@ -92,7 +92,7 @@ export class InferenceToolService {
       const id = `action:${action.key}`;
       if (!agentToolAllowed(policy, id)) continue;
       const { availability = "eager", keywords = [], ...tool } = structuredClone(action.tool);
-      const projected = { id, ...tool };
+      const projected = { id, name: modelToolName(action.key), ...tool };
       if (availability === "discoverable") discoverable.push({ ...projected, keywords });
       else eager.push(projected);
       executors.set(id, (input) => this.operations.executeAction(context, action.key, input));
@@ -113,6 +113,7 @@ export class InferenceToolService {
       if (executors.has(id)) throw resourceConflict(`Inference tool ${id} is already registered.`);
       const projected = {
         id,
+        name: modelToolName(action.key),
         label: action.label,
         description: action.description,
         input: structuredClone(action.input),
@@ -137,8 +138,9 @@ export class InferenceToolService {
       if (!agentToolAllowed(policy, id)) continue;
       discoverable.push({
         id,
+        name: rule.tool?.name ?? rule.key,
         label: rule.label,
-        description: rule.description ?? `Run the ${rule.label} Rule.`,
+        description: rule.tool?.description ?? rule.description ?? `Run the ${rule.label} Rule.`,
         input: ruleInputSchema(rule.input),
         keywords: [rule.key, rule.label],
       });
@@ -148,6 +150,7 @@ export class InferenceToolService {
           return { mode: "durable", executionId: execution.id, status: execution.status };
         }
         const run = await this.operations.runRule(context, rule.key, { input });
+        if (run.result !== undefined) return structuredClone(run.result);
         return {
           mode: "short",
           ruleId: run.ruleId,
@@ -167,6 +170,7 @@ export class InferenceToolService {
           throw resourceConflict(`Inference tool ${definition.id} is already registered.`);
         const projected: InferenceTool = structuredClone({
           id: definition.id,
+          ...(definition.name === undefined ? {} : { name: definition.name }),
           label: definition.label,
           description: definition.description,
           input: definition.input,
@@ -187,6 +191,17 @@ export class InferenceToolService {
     if (policy.search && !includeDiscoverable && discoverable.length > visibleDiscoverable.length)
       tools.push(searchToolsDefinition());
     tools.sort((left, right) => left.id.localeCompare(right.id));
+
+    const names = new Map<string, string>();
+    for (const tool of tools) {
+      const name = tool.name ?? tool.id;
+      const previous = names.get(name);
+      if (previous && previous !== tool.id)
+        throw resourceConflict(
+          `Inference tool name ${name} is shared by ${previous} and ${tool.id}.`,
+        );
+      names.set(name, tool.id);
+    }
 
     const offered = new Set(tools.map((tool) => tool.id));
     return {
@@ -252,6 +267,10 @@ function searchToolsDefinition(): InferenceTool {
       additionalProperties: false,
     },
   };
+}
+
+function modelToolName(key: string): string {
+  return key.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64);
 }
 
 function searchInferenceTools(

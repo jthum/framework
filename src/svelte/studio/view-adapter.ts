@@ -197,15 +197,16 @@ export function viewDefinitionFromDraft(
       ...(retained?.source !== undefined ? { source: retained.source } : {}),
     });
   }
+  const groupLabelPath = draft.group_by
+    ? (draft.group_label_path ?? defaultGroupLabelPath(schema, draft.group_by, schemas))
+    : undefined;
   const aggregate = draft.group_by
     ? {
         group: {
           path: idPath(schema, draft.group_by, schemas),
           as: draft.group_alias ?? selectionAlias(draft.group_by),
           label: draft.group_label ?? labelFromKey(draft.group_by),
-          ...(draft.group_label_path
-            ? { labelPath: idPath(schema, draft.group_label_path, schemas) }
-            : {}),
+          ...(groupLabelPath ? { labelPath: idPath(schema, groupLabelPath, schemas) } : {}),
         },
         measures: Object.entries(draft.measures ?? {}).map(([as, measure]) => ({
           as,
@@ -334,6 +335,29 @@ function keyPath(
       return field.key;
     })
     .join(".");
+}
+
+function defaultGroupLabelPath(
+  root: CollectionDefinition,
+  groupBy: string,
+  schemas: ViewAuthoringSchemas,
+): string | undefined {
+  let schema = root;
+  const keys = groupBy.split(".");
+  let terminal: CollectionDefinition["fields"][number] | undefined;
+  for (const [index, key] of keys.entries()) {
+    terminal = schema.fields.find((field) => field.key === key);
+    if (!terminal || index === keys.length - 1) break;
+    if (terminal.type !== "reference") return undefined;
+    schema = relatedSchema(schemas, terminal.sourceId);
+  }
+  if (terminal?.type !== "reference") return undefined;
+  const target = relatedSchema(schemas, terminal.sourceId);
+  const title =
+    target.fields.find((field) => field.id === target.titleFieldId) ??
+    target.fields.find((field) => ["name", "title", "label"].includes(field.key)) ??
+    target.fields.find((field) => field.type === "text");
+  return title ? `${groupBy}.${title.key}` : undefined;
 }
 
 function selectionAlias(path: string): string {

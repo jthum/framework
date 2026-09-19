@@ -222,6 +222,21 @@ function requireRuleShape(
         "Rule exposure must contain ui or agent.",
       );
   }
+  if (input.tool !== undefined) {
+    if (!isRecord(input.tool))
+      issue(issues, `${path}.tool`, "SPEC.TYPE_INVALID", "Rule tool metadata must be an object.");
+    else {
+      optionalString(input.tool, "name", `${path}.tool`, issues);
+      optionalString(input.tool, "description", `${path}.tool`, issues);
+      if (typeof input.tool.name === "string" && !/^[a-zA-Z0-9_-]{1,64}$/.test(input.tool.name))
+        issue(
+          issues,
+          `${path}.tool.name`,
+          "SPEC.KEY_INVALID",
+          "Agent tool name must use 1–64 letters, numbers, underscores, or hyphens.",
+        );
+    }
+  }
   if (input.input !== undefined) {
     if (!isRecord(input.input))
       issue(issues, `${path}.input`, "SPEC.TYPE_INVALID", "Rule input must be an object.");
@@ -234,6 +249,7 @@ function requireRuleShape(
   if (!Array.isArray(input.steps))
     issue(issues, `${path}.steps`, "SPEC.TYPE_INVALID", "Rule steps must be an array.");
   else requireRuleStepsShape(input.steps, `${path}.steps`, issues, new Set());
+  if (input.result !== undefined) requireRuleValueShape(input.result, `${path}.result`, issues);
 }
 
 function requireRuleInputShape(input: unknown, path: string, issues: ValidationIssue[]): void {

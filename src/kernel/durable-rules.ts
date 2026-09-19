@@ -45,6 +45,7 @@ export interface RuleExecutionDetails {
   readonly trace: readonly (RuleStepTrace & { readonly label?: string })[];
   /** Root Rule variables at this checkpoint. No internal continuation scopes. */
   readonly vars?: Readonly<Record<string, JsonValue>>;
+  readonly result?: JsonValue;
   readonly failure?: string;
   readonly waiting?: {
     readonly stepId: string;
@@ -91,7 +92,15 @@ type Frame =
       items: readonly JsonValue[];
       scope: number;
     }
-  | { kind: "return"; ruleId: string; stepId: string; from: number; to: number; as?: string };
+  | {
+      kind: "return";
+      ruleId: string;
+      nestedRuleId: string;
+      stepId: string;
+      from: number;
+      to: number;
+      as?: string;
+    };
 
 interface Pending {
   readonly step: Extract<RuleStep, { wait: unknown } | { delay: unknown }>;
@@ -109,6 +118,7 @@ interface Checkpoint {
   readonly requests: ActorRequest[];
   pending?: Pending;
   failure?: string;
+  result?: JsonValue;
 }
 
 interface ExecutionHooks {
@@ -133,6 +143,7 @@ interface ExecutionHooks {
     input: Readonly<Record<string, import("../spec/model.ts").RuleValue>>,
     scope: Scope,
   ): Record<string, JsonValue>;
+  value(input: import("../spec/model.ts").RuleValue, scope: Scope): JsonValue;
   actor(
     context: ExecutionContext,
     rule: RuleDefinition,
@@ -475,7 +486,14 @@ export class DurableRuleService {
           "scope" in frame ? checkpoint.scopes[frame.scope]! : checkpoint.scopes[frame.to]!;
         const rule = checkpoint.rules[frame.ruleId]!;
         if (frame.kind === "return") {
-          if (frame.as) scope.vars[frame.as] = { ...checkpoint.scopes[frame.from]!.vars };
+          if (frame.as) {
+            const nested = checkpoint.rules[frame.nestedRuleId]!;
+            const nestedScope = checkpoint.scopes[frame.from]!;
+            scope.vars[frame.as] =
+              nested.result === undefined
+                ? { ...nestedScope.vars }
+                : this.hooks.value(nested.result, nestedScope);
+          }
           checkpoint.state.trace.push({
             stepId: frame.stepId,
             kind: "invoke",
@@ -559,6 +577,7 @@ export class DurableRuleService {
               checkpoint.frames.push({
                 kind: "return",
                 ruleId: rule.id,
+                nestedRuleId: nested.id,
                 stepId: step.id,
                 from,
                 to: frame.scope,
@@ -614,6 +633,9 @@ export class DurableRuleService {
         execution = await this.save(execution, checkpoint, "running");
         saving = false;
       }
+      const root = checkpoint.rules[execution.rule.id]!;
+      if (root.result !== undefined)
+        checkpoint.result = this.hooks.value(root.result, checkpoint.scopes[0]!);
       return this.save(execution, checkpoint, "completed");
     } catch (error) {
       if (saving) throw error;
@@ -704,6 +726,9 @@ function describe(execution: RuleExecution): RuleExecutionDetails {
       ...(labels.has(step.stepId) ? { label: labels.get(step.stepId)! } : {}),
     })),
     vars: checkpoint.scopes[0]!.vars,
+    ...(execution.status === "completed" && checkpoint.result !== undefined
+      ? { result: checkpoint.result }
+      : {}),
     ...(checkpoint.failure ? { failure: checkpoint.failure } : {}),
     ...(pending
       ? {

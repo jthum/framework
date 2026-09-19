@@ -24,5 +24,6 @@ export { default as FormPurposePicker } from "./form-purpose-picker.svelte";
 export { default as NameDialog } from "./name-dialog.svelte";
 export { default as PageHeader } from "./page-header.svelte";
 export { default as WorkspaceSettings } from "./workspace-settings.svelte";
-export { default as WorkspaceActions } from "./workspace-actions.svelte";
+export { default as SettingsPanel } from "./settings-panel.svelte";
+export * from "./settings-layout.ts";
 export * from "./data.js";

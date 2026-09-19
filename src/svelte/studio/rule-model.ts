@@ -137,5 +137,7 @@ export interface RuleDraft extends SpecNode {
   input?: Record<string, AutomationInput>;
   trigger?: AutomationTrigger;
   expose?: Array<"ui" | "agent">;
+  tool?: { name?: string; description?: string };
   steps: RuleStep[];
+  result?: AutomationValue;
 }

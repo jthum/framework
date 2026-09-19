@@ -1178,6 +1178,14 @@ export class Kernel {
       operation: "records.list",
       resource: this.collectionResource(context, collection),
     });
+    if (this.persistence.records.listFiltered) {
+      const restriction = await this.recordPolicies.readFilter(collection, context);
+      return this.persistence.records.listFiltered(
+        context.workspaceId,
+        collection,
+        restriction ?? { all: [] },
+      );
+    }
     return this.recordPolicies.filter(
       context,
       context.workspaceId,

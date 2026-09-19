@@ -34,6 +34,26 @@ describe("portable Collection Spec", () => {
     );
   });
 
+  it("validates authored agent tool names", () => {
+    const spec = projectSpec();
+    const invalid: Spec = {
+      ...spec,
+      rules: [
+        {
+          id: "rule-tool",
+          key: "tool",
+          label: "Tool",
+          expose: ["agent"],
+          tool: { name: "not a function" },
+          steps: [],
+        },
+      ],
+    };
+    expect(validateSpec(invalid)).toContainEqual(
+      expect.objectContaining({ path: "rules.0.tool.name", code: "SPEC.KEY_INVALID" }),
+    );
+  });
+
   it("requires globally unique definition IDs and resolvable references", () => {
     expect.hasAssertions();
     const spec = projectSpec();
@@ -79,6 +99,40 @@ describe("portable Collection Spec", () => {
       "VALIDATION.CHOICE",
       "VALIDATION.MIN",
     ]);
+  });
+
+  it("validates an optional Rule result as a Rule value", () => {
+    const spec = projectSpec();
+    expect(
+      validateSpec({
+        ...spec,
+        rules: [
+          {
+            id: "rule-result",
+            key: "result",
+            label: "Result",
+            steps: [],
+            result: { $ref: "vars.answer" },
+          },
+        ],
+      }),
+    ).toEqual([]);
+    expect(
+      validateSpec({
+        ...spec,
+        rules: [
+          {
+            id: "rule-result",
+            key: "result",
+            label: "Result",
+            steps: [],
+            result: { $ref: 42 },
+          },
+        ],
+      }),
+    ).toContainEqual(
+      expect.objectContaining({ path: "rules.0.result", code: "SPEC.TYPE_INVALID" }),
+    );
   });
 
   it("validates Views against one root Source and declared relationship paths", () => {

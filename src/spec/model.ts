@@ -428,7 +428,11 @@ export interface RuleDefinition extends DefinitionIdentity {
   readonly input?: Readonly<Record<string, RuleInputDefinition>>;
   readonly trigger?: RuleTriggerDefinition;
   readonly expose?: readonly ("ui" | "agent")[];
+  /** Model-facing tool metadata when exposed to Agents. Defaults to the Rule key and description. */
+  readonly tool?: { readonly name?: string; readonly description?: string };
   readonly steps: readonly RuleStep[];
+  /** Optional value returned to direct callers, nested Rules, and agent tools. */
+  readonly result?: RuleValue;
 }
 
 export interface Spec extends DefinitionIdentity {

@@ -118,6 +118,23 @@ describe("Rule Studio adapter", () => {
     };
     expect(ruleDefinitionFromDraft(ruleDraftFromDefinition(rule, spec), spec)).toEqual(rule);
   });
+  it("preserves an optional callable Rule result", () => {
+    const spec = ruleSpec();
+    const rule: RuleDefinition = {
+      ...spec.rules[1]!,
+      result: { value: { $ref: "vars.created" }, source: "rule" },
+    };
+    expect(ruleDefinitionFromDraft(ruleDraftFromDefinition(rule, spec), spec)).toEqual(rule);
+  });
+  it("round-trips the optional model-facing tool metadata", () => {
+    const spec = ruleSpec();
+    const rule: RuleDefinition = {
+      ...spec.rules[1]!,
+      expose: ["agent"],
+      tool: { name: "create_project", description: "Create a project with the supplied values." },
+    };
+    expect(ruleDefinitionFromDraft(ruleDraftFromDefinition(rule, spec), spec)).toEqual(rule);
+  });
   it("translates friendly Source and View queries to executable canonical Actions", () => {
     const base = ruleSpec();
     const spec = {

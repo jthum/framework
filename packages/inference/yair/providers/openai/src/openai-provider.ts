@@ -115,21 +115,24 @@ interface ToolNames {
 }
 
 function toolNames(request: ModelRequest): ToolNames {
-  const ids = new Set(request.tools.map((tool) => tool.id));
-  for (const message of request.messages) {
-    if (message.role === "assistant" && "toolCalls" in message)
-      for (const call of message.toolCalls) ids.add(call.toolId);
-    if (message.role === "tool") ids.add(message.toolId);
-  }
   const byId = new Map<string, string>();
   const byName = new Map<string, string>();
-  for (const id of [...ids].sort()) {
-    const name = providerToolName(id);
+  for (const tool of request.tools) {
+    const id = tool.id;
+    const name = tool.name ?? providerToolName(id);
     const collision = byName.get(name);
     if (collision && collision !== id)
       throw new Error(`Tool IDs ${collision} and ${id} map to the same provider name.`);
     byId.set(id, name);
     byName.set(name, id);
+  }
+  for (const message of request.messages) {
+    if (message.role === "assistant" && "toolCalls" in message)
+      for (const call of message.toolCalls)
+        if (!byId.has(call.toolId))
+          byId.set(call.toolId, call.toolName ?? providerToolName(call.toolId));
+    if (message.role === "tool" && !byId.has(message.toolId))
+      byId.set(message.toolId, providerToolName(message.toolId));
   }
   return { byId, byName };
 }
@@ -176,7 +179,7 @@ function toMessage(message: InferenceMessage, names: ToolNames): JsonValue {
         id: call.id,
         type: "function",
         function: {
-          name: requiredToolName(names, call.toolId),
+          name: call.toolName ?? requiredToolName(names, call.toolId),
           arguments: JSON.stringify(call.input),
         },
       })),

@@ -370,7 +370,10 @@
 		return [
 			...(summarize && groupBy
 				? fieldChoices.map((field) => ({ value: field, label: columnLabel(field, sourceType) }))
-				: (sourceType?.fields ?? []).map((field) => ({ value: field.key, label: field.label }))),
+				: choicesFor(sourceType).map((field) => ({
+						value: field,
+						label: columnLabel(field, sourceType),
+					}))),
 			...(summarize && groupBy
 				? []
 				: [
@@ -766,9 +769,9 @@
 									</button>
 									<OptionSelect
 										bind:value={clause.field}
-										options={(sourceType?.fields ?? []).map((field) => ({
-											value: field.key,
-											label: field.label,
+										options={choicesFor(sourceType).map((field) => ({
+											value: field,
+											label: columnLabel(field, sourceType),
 										}))}
 									/>
 									<OptionSelect

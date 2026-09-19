@@ -98,8 +98,10 @@ For one shared Tasks Collection with topic-related rows, register an optional `R
 Collection ID through `KernelOptions.recordPolicies`. It checks reads and writes, including Source
 queries and relationship lookup. Read filtering occurs before aggregation and pagination. Write
 checks receive the current row and proposed values, so a policy can reject moving a task into
-another topic. Ordinary Collections require no policy. Current adapters filter reads in memory;
-this is not database query pushdown.
+another topic. Ordinary Collections require no policy. A policy used with SQLite must also provide
+`readFilter(context)` for list and View queries; Framework composes that restriction into SQL
+before sorting, aggregation, and pagination. An arbitrary `authorize` callback cannot be compiled
+into a scalable database query. The memory adapter evaluates the callback over its stored records.
 
 Scope is selection, not authority. A host must authenticate and authorize domain access through
 its Authorizer; a caller knowing a topic ID does not acquire permissions. Module trees and entity

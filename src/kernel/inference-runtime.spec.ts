@@ -75,6 +75,10 @@ describe("InferenceRuntime", () => {
     expect(listed.map((tool) => tool.id)).not.toContain("action:tests.hidden");
     expect(listed.map((tool) => tool.id)).not.toContain("rule:rule-ui-only");
     expect(listed.map((tool) => tool.id)).not.toContain("rule:rule-disabled");
+    expect(listed.find((tool) => tool.id === "rule:rule-summarize")).toMatchObject({
+      name: "summarize_topic",
+      description: "Summarize the requested topic for the agent.",
+    });
     expect(listed.find((tool) => tool.id === "rule:rule-summarize")?.input).toEqual({
       type: "object",
       properties: { topic: { type: "string" } },
@@ -83,7 +87,7 @@ describe("InferenceRuntime", () => {
     });
     expect(output).toMatchObject({
       created: { sourceId: "collection-task", title: "Draft release notes" },
-      rule: { mode: "short", ruleId: "rule-summarize", status: "completed" },
+      rule: "Release",
     });
     await expect(kernel.listRecords(agent, "task")).resolves.toHaveLength(1);
     await kernel.close();
@@ -109,6 +113,28 @@ describe("InferenceRuntime", () => {
     await expect(kernel.runInference(owner, { messages: [] })).rejects.toMatchObject({
       code: ERROR_CODES.environmentCapabilityUnavailable,
     });
+    await kernel.close();
+  });
+
+  it("rejects duplicate model-facing names among offered Rule tools", async () => {
+    const runtime = new RecordingInferenceRuntime(async () => null);
+    const { kernel, owner, agent } = await bootstrap(runtime);
+    const spec = agentSpec();
+    await kernel.applySpec(owner, {
+      ...spec,
+      rules: [
+        ...spec.rules,
+        {
+          id: "rule-other",
+          key: "other",
+          label: "Other",
+          expose: ["agent"],
+          tool: { name: "summarize_topic" },
+          steps: [],
+        },
+      ],
+    });
+    await expect(kernel.listInferenceTools(agent)).rejects.toThrow(/summarize_topic/);
     await kernel.close();
   });
 
@@ -340,8 +366,13 @@ function agentSpec(): Spec {
         label: "Summarize",
         description: "Summarize a topic.",
         expose: ["agent"],
+        tool: {
+          name: "summarize_topic",
+          description: "Summarize the requested topic for the agent.",
+        },
         input: { topic: { value: "text", required: true } },
         steps: [{ id: "step-summary", compute: { assign: { summary: { $ref: "vars.topic" } } } }],
+        result: { $ref: "vars.summary" },
       },
       {
         id: "rule-ui-only",

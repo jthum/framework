@@ -84,6 +84,10 @@
       "types": "./src/svelte/studio/data.ts",
       "import": "./src/svelte/studio/data.ts"
     },
+    "./svelte/studio/settings-layout": {
+      "types": "./src/svelte/studio/settings-layout.ts",
+      "import": "./src/svelte/studio/settings-layout.ts"
+    },
     "./svelte/studio/*": {
       "types": "./src/svelte/studio/*.svelte",
       "svelte": "./src/svelte/studio/*.svelte",

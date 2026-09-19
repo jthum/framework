@@ -64,7 +64,9 @@ export function ruleDraftFromDefinition(
       : {}),
     ...(rule.trigger ? { trigger: draftTrigger(rule.trigger, spec, schemas) } : {}),
     ...(rule.expose ? { expose: [...rule.expose] } : {}),
+    ...(rule.tool ? { tool: structuredClone(rule.tool) } : {}),
     steps: rule.steps.map((step) => draftStep(step, spec, schemas, inputs)),
+    ...(rule.result !== undefined ? { result: draftClone<AutomationValue>(rule.result) } : {}),
   };
 }
 
@@ -103,7 +105,9 @@ export function ruleDefinitionFromDraft(
       : {}),
     ...(draft.trigger ? { trigger: canonicalTrigger(draft.trigger, spec, schemas) } : {}),
     ...(draft.expose ? { expose: [...draft.expose] } : {}),
+    ...(draft.tool ? { tool: structuredClone(draft.tool) } : {}),
     steps: draft.steps.map((step) => canonicalStep(step, spec, schemas, inputs)),
+    ...(draft.result !== undefined ? { result: structuredClone(draft.result) } : {}),
   };
 }
 

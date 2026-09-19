@@ -5,8 +5,13 @@ import {
   resourceNotFound,
 } from "../errors/error.ts";
 import type { CatalogRepository } from "../persistence/catalog.ts";
-import type { CollectionRecord, RecordStore } from "../persistence/records.ts";
-import type { CollectionDefinition, FieldCondition } from "../spec/model.ts";
+import type { CollectionRecord, RecordQueryResult, RecordStore } from "../persistence/records.ts";
+import type {
+  CollectionDefinition,
+  FieldCondition,
+  SourceFilter,
+  SourceQueryDefinition,
+} from "../spec/model.ts";
 import { assertValidFieldCondition } from "../spec/validate.ts";
 import type { AuthorizationRequest } from "./authorization.ts";
 import type { RecordPolicyService } from "./record-policy.ts";
@@ -200,14 +205,77 @@ export class AttachmentService {
     return structuredClone(collection);
   }
 
+  /** Resolve an authorized relation target without reading its records into JavaScript. */
+  async queryTarget(
+    context: ExecutionContext,
+    key: string,
+  ): Promise<{
+    attachmentId: string;
+    workspaceId: string;
+    collection: CollectionDefinition;
+    filter?: SourceFilter;
+  }> {
+    const { attachment, collection } = await this.resolve(context, key, "records.list");
+    await this.assertLive(attachment.id);
+    const filters: SourceFilter[] = [];
+    if (attachment.filter) filters.push(attachmentReadFilter(attachment.filter));
+    const policy = await this.policies.readFilter(collection, context);
+    if (policy) filters.push(policy);
+    return {
+      attachmentId: attachment.id,
+      workspaceId: attachment.originId,
+      collection,
+      ...(filters.length ? { filter: { all: filters } as SourceFilter } : {}),
+    };
+  }
+
+  async assertQueryTargetLive(id: string): Promise<void> {
+    await this.assertLive(id);
+  }
+
   async listRecords(context: ExecutionContext, key: string): Promise<CollectionRecord[]> {
     const { attachment, collection } = await this.resolve(context, key, "records.list");
+    if (this.records.listFiltered) {
+      const filters: SourceFilter[] = [];
+      if (attachment.filter) filters.push(attachmentReadFilter(attachment.filter));
+      const policy = await this.policies.readFilter(collection, context);
+      if (policy) filters.push(policy);
+      const records = await this.records.listFiltered(attachment.originId, collection, {
+        all: filters,
+      });
+      await this.assertLive(attachment.id);
+      return records;
+    }
     const records = await this.records.list(attachment.originId, collection);
     await this.assertLive(attachment.id);
     const visible = records.filter((record) =>
       evaluateCondition(attachment.filter, collection, record.values, true),
     );
     return this.policies.filter(context, attachment.originId, collection, visible);
+  }
+
+  async queryRecords(
+    context: ExecutionContext,
+    key: string,
+    query: SourceQueryDefinition,
+  ): Promise<RecordQueryResult> {
+    if (!this.records.query)
+      throw new FrameworkError({
+        code: "SOURCE.CAPABILITY_UNSUPPORTED",
+        message: "This RecordStore does not execute queries.",
+      });
+    const { attachment, collection } = await this.resolve(context, key, "records.list");
+    const filters: SourceFilter[] = [];
+    if (attachment.filter) filters.push(attachmentReadFilter(attachment.filter));
+    const policy = await this.policies.readFilter(collection, context);
+    if (policy) filters.push(policy);
+    if (query.filter) filters.push(query.filter);
+    const effective = filters.length
+      ? { ...query, filter: { all: filters } as SourceFilter }
+      : query;
+    const result = await this.records.query(attachment.originId, collection, effective);
+    await this.assertLive(attachment.id);
+    return result;
   }
 
   async getRecord(
@@ -325,6 +393,17 @@ export class AttachmentService {
       currentId = attachment.parentId;
     }
   }
+}
+
+function attachmentReadFilter(condition: FieldCondition): SourceFilter {
+  if ("all" in condition) return { all: condition.all.map(attachmentReadFilter) };
+  if ("any" in condition) return { any: condition.any.map(attachmentReadFilter) };
+  if ("not" in condition) return { not: attachmentReadFilter(condition.not) };
+  return {
+    path: [condition.fieldId],
+    operator: condition.operator,
+    ...(condition.value === undefined ? {} : { value: condition.value }),
+  };
 }
 
 function normalizePermissions(

@@ -3,15 +3,18 @@ import { DatabaseSync } from "node:sqlite";
 import type { SqliteConnection, SqliteDatabase, SqliteParameters, SqliteValue } from "./gateway.ts";
 
 export function openNodeSqlite(path = ":memory:"): SqliteDatabase {
-  return new NodeSqliteDatabase(new DatabaseSync(path));
+  return new NodeSqliteDatabase(new DatabaseSync(path), path);
 }
 
 class NodeSqliteDatabase implements SqliteDatabase {
   private queue: Promise<unknown> = Promise.resolve();
   private readonly connection: NodeSqliteConnection;
 
-  constructor(database: DatabaseSync) {
+  readonly name?: string;
+
+  constructor(database: DatabaseSync, path: string) {
     this.connection = new NodeSqliteConnection(database);
+    if (path !== ":memory:") this.name = path;
   }
 
   execute(sql: string): Promise<void> {

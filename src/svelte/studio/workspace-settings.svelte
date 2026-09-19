@@ -6,7 +6,7 @@
 	import { Input } from "../ui/input/index.js";
 	import { Switch } from "../ui/switch/index.js";
 
-	let { client, secretStorageNote = "The host controls how secret values are stored." }: { client?: WorkspaceClient; secretStorageNote?: string } = $props();
+	let { client, secretStorageNote = "The host controls how secret values are stored.", reservedKeys = [] }: { client?: WorkspaceClient; secretStorageNote?: string; reservedKeys?: readonly string[] } = $props();
 	let settings = $state<readonly SettingSummary[]>([]);
 	let selected = $state<string | null>(null);
 	let key = $state("");
@@ -45,6 +45,7 @@
 
 	async function save() {
 		if (!client || !key.trim() || !label.trim() || pending) return;
+		if (reservedKeys.includes(key.trim())) { error = "This setting is managed by the app."; return; }
 		pending = true;
 		error = "";
 		try {
@@ -62,6 +63,7 @@
 
 	async function remove() {
 		if (!client || !selected || pending) return;
+		if (reservedKeys.includes(selected)) { error = "This setting is managed by the app."; return; }
 		pending = true;
 		error = "";
 		try {
@@ -87,9 +89,9 @@
 		</div>
 		<Button type="button" size="sm" variant="outline" onclick={() => edit()}>Add setting</Button>
 	</div>
-	{#if settings.length}
+	{#if settings.filter(setting => !reservedKeys.includes(setting.key)).length}
 		<div class="flex flex-col divide-y rounded-lg border bg-card">
-			{#each settings as setting (setting.key)}
+			{#each settings.filter(setting => !reservedKeys.includes(setting.key)) as setting (setting.key)}
 				<div class="flex items-center justify-between gap-3 px-4 py-3">
 					<div class="min-w-0">
 						<p class="truncate text-sm font-medium">{setting.label}</p>

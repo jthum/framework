@@ -120,13 +120,20 @@ Physical representation is adapter policy. “Collection” must not mean “SQL
 
 | Primitive         | Meaning                                                                                                              |
 | ----------------- | -------------------------------------------------------------------------------------------------------------------- |
-| **Action**        | Registered primitive operation (`records.create`, later `topic.update`).                                             |
+| **Action**        | Registered executable capability (`records.create`, `web.search`, later user-authored code).                         |
 | **Rule**          | Orchestration: optional trigger, steps, waits, Actor steps, and nested Rules. A triggerless Rule may be callable.    |
 | **Event**         | Named occurrence (`invoice.created`, `form.submitted`, `message.posted`). String key plus payload and Actor context. |
 | **RuleExecution** | Durable run of a Rule.                                                                                               |
 | **ActorRequest**  | Rule waiting on a User. Presentation is host-owned.                                                                  |
 
 Use **Rule**, not Loop, Workflow, or Automation in the Spec (`rules:`). A Rule calls Actions. Buttons and Agent tools may invoke an Action or a callable Rule. Views querying Sources are not Actions.
+
+Callable does not collapse the concepts. Rules invoke other Rules with an `invoke` step and may be
+projected directly as agent tools. `rule:*` and `action:*` identify tools internally for policy and
+dispatch; a separate semantic name and description are shown to the model. Actions remain
+capability implementations. A small one-step Rule is still a Rule. Most Rules have no return value; an
+optional `result` expression exposes one final value when a direct caller, parent Rule, or tool
+needs it. Action-step values enter Rule context only through an explicit `as` binding.
 
 “Primitive Action” means a reusable foundational operation, not necessarily an ACID transaction. Domain Actions may compose primitives under one execution context. Transaction guarantees depend on adapter and resource capabilities.
 

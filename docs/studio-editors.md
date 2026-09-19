@@ -21,10 +21,14 @@ ownership rather than duplicating every prop signature.
 
 `RuleEditor` owns the complete structured workflow authoring UI. `RuleSteps`, `RuleConditions`, `RuleValueInput` and `RuleValueMap` can be composed independently. Hosts supply save/delete actions, optional effect metadata and optional compatibility diagnostics. Custom effect metadata propagates through every nested branch; it contains no implementation functions. No supplied diagnostics means Studio makes no claim about runtime support. The executor, authorization and durable scheduling/wait implementation are outside Studio.
 
-`WorkspaceSettings` and `WorkspaceActions` edit Workspace instance configuration through a
-`WorkspaceClient`. A host supplies the implementation kinds it actually installs; Studio does not
-run code, own credentials, or assume a deployment-specific secret store. The Action editor sends
-JSON test input through the client's ordinary authorized Action path.
+`WorkspaceSettings` edits user-defined Workspace settings through a `WorkspaceClient`.
+`SettingsPanel` renders a host-defined `SettingsLayout` with tabs, sections, and typed Field controls.
+It edits values of declared settings; the optional `WorkspaceSettings` surface manages user-defined
+settings. Layout and custom-setting policy are owned by the host, not the portable Spec.
+
+Studio does not offer a generic runtime-Action editor. Runtime Action implementations are
+executor-specific capabilities, so a host that enables one supplies a purpose-built authoring
+surface rather than presenting opaque implementation kinds and configuration strings.
 
 ## Working models versus the portable Spec
 

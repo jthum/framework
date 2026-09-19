@@ -1,5 +1,5 @@
 import { FrameworkError } from "../errors/error.ts";
-import type { CollectionRecord, RecordValues } from "../persistence/records.ts";
+import type { RecordQueryRelation, RecordValues } from "../persistence/records.ts";
 import type {
   CollectionDefinition,
   FieldDefinition,
@@ -35,7 +35,7 @@ interface QueryRecord {
 /** Pure query execution plus optional authorized local relationship resolution. */
 export async function executeSourceQuery(
   source: SourceDescriptor,
-  records: readonly CollectionRecord[],
+  records: readonly QueryRecord[],
   query: SourceQueryDefinition,
   relationContext?: RelationContext,
 ): Promise<SourceResult> {
@@ -55,7 +55,7 @@ export async function executeSourceQuery(
       values.set(key, await relations.values(root, records, path));
     }
   }
-  const valueAt = (record: CollectionRecord, path: readonly string[]) =>
+  const valueAt = (record: QueryRecord, path: readonly string[]) =>
     values.get(pathKey(path))?.get(record.id);
   const filtered = query.filter
     ? records.filter((record) => evaluateFilter(query.filter!, (path) => valueAt(record, path)))
@@ -93,7 +93,7 @@ class RelationResolver {
 
   values(
     root: CollectionDefinition,
-    rows: readonly CollectionRecord[],
+    rows: readonly QueryRecord[],
     path: readonly string[],
   ): Promise<Map<string, JsonValue | undefined>> {
     const key = pathKey(path);
@@ -114,7 +114,7 @@ class RelationResolver {
 
   private async resolve(
     root: CollectionDefinition,
-    rows: readonly CollectionRecord[],
+    rows: readonly QueryRecord[],
     path: readonly string[],
   ): Promise<Map<string, JsonValue | undefined>> {
     if (path.length === 0) throw invalidQuery("Field path cannot be empty.");
@@ -207,17 +207,88 @@ function columnsFor(
   });
 }
 
+/** Column metadata for a query already executed by a storage adapter. */
+export function rootQueryColumns(
+  schema: CollectionDefinition,
+  query: SourceQueryDefinition,
+): SourceColumn[] {
+  return queryColumns(schema, query, (path) => rootField(schema, path));
+}
+
+/** Column metadata for a storage-executed query across authorized reference hops. */
+export function relatedQueryColumns(
+  schema: CollectionDefinition,
+  query: SourceQueryDefinition,
+  relations: readonly RecordQueryRelation[],
+): SourceColumn[] {
+  return queryColumns(schema, query, (path) => {
+    if (path.length === 1) return rootField(schema, path);
+    const relation = relations.find(
+      (item) => item.path.join("\0") === path.slice(0, -1).join("\0"),
+    );
+    const field = relation?.collection.fields.find((item) => item.id === path.at(-1));
+    if (!field) throw invalidQuery("Relationship path was not resolved.");
+    return field;
+  });
+}
+
+function queryColumns(
+  schema: CollectionDefinition,
+  query: SourceQueryDefinition,
+  fieldAt: (path: readonly string[]) => FieldDefinition,
+): SourceColumn[] {
+  if (!query.aggregate) {
+    if (!query.select)
+      return schema.fields.map((field) => ({
+        key: field.key,
+        label: field.label,
+        fieldId: field.id,
+        path: [field.id],
+        type: field.type,
+      }));
+    return query.select.map((selection) => {
+      const field = fieldAt(selection.path);
+      return {
+        key: selection.as,
+        label: selection.label ?? field.label,
+        fieldId: field.id,
+        path: [...selection.path],
+        type: field.type,
+      };
+    });
+  }
+  const group = query.aggregate.group;
+  const groupField = fieldAt(group.path);
+  const labelField = group.labelPath ? fieldAt(group.labelPath) : groupField;
+  return [
+    {
+      key: group.as,
+      label: group.label ?? groupField.label,
+      fieldId: labelField.id,
+      path: [...(group.labelPath ?? group.path)],
+      type: labelField.type,
+      aggregate: "group",
+    },
+    ...query.aggregate.measures.map((measure) => ({
+      key: measure.as,
+      label: measure.label ?? measure.as,
+      type: "number" as const,
+      aggregate: measure.operation,
+    })),
+  ];
+}
+
 function aggregateResult(
   source: SourceDescriptor,
-  records: readonly CollectionRecord[],
+  records: readonly QueryRecord[],
   query: SourceQueryDefinition,
-  valueAt: (record: CollectionRecord, path: readonly string[]) => JsonValue | undefined,
+  valueAt: (record: QueryRecord, path: readonly string[]) => JsonValue | undefined,
   relations?: RelationResolver,
 ): SourceResult {
   const aggregate = query.aggregate!;
   const groups = new Map<
     string,
-    { identity: JsonValue | undefined; label: JsonValue | undefined; records: CollectionRecord[] }
+    { identity: JsonValue | undefined; label: JsonValue | undefined; records: QueryRecord[] }
   >();
   for (const record of records) {
     const identity = valueAt(record, aggregate.group.path);
@@ -286,9 +357,9 @@ function aggregateResult(
 }
 
 function aggregateValue(
-  records: readonly CollectionRecord[],
+  records: readonly QueryRecord[],
   measure: NonNullable<SourceQueryDefinition["aggregate"]>["measures"][number],
-  valueAt: (record: CollectionRecord, path: readonly string[]) => JsonValue | undefined,
+  valueAt: (record: QueryRecord, path: readonly string[]) => JsonValue | undefined,
 ): JsonValue {
   if (measure.operation === "count") return records.length;
   const numbers = records.flatMap((record) => {
@@ -363,6 +434,18 @@ function evaluateFilter(
   return compare(valueAt(filter.path), filter.operator, filter.value);
 }
 
+/** Apply a storage-compatible root-Field restriction to one already-fetched record. */
+export function matchesRootFilter(
+  collection: CollectionDefinition,
+  values: RecordValues,
+  filter: SourceFilter,
+): boolean {
+  return evaluateFilter(filter, (path) => {
+    if (path.length !== 1) throw unsupported("A row policy read restriction must use root Fields.");
+    return values[rootField(collection, path).key];
+  });
+}
+
 function compare(
   actual: JsonValue | undefined,
   operator: FieldOperator,
@@ -407,10 +490,10 @@ function compare(
 }
 
 function stableSort(
-  records: readonly CollectionRecord[],
+  records: readonly QueryRecord[],
   query: SourceQueryDefinition,
-  valueAt: (record: CollectionRecord, path: readonly string[]) => JsonValue | undefined,
-): CollectionRecord[] {
+  valueAt: (record: QueryRecord, path: readonly string[]) => JsonValue | undefined,
+): QueryRecord[] {
   if (!query.sort?.length) return [...records];
   return records
     .map((record, index) => ({ record, index }))

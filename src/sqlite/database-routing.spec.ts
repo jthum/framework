@@ -4,11 +4,13 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { ERROR_CODES } from "../errors/error.ts";
 import { Kernel } from "../kernel/kernel.ts";
+import type { RecordPolicy } from "../kernel/record-policy.ts";
 import { emptyScopeConfig } from "../kernel/scopes.ts";
 import { catalogAdapterContract } from "../persistence/catalog.contract.ts";
 import { recordStoreContract } from "../persistence/records.contract.ts";
 import type { CollectionRecord } from "../persistence/records.ts";
 import { SqlitePersistenceAdapter } from "./catalog.ts";
+import { SqliteRecordStore } from "./records.ts";
 import type { SqliteConnection } from "./gateway.ts";
 import { openNodeSqlite } from "./node.ts";
 import type { ScopeDatabaseLocation, WorkspaceDatabaseLocation } from "./database-routing.ts";
@@ -33,7 +35,11 @@ afterEach(async () => {
   );
 });
 
-async function fixture(workspaces = false, separateScopes = true) {
+async function fixture(
+  workspaces = false,
+  separateScopes = true,
+  recordPolicies: readonly RecordPolicy[] = [],
+) {
   const directory = await mkdtemp(join(tmpdir(), "framework-scope-routing-"));
   directories.push(directory);
   const catalogPath = join(directory, "catalog.db");
@@ -89,7 +95,7 @@ async function fixture(workspaces = false, separateScopes = true) {
           : {}),
       },
     );
-  const kernel = await Kernel.open({ persistence: adapter() });
+  const kernel = await Kernel.open({ persistence: adapter(), recordPolicies });
   const { workspace, user } = await kernel.createRootWorkspace({
     name: "Team",
     user: { name: "Jane" },
@@ -127,8 +133,69 @@ function notes(suffix: string) {
 }
 
 describe("SQLite record database routing", () => {
+  it("rejects a cross-database relationship query when the files have no attachable names", async () => {
+    const kernel = await Kernel.open({ persistence: memoryAdapter() });
+    const { workspace, user } = await kernel.createRootWorkspace({
+      name: "Memory routing",
+      user: { name: "Owner" },
+    });
+    const context = { workspaceId: workspace.id, actorId: user.id };
+    const scoped = { ...context, scope: { kind: "topic", id: "one" } };
+    try {
+      await kernel.applySpec(context, {
+        ...workspace.spec,
+        collections: [
+          {
+            id: "contacts",
+            key: "contacts",
+            label: "Contacts",
+            fields: [{ id: "contact-name", key: "name", label: "Name", type: "text" }],
+          },
+        ],
+      });
+      await kernel.applyScopeConfig(scoped, {
+        ...emptyScopeConfig(),
+        collections: [
+          {
+            id: "invoices",
+            key: "invoices",
+            label: "Invoices",
+            fields: [
+              {
+                id: "invoice-contact",
+                key: "contact",
+                label: "Contact",
+                type: "reference",
+                sourceId: "contacts",
+              },
+            ],
+          },
+        ],
+      });
+      const contact = await kernel.createRecord(context, "contacts", { name: "Jane" });
+      await kernel.createRecord(scoped, "invoices", { contact: contact.id });
+      await expect(
+        kernel.querySource(scoped, "invoices", {
+          filter: { path: ["invoice-contact", "contact-name"], operator: "eq", value: "Jane" },
+        }),
+      ).rejects.toMatchObject({ code: "SOURCE.CAPABILITY_UNSUPPORTED" });
+    } finally {
+      await kernel.close();
+    }
+  });
+
   it("references an explicitly attached root Collection from a child Workspace scope", async () => {
-    const app = await fixture(true);
+    let restrictContacts = false;
+    const app = await fixture(true, true, [
+      {
+        collectionId: "contacts",
+        readFilter: () =>
+          restrictContacts
+            ? { path: ["contact-name"], operator: "eq", value: "Jane" }
+            : { all: [] },
+        authorize: () => true,
+      },
+    ]);
     try {
       await app.kernel.updateWorkspaceAccess(app.root, {
         members: ["read", "create", "update", "delete", "manage"],
@@ -177,14 +244,56 @@ describe("SQLite record database routing", () => {
         ],
       });
       const contact = await app.kernel.createRecord(app.root, "contacts", { name: "Jane" });
+      const other = await app.kernel.createRecord(app.root, "contacts", { name: "Alice" });
       const invoice = await app.kernel.createRecord(scoped, "invoices", { contact: contact.id });
+      await app.kernel.createRecord(scoped, "invoices", { contact: other.id });
       expect(
         (
           await app.kernel.querySource(scoped, "invoices", {
             select: [{ path: ["invoice-contact", "contact-name"], as: "name" }],
           })
         ).rows,
-      ).toEqual([{ id: invoice.id, values: { name: "Jane" } }]);
+      ).toEqual(expect.arrayContaining([{ id: invoice.id, values: { name: "Jane" } }]));
+      const list = vi.spyOn(SqliteRecordStore.prototype, "list").mockImplementation(() => {
+        throw new Error("Cross-database View queries must not load the Collection.");
+      });
+      const related = await (async () => {
+        try {
+          const result = await app.kernel.querySource(scoped, "invoices", {
+            filter: { path: ["invoice-contact", "contact-name"], operator: "contains", value: "e" },
+            sort: [{ path: ["invoice-contact", "contact-name"], direction: "desc" }],
+            select: [{ path: ["invoice-contact", "contact-name"], as: "name" }],
+            limit: 1,
+          });
+          expect(list).not.toHaveBeenCalled();
+          return result;
+        } finally {
+          list.mockRestore();
+        }
+      })();
+      expect(related.total).toBe(2);
+      expect(related.rows).toEqual([{ id: invoice.id, values: { name: "Jane" } }]);
+      const grouped = await app.kernel.querySource(scoped, "invoices", {
+        aggregate: {
+          group: {
+            path: ["invoice-contact"],
+            as: "contact",
+          },
+          measures: [{ as: "count", operation: "count" }],
+          sort: [{ key: "contact", direction: "asc" }],
+        },
+      });
+      expect(grouped.rows.map((row) => row.values)).toEqual([
+        { contact: "Alice", count: 1 },
+        { contact: "Jane", count: 1 },
+      ]);
+      restrictContacts = true;
+      const restricted = await app.kernel.querySource(scoped, "invoices", {
+        filter: { path: ["invoice-contact", "contact-name"], operator: "notEmpty" },
+        sort: [{ path: ["invoice-contact", "contact-name"], direction: "desc" }],
+      });
+      expect(restricted.total).toBe(1);
+      expect(restricted.rows).toEqual([expect.objectContaining({ id: invoice.id })]);
       await app.kernel.revokeAttachment(app.root, attachment.id);
       await expect(
         app.kernel.querySource(scoped, "invoices", {

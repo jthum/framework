@@ -1,7 +1,15 @@
-import { resourceConflict, resourceNotFound } from "../errors/error.ts";
-import type { CollectionRecord, RecordStore } from "../persistence/records.ts";
-import type { CollectionDefinition, FieldDefinition, JsonValue } from "../spec/model.ts";
+import { FrameworkError, resourceConflict, resourceNotFound } from "../errors/error.ts";
+import type { CollectionRecord, RecordQueryRelation, RecordStore } from "../persistence/records.ts";
+import type {
+  CollectionDefinition,
+  FieldDefinition,
+  JsonValue,
+  SourceFilter,
+  SourceQueryDefinition,
+} from "../spec/model.ts";
 import type { SqliteConnection, SqliteDatabase, SqliteParameters } from "./gateway.ts";
+import { compileFilter, querySqliteRecords } from "./record-query.ts";
+import { queryRelatedSqliteRecords, type PhysicalQueryRelation } from "./related-query.ts";
 
 interface SchemaRow {
   workspace_id: string;
@@ -58,6 +66,7 @@ export class SqliteRecordStore implements RecordStore {
         await createCollectionTable(connection, workspaceId, collection);
         continue;
       }
+      await createCreationIndex(connection, previousRow.table_name);
       const previous = JSON.parse(previousRow.definition_json) as CollectionDefinition;
       await reconcileFields(connection, previousRow.table_name, previous, collection);
       await connection.run(
@@ -186,6 +195,87 @@ export class SqliteRecordStore implements RecordStore {
     return rows.map((row) => decodeRecord(row, collection));
   }
 
+  async query(workspaceId: string, collection: CollectionDefinition, query: SourceQueryDefinition) {
+    const table = await this.requireTable(workspaceId, collection.id);
+    return querySqliteRecords(this.database, table, collection, query);
+  }
+
+  async queryRelated(
+    workspaceId: string,
+    collection: CollectionDefinition,
+    query: SourceQueryDefinition,
+    relations: readonly RecordQueryRelation[],
+  ) {
+    const rootTable = await this.requireTable(workspaceId, collection.id);
+    const physical = await Promise.all(
+      relations.map(async (relation) => ({
+        ...relation,
+        table: await this.requireTable(relation.workspaceId, relation.collection.id),
+      })),
+    );
+    return queryRelatedSqliteRecords(this.database, rootTable, collection, query, physical);
+  }
+
+  /** Routed SQLite uses one root connection and attaches other record files only while querying. */
+  async queryRelatedRouted(
+    workspaceId: string,
+    collection: CollectionDefinition,
+    query: SourceQueryDefinition,
+    relations: readonly PhysicalQueryRelation[],
+    attachments: readonly { schema: string; name: string }[],
+  ) {
+    const rootTable = await this.requireTable(workspaceId, collection.id);
+    const attached: string[] = [];
+    try {
+      for (const item of attachments) {
+        try {
+          await this.database.run(`ATTACH DATABASE ? AS ${quoteIdentifier(item.schema)}`, [
+            item.name,
+          ]);
+        } catch {
+          throw new FrameworkError({
+            code: "SOURCE.CAPABILITY_UNSUPPORTED",
+            message: "This SQLite connection cannot attach a related record database.",
+          });
+        }
+        attached.push(item.schema);
+      }
+      return await queryRelatedSqliteRecords(
+        this.database,
+        rootTable,
+        collection,
+        query,
+        relations,
+      );
+    } finally {
+      for (const schema of attached.reverse())
+        await this.database.execute(`DETACH DATABASE ${quoteIdentifier(schema)}`);
+    }
+  }
+
+  async tableFor(workspaceId: string, collectionId: string): Promise<string> {
+    return this.requireTable(workspaceId, collectionId);
+  }
+
+  get databaseHandle(): SqliteDatabase {
+    return this.database;
+  }
+
+  async listFiltered(
+    workspaceId: string,
+    collection: CollectionDefinition,
+    filter: SourceFilter,
+  ): Promise<CollectionRecord[]> {
+    const table = await this.requireTable(workspaceId, collection.id);
+    const parameters: Array<null | number | string | Uint8Array> = [];
+    const where = compileFilter(filter, collection, parameters);
+    const rows = await this.database.all<DataRow>(
+      `SELECT * FROM ${quoteIdentifier(table)} WHERE ${where} ORDER BY ${quoteIdentifier("_created_at")}, ${quoteIdentifier("_id")}`,
+      parameters,
+    );
+    return rows.map((row) => decodeRecord(row, collection));
+  }
+
   async update(
     workspaceId: string,
     collection: CollectionDefinition,
@@ -261,9 +351,16 @@ async function createCollectionTable(
     ...collection.fields.map((field) => `${quoteIdentifier(fieldColumn(field))} TEXT`),
   ];
   await connection.execute(`CREATE TABLE ${quoteIdentifier(table)} (${columns.join(", ")})`);
+  await createCreationIndex(connection, table);
   await connection.run(
     "INSERT INTO framework_record_schemas (workspace_id, collection_id, table_name, definition_json) VALUES (?, ?, ?, ?)",
     [workspaceId, collection.id, table, JSON.stringify(collection)],
+  );
+}
+
+async function createCreationIndex(connection: SqliteConnection, table: string): Promise<void> {
+  await connection.execute(
+    `CREATE INDEX IF NOT EXISTS ${quoteIdentifier(`${table}_created`)} ON ${quoteIdentifier(table)} (${quoteIdentifier("_created_at")}, ${quoteIdentifier("_id")})`,
   );
 }
 

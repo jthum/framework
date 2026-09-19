@@ -9,6 +9,8 @@ export interface SqliteConnection {
 }
 
 export interface SqliteDatabase extends SqliteConnection {
+  /** Stable name/path usable by SQLite ATTACH on another connection, when file-backed. */
+  readonly name?: string;
   transaction<T>(work: (connection: SqliteConnection) => Promise<T>): Promise<T>;
   close(): Promise<void>;
 }

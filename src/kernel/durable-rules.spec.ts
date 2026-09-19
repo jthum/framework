@@ -136,6 +136,23 @@ describe("Durable Rules", () => {
     expect(details?.vars?.now).toBe("2026-09-17T00:00:00.000Z");
     await app.kernel.close();
   });
+  it("publishes a declared result after durable execution completes", async () => {
+    const app = await setup();
+    await app.install([
+      {
+        ...rule([delay, { id: "value", compute: { assign: { answer: "done" } } }]),
+        result: { $ref: "vars.answer" },
+      },
+    ]);
+    const paused = await app.kernel.startRule(app.context, "test");
+    expect(
+      (await app.kernel.getRuleExecutionDetails(app.context, paused.id))?.result,
+    ).toBeUndefined();
+    app.advance();
+    await app.kernel.resumeRule(app.context, paused.id);
+    expect((await app.kernel.getRuleExecutionDetails(app.context, paused.id))?.result).toBe("done");
+    await app.kernel.close();
+  });
   it("claims a resumed wait before effects and never replays preceding Actions", async () => {
     const app = await setup();
     await app.install([rule([capture, delay, { ...capture, id: "after" }])]);

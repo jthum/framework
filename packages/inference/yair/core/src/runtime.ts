@@ -97,8 +97,13 @@ export class YairRuntime implements InferenceRuntime {
           case "tool_call":
             if (calls.some((call) => call.id === event.id))
               throw invalidRuntime(`ModelProvider reused tool call ID ${event.id}.`);
-            calls.push(cloneCall(event));
-            yield { type: "tool_call", step, ...cloneCall(event) };
+            const offeredTool = toolSet.tools.find((tool) => tool.id === event.toolId);
+            const call = {
+              ...cloneCall(event),
+              ...(offeredTool?.name === undefined ? {} : { toolName: offeredTool.name }),
+            };
+            calls.push(call);
+            yield { type: "tool_call", step, ...call };
             break;
           case "usage":
             usage = addUsage(usage, event.usage);
@@ -188,7 +193,12 @@ export class YairRuntime implements InferenceRuntime {
 }
 
 function cloneCall(call: InferenceToolCall): InferenceToolCall {
-  return { id: call.id, toolId: call.toolId, input: structuredClone(call.input) };
+  return {
+    id: call.id,
+    toolId: call.toolId,
+    ...(call.toolName === undefined ? {} : { toolName: call.toolName }),
+    input: structuredClone(call.input),
+  };
 }
 
 function addUsage(current: InferenceUsage | undefined, next: InferenceUsage): InferenceUsage {

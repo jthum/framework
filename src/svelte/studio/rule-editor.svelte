@@ -59,6 +59,8 @@
 	let steps = $state<RuleStep[]>([]);
 	let exposeUi = $state(true);
 	let exposeAgent = $state(true);
+	let toolName = $state("");
+	let toolDescription = $state("");
 	let deleteOpen = $state(false);
 	let saving = $state(false);
 
@@ -104,6 +106,8 @@
 		steps = cloneData(entryGate?.steps ?? workflow.steps);
 		exposeUi = workflow.expose?.includes("ui") ?? kind === "manual";
 		exposeAgent = workflow.expose?.includes("agent") ?? true;
+		toolName = workflow.tool?.name ?? "";
+		toolDescription = workflow.tool?.description ?? "";
 	});
 
 	const compiledSteps = $derived.by((): RuleStep[] => {
@@ -142,6 +146,9 @@
 				: workflow.input,
 		trigger: compiledTrigger,
 		expose: compiledExpose,
+		tool: toolName.trim() || toolDescription.trim()
+			? { ...(toolName.trim() ? { name: toolName.trim() } : {}), ...(toolDescription.trim() ? { description: toolDescription.trim() } : {}) }
+			: undefined,
 		steps: compiledSteps,
 	} as RuleDraft);
 	const compatibility = $derived(checkCompatibility?.(draft) ?? { diagnostics: [] });
@@ -361,6 +368,15 @@
 						{/if}
 						<Field.Field orientation="horizontal"><Switch bind:checked={exposeAgent} /><div><Field.Label class="font-normal">Agent tool</Field.Label><Field.Description>Allow agent invocation.</Field.Description></div></Field.Field>
 					</Field.Group>
+					{#if exposeAgent}
+						<details class="mt-4 w-full border-t pt-3" open={Boolean(workflow.tool)}>
+							<summary class="cursor-pointer text-sm text-muted-foreground">Customize agent tool</summary>
+							<div class="mt-4 grid gap-4 sm:grid-cols-2">
+								<Field.Field><Field.Label>Tool name</Field.Label><Input bind:value={toolName} placeholder={workflow.key} /><Field.Description>Defaults to the Rule key. Use letters, numbers, _ or -.</Field.Description></Field.Field>
+								<Field.Field><Field.Label>Tool description</Field.Label><Input bind:value={toolDescription} placeholder={description || `Run ${label || workflow.label}`} /><Field.Description>Explain to the agent when to use it.</Field.Description></Field.Field>
+							</div>
+						</details>
+					{/if}
 				</Card.Footer>
 			</Card.Root>
 			</section>
