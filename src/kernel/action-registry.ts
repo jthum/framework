@@ -5,6 +5,7 @@ import type { ExecutionContext } from "./model.ts";
 import type { RuleEvent } from "./rules.ts";
 import type { SourceRow } from "./sources.ts";
 import type { InferenceToolInputSchema } from "./inference-runtime.ts";
+import type { RuntimeAction } from "./workspace-config.ts";
 
 export type ActionOrigin =
   | { readonly kind: "call" }
@@ -49,6 +50,22 @@ export interface ActionExecution {
   readonly runtime: ActionRuntime;
   readonly origin: ActionOrigin;
   readonly publish: (event: RuleEvent) => Promise<void>;
+  /** Delegate through the same Actor, authorization, and bounded execution state. */
+  readonly callAction: (
+    key: string,
+    input?: Readonly<Record<string, JsonValue>>,
+  ) => Promise<JsonValue>;
+  /** Resolve a setting in this Workspace; only trusted executors receive this function. */
+  readonly getSetting: (key: string) => Promise<JsonValue | null>;
+}
+
+/** A host-supplied executor for one runtime Action implementation kind. */
+export interface RuntimeActionExecutor {
+  readonly kind: string;
+  run(
+    action: RuntimeAction,
+    execution: ActionExecution,
+  ): JsonValue | void | Promise<JsonValue | void>;
 }
 
 export interface ActionDefinition {

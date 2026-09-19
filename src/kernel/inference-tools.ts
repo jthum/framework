@@ -8,6 +8,7 @@ import type { CatalogRepository } from "../persistence/catalog.ts";
 import type { JsonValue, RuleInputDefinition } from "../spec/model.ts";
 import { agentToolAllowed } from "./agent-config.ts";
 import type { ActionRegistry } from "./action-registry.ts";
+import type { WorkspaceConfigStore } from "../persistence/workspace-config.ts";
 import type {
   InferenceTool,
   InferenceToolCall,
@@ -41,6 +42,8 @@ export class InferenceToolService {
   constructor(
     private readonly catalog: CatalogRepository,
     private readonly actions: ActionRegistry,
+    private readonly workspaceConfigs: WorkspaceConfigStore,
+    private readonly actionExecutorKinds: ReadonlySet<string>,
     private readonly providers: readonly InferenceToolProvider[],
     private readonly operations: InferenceToolOperations,
     private readonly isAuthorized: (request: AuthorizationRequest) => Promise<boolean>,
@@ -95,6 +98,31 @@ export class InferenceToolService {
       executors.set(id, (input) => this.operations.executeAction(context, action.key, input));
     }
 
+    for (const action of (await this.workspaceConfigs.get(context.workspaceId)).actions) {
+      if (!action.tool || !this.actionExecutorKinds.has(action.implementation.kind)) continue;
+      if (
+        !(await this.isAuthorized({
+          context,
+          operation: "actions.execute",
+          resource: { kind: "action", id: action.key, workspaceId: context.workspaceId },
+        }))
+      )
+        continue;
+      const id = `action:${action.key}`;
+      if (!agentToolAllowed(policy, id)) continue;
+      if (executors.has(id)) throw resourceConflict(`Inference tool ${id} is already registered.`);
+      const projected = {
+        id,
+        label: action.label,
+        description: action.description,
+        input: structuredClone(action.input),
+      };
+      if (action.tool.availability === "discoverable")
+        discoverable.push({ ...projected, keywords: action.tool.keywords ?? [action.key] });
+      else eager.push(projected);
+      executors.set(id, (input) => this.operations.executeAction(context, action.key, input));
+    }
+
     for (const rule of workspace.spec.rules) {
       if (rule.enabled === false || !rule.expose?.includes("agent")) continue;
       if (
@@ -114,7 +142,7 @@ export class InferenceToolService {
         input: ruleInputSchema(rule.input),
         keywords: [rule.key, rule.label],
       });
-      executors.set(id, async (input) => {
+      executors.set(id, async (input): Promise<JsonValue> => {
         if (requiresDurableExecution(rule, workspace.spec.rules)) {
           const execution = await this.operations.startRule(context, rule.key, { input });
           return { mode: "durable", executionId: execution.id, status: execution.status };

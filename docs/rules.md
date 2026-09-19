@@ -66,6 +66,9 @@ authorization therefore cannot drift. Custom Actions and Conditions are installe
 opens, and every Action receives a coarse `actions.execute` policy check before its own
 resource-level checks.
 
+Workspace-owned runtime Actions use the same execution path and may be called directly, from a
+Rule, or exposed directly as an Agent tool. See [Workspace settings and runtime Actions](workspace-actions.md).
+
 Record Actions identify their target with a stable `sourceId`; their authored `values` maps use
 stable Field IDs, and resolved record values carry both the Source ID and an internal stable Field
 map. Studio and direct Form/record APIs remain key-oriented. This keeps simple authoring readable

@@ -119,6 +119,7 @@ from one model step sequentially.
 ## Actions and Rules
 
 Actions opt in with provider-neutral tool metadata. Rules opt in through `expose: ["agent"]`.
+Workspace-owned runtime Actions may opt in with the same tool metadata and do not need a Rule wrapper.
 Disabled and unexposed Rules are absent. Short Rules return their result; durable Rules return their
 execution identity and current status. Compact built-in tools cover Source and View discovery,
 generic record operations, and View operations without generating per-Collection CRUD tools.

@@ -4,6 +4,7 @@ import type { PersistenceAdapter, PersistenceSession } from "../persistence/cata
 import { MemoryScopeStore } from "../persistence/scopes.ts";
 import { MemoryRuleSubscriptionStore } from "../persistence/subscriptions.ts";
 import { MemoryExecutionStore } from "../persistence/executions.ts";
+import { MemoryWorkspaceConfigStore } from "../persistence/workspace-config.ts";
 import {
   MemoryCatalogRepository,
   MemoryPersistenceAdapter,
@@ -357,6 +358,7 @@ function memoryAdapter(records: MemoryRecordStore): PersistenceAdapter {
         scopes: new MemoryScopeStore(),
         subscriptions: new MemoryRuleSubscriptionStore(),
         executions: new MemoryExecutionStore(),
+        workspaceConfigs: new MemoryWorkspaceConfigStore(),
         catalog,
         records,
         async applyWorkspaceSpec(workspace) {

@@ -115,6 +115,7 @@ interface ExecutionHooks {
   readonly maxSteps: number;
   readonly maxDepth: number;
   profile(): RuleRuntimeProfile;
+  actionKeys(context: ExecutionContext): Promise<ReadonlySet<string>>;
   scope(context: ExecutionContext, rule: RuleDefinition, input: RunRuleInput): Promise<Scope>;
   leaf(
     context: ExecutionContext,
@@ -186,8 +187,12 @@ export class DurableRuleService {
   }
 
   /** Preflight a root Rule and every nested invocation before an Event causes side effects. */
-  assertCompatible(rule: RuleDefinition, rules: readonly RuleDefinition[]): void {
-    this.snapshotRules(rule, rules);
+  async assertCompatible(
+    context: ExecutionContext,
+    rule: RuleDefinition,
+    rules: readonly RuleDefinition[],
+  ): Promise<void> {
+    await this.snapshotRules(context, rule, rules);
   }
 
   async start(
@@ -201,7 +206,7 @@ export class DurableRuleService {
     if (!rule) throw resourceNotFound("Rule", key);
     await this.checkAuthority(context, "rules.run", "rule", rule.id);
     if (rule.enabled === false) throw resourceConflict("The Rule is disabled.");
-    const rules = this.snapshotRules(rule, workspace.spec.rules);
+    const rules = await this.snapshotRules(context, rule, workspace.spec.rules);
     const checkpoint: Checkpoint = {
       rules,
       scopes: [await this.hooks.scope(context, rule, input)],
@@ -224,17 +229,21 @@ export class DurableRuleService {
     return this.drive(execution, checkpoint);
   }
 
-  private snapshotRules(
+  private async snapshotRules(
+    context: ExecutionContext,
     root: RuleDefinition,
     definitions: readonly RuleDefinition[],
-  ): Record<string, RuleDefinition> {
+  ): Promise<Record<string, RuleDefinition>> {
+    const profile = this.profile();
+    const availableActions = await this.hooks.actionKeys(context);
+    const actions = new Set([...profile.actions, ...availableActions]);
     const byId = new Map(definitions.map((definition) => [definition.id, definition]));
     const snapshot: Record<string, RuleDefinition> = {};
     const collect = (definition: RuleDefinition): void => {
       if (snapshot[definition.id]) return;
-      const profile = this.profile();
       const compatibility = checkRuleCompatibility(definition, {
         ...profile,
+        actions,
         events: new Set(definition.trigger ? [definition.trigger.event] : []),
       });
       if (!compatibility.compatible)

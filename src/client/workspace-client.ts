@@ -23,6 +23,8 @@ import type {
 } from "../kernel/model.ts";
 import type { RunRuleInput, RuleRun } from "../kernel/rules.ts";
 import type { JsonValue, RuleDefinition } from "../spec/model.ts";
+import type { RuntimeAction } from "../kernel/workspace-config.ts";
+import type { SettingInput, SettingSummary } from "../kernel/workspace-config-service.ts";
 
 /** Transport-neutral durable operations. Components receive this, never a Kernel or database. */
 export interface RuleExecutionClient {
@@ -85,6 +87,13 @@ export interface WorkspaceClient
   listRules(): Promise<readonly RuleDefinition[]>;
   /** Published Action Events run matching short Rules through the same authorization spine. */
   executeAction(key: string, input?: Readonly<Record<string, JsonValue>>): Promise<JsonValue>;
+  listSettings(): Promise<readonly SettingSummary[]>;
+  getSetting(key: string): Promise<SettingSummary | null>;
+  putSetting(input: SettingInput): Promise<SettingSummary>;
+  deleteSetting(key: string): Promise<void>;
+  listRuntimeActions(): Promise<readonly RuntimeAction[]>;
+  putRuntimeAction(input: RuntimeAction): Promise<RuntimeAction>;
+  deleteRuntimeAction(key: string): Promise<void>;
   /** Synchronous workflows; use startRule for durable waits and User requests. */
   runRule(key: string, input?: RunRuleInput): Promise<RuleRun>;
 
@@ -133,6 +142,28 @@ class LocalWorkspaceClient implements WorkspaceClient {
 
   getActor(id: string) {
     return this.kernel.getActor(this.context, id);
+  }
+
+  listSettings() {
+    return this.kernel.listSettings(this.context);
+  }
+  getSetting(key: string) {
+    return this.kernel.getSetting(this.context, key);
+  }
+  putSetting(input: SettingInput) {
+    return this.kernel.putSetting(this.context, input);
+  }
+  deleteSetting(key: string) {
+    return this.kernel.deleteSetting(this.context, key);
+  }
+  listRuntimeActions() {
+    return this.kernel.listRuntimeActions(this.context);
+  }
+  putRuntimeAction(input: RuntimeAction) {
+    return this.kernel.putRuntimeAction(this.context, input);
+  }
+  deleteRuntimeAction(key: string) {
+    return this.kernel.deleteRuntimeAction(this.context, key);
   }
 
   updateActor(id: string, input: UpdateActorInput) {

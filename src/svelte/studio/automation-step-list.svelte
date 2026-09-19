@@ -78,7 +78,7 @@
 		{ kind: "repeat", label: "Repeat steps", description: "Run steps a fixed number of times.", category: "loops" },
 		...registeredEffects
 			.filter((effect) => !["records.query", "records.set", "records.create", "records.delete"].includes(effect.key))
-			.map((effect) => ({ kind: "effect", effectKey: effect.key, label: effect.label, description: `Run the ${effect.label.toLowerCase()} effect.`, category: "actions" as const })),
+			.map((effect) => ({ kind: "effect", effectKey: effect.key, label: effect.label, description: effect.description ?? `Run the ${effect.label.toLowerCase()} effect.`, category: "actions" as const })),
 	]);
 	const stepChoices = $derived(
 		allStepChoices.filter(

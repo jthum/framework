@@ -21,6 +21,11 @@ ownership rather than duplicating every prop signature.
 
 `RuleEditor` owns the complete structured workflow authoring UI. `RuleSteps`, `RuleConditions`, `RuleValueInput` and `RuleValueMap` can be composed independently. Hosts supply save/delete actions, optional effect metadata and optional compatibility diagnostics. Custom effect metadata propagates through every nested branch; it contains no implementation functions. No supplied diagnostics means Studio makes no claim about runtime support. The executor, authorization and durable scheduling/wait implementation are outside Studio.
 
+`WorkspaceSettings` and `WorkspaceActions` edit Workspace instance configuration through a
+`WorkspaceClient`. A host supplies the implementation kinds it actually installs; Studio does not
+run code, own credentials, or assume a deployment-specific secret store. The Action editor sends
+JSON test input through the client's ordinary authorized Action path.
+
 ## Working models versus the portable Spec
 
 `CollectionDraft`, `FieldDraft`, `ViewDraft`, `FormDraft` and `RuleDraft` are UI working models, not a second accepted Spec version. They use editable keys for picker choices. Canonical adapters resolve those keys to portable definition identities when persisting. Arbitrary `meta` survives draft edits unchanged. Studio does not perform schema migrations or authorize sharing based on presentation hints.

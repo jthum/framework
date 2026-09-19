@@ -15,6 +15,7 @@ Then use the capability guide relevant to the feature:
 - [Live Attachments](attachments.md)
 - [Sources, Views, and Blocks](sources-views-blocks.md)
 - [Rules and Actions](rules.md)
+- [Workspace settings and runtime Actions](workspace-actions.md)
 - [Agents](agents.md)
 - [Forms and Pages](forms-pages.md)
 - [Workspace client](workspace-client.md)

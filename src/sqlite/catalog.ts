@@ -23,6 +23,7 @@ import { SqliteRecordStore } from "./records.ts";
 import { SqliteScopeStore } from "./scopes.ts";
 import { SqliteRuleSubscriptionStore } from "./subscriptions.ts";
 import { SqliteExecutionStore } from "./executions.ts";
+import { SqliteWorkspaceConfigStore } from "./workspace-config.ts";
 import { routeDatabases, type SqlitePersistenceOptions } from "./database-routing.ts";
 import {
   assertActorIntegrity,
@@ -92,6 +93,7 @@ export class SqlitePersistenceAdapter implements PersistenceAdapter {
       throw error;
     }
     const session: PersistenceSession = {
+      workspaceConfigs: new SqliteWorkspaceConfigStore(database),
       scopes: new SqliteScopeStore(database),
       subscriptions: new SqliteRuleSubscriptionStore(database),
       executions,
@@ -721,6 +723,11 @@ async function initializeCatalog(database: SqliteDatabase): Promise<void> {
 
     CREATE INDEX IF NOT EXISTS workspaces_parent_id ON workspaces(parent_id);
     CREATE INDEX IF NOT EXISTS workspaces_root_id ON workspaces(root_id);
+
+    CREATE TABLE IF NOT EXISTS workspace_configs (
+      workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
+      config_json TEXT NOT NULL
+    );
 
     CREATE TABLE IF NOT EXISTS scope_configs (
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,

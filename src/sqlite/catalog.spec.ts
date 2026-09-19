@@ -25,6 +25,52 @@ afterEach(async () => {
 });
 
 describe("SQLite catalog adapter", () => {
+  it("persists Workspace settings and runtime Actions across reopen", async () => {
+    const path = join(await makeTemporaryDirectory(), "workspace-config.sqlite");
+    const first = await openKernel(path);
+    const { workspace, user } = await first.createRootWorkspace({
+      name: "Space",
+      user: { name: "Jane" },
+    });
+    const context = { workspaceId: workspace.id, actorId: user.id };
+    await first.putSetting(context, {
+      key: "search_provider",
+      label: "Search provider",
+      category: "Search",
+      value: "web.search.mock",
+    });
+    await first.putRuntimeAction(context, {
+      key: "web.search",
+      label: "Search",
+      description: "Search with the selected provider.",
+      input: { type: "object", properties: { query: { type: "string" } } },
+      implementation: { kind: "delegate", config: {} },
+      tool: { availability: "discoverable", keywords: ["search"] },
+    });
+    await first.close();
+
+    const second = await openKernel(path);
+    try {
+      expect(await second.listSettings(context)).toEqual([
+        {
+          key: "search_provider",
+          label: "Search provider",
+          category: "Search",
+          configured: true,
+          value: "web.search.mock",
+        },
+      ]);
+      expect(await second.listRuntimeActions(context)).toEqual([
+        expect.objectContaining({
+          key: "web.search",
+          implementation: { kind: "delegate", config: {} },
+        }),
+      ]);
+    } finally {
+      await second.close();
+    }
+  });
+
   it("persists scope-local configuration and records across reopen", async () => {
     const path = join(await makeTemporaryDirectory(), "scopes.sqlite");
     const first = await openKernel(path);

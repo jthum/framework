@@ -10,8 +10,11 @@
     "noUncheckedIndexedAccess": true,
     "paths": {
       "@jthum/framework": ["./src/index.ts"],
+      "@jthum/framework/client": ["./src/client/index.ts"],
       "@jthum/framework/errors": ["./src/errors/index.ts"],
       "@jthum/framework/kernel": ["./src/kernel/index.ts"],
+      "@jthum/framework/persistence": ["./src/persistence/index.ts"],
+      "@jthum/framework/spec": ["./src/spec/index.ts"],
       "@jthum/yair": ["./packages/inference/yair/core/src/index.ts"],
       "@jthum/yair-openai": ["./packages/inference/yair/providers/openai/src/index.ts"]
     },

@@ -8,7 +8,8 @@ import type {
   RuleStep,
   RuleValue,
 } from "../spec/model.ts";
-import type { ActionRegistry, ActionRuntime } from "./action-registry.ts";
+import type { ActionRegistry, ActionRuntime, RuntimeActionExecutor } from "./action-registry.ts";
+import type { WorkspaceConfigStore } from "../persistence/workspace-config.ts";
 import type { ConditionRegistry } from "./condition-registry.ts";
 import type { AuthorizationRequest } from "./authorization.ts";
 import type { ExecutionContext, Workspace } from "./model.ts";
@@ -127,6 +128,12 @@ export class RuleService {
     private readonly resolveWorkspace: (context: ExecutionContext) => Promise<Workspace>,
     private readonly clock: Clock,
     private readonly actions: ActionRegistry,
+    private readonly workspaceConfigs: WorkspaceConfigStore,
+    private readonly actionExecutors: ReadonlyMap<string, RuntimeActionExecutor>,
+    private readonly actionSetting: (
+      context: ExecutionContext,
+      key: string,
+    ) => Promise<JsonValue | null>,
     private readonly conditions: ConditionRegistry,
     private readonly runtime: ActionRuntime,
     private readonly assertContext: (context: ExecutionContext) => Promise<void>,
@@ -172,6 +179,7 @@ export class RuleService {
         maxSteps: this.maxSteps,
         maxDepth: this.maxDepth,
         profile: () => this.profile(),
+        actionKeys: (context) => this.availableRuntimeActionKeys(context),
         scope: async (context, rule, input) => ({
           ...emptyScope(context, rule, this.clock.now()),
           trigger: {
@@ -290,7 +298,7 @@ export class RuleService {
             checkRuleCompatibility(rule, this.durable?.profile(false) ?? this.profile())
               .diagnostics,
           );
-        this.durable.assertCompatible(rule, workspace.spec.rules);
+        await this.durable.assertCompatible(context, rule, workspace.spec.rules);
       } else await this.assertExecutable(context, rule, new Set([event.event]));
     }
     const runs: RuleDispatch[] = [];
@@ -635,7 +643,11 @@ export class RuleService {
   ): Promise<void> {
     if (seen.has(rule.id)) return;
     seen.add(rule.id);
-    const compatibility = checkRuleCompatibility(rule, this.profile(events));
+    const profile = this.profile(events);
+    const compatibility = checkRuleCompatibility(rule, {
+      ...profile,
+      actions: new Set([...profile.actions, ...(await this.availableRuntimeActionKeys(context))]),
+    });
     const unsupported = compatibility.diagnostics.filter(
       (diagnostic) => diagnostic.support === "unsupported",
     );
@@ -644,6 +656,17 @@ export class RuleService {
       const nested = await this.requireRuleById(context, ruleId);
       await this.assertExecutable(context, nested, events, seen);
     }
+  }
+
+  private async availableRuntimeActionKeys(
+    context: ExecutionContext,
+  ): Promise<ReadonlySet<string>> {
+    const runtimeActions = (await this.workspaceConfigs.get(context.workspaceId)).actions;
+    return new Set(
+      runtimeActions
+        .filter((item) => this.actionExecutors.has(item.implementation.kind))
+        .map((item) => item.key),
+    );
   }
 
   private authorizeRule(
@@ -671,15 +694,39 @@ export class RuleService {
       resource: { kind: "action", id: key, workspaceId: context.workspaceId },
     });
     const state = knownState ?? this.createState();
-    return this.actions.run(key, {
+    if (state.depth >= this.maxDepth)
+      throw executionLimit("Action delegation depth", this.maxDepth);
+    if (state.remaining <= 0) throw executionLimit("Rule and Action steps", this.maxSteps);
+    state.remaining -= 1;
+    state.depth += 1;
+    const execution = {
       context,
       input,
       runtime: this.runtime,
       origin,
-      publish: async (event) => {
+      publish: async (event: RuleEvent) => {
         await this.dispatchWithState(context, event, state);
       },
-    });
+      callAction: (nextKey: string, nextInput: Readonly<Record<string, JsonValue>> = {}) =>
+        this.invokeAction(nextKey, nextInput, context, origin, state),
+      getSetting: (settingKey: string) => this.actionSetting(context, settingKey),
+    };
+    try {
+      if (this.actions.has(key)) return await this.actions.run(key, execution);
+      const action = (await this.workspaceConfigs.get(context.workspaceId)).actions.find(
+        (item) => item.key === key,
+      );
+      if (!action) throw resourceNotFound("Action", key);
+      const executor = this.actionExecutors.get(action.implementation.kind);
+      if (!executor)
+        throw new FrameworkError({
+          code: ERROR_CODES.persistenceUnsupported,
+          message: `The ${action.implementation.kind} Action executor is unavailable.`,
+        });
+      return (await executor.run(action, execution)) ?? null;
+    } finally {
+      state.depth -= 1;
+    }
   }
 
   private createState(): RunState {

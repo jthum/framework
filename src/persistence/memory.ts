@@ -2,6 +2,7 @@ import { resourceConflict, resourceNotFound } from "../errors/error.ts";
 import { MemoryExecutionStore } from "./executions.ts";
 import { MemoryScopeStore } from "./scopes.ts";
 import { MemoryRuleSubscriptionStore } from "./subscriptions.ts";
+import { MemoryWorkspaceConfigStore } from "./workspace-config.ts";
 import type {
   Actor,
   AgentConfig,
@@ -49,9 +50,11 @@ export class MemoryPersistenceAdapter implements PersistenceAdapter {
   private readonly executions = new MemoryExecutionStore();
   private readonly scopes = new MemoryScopeStore();
   private readonly subscriptions = new MemoryRuleSubscriptionStore();
+  private readonly workspaceConfigs = new MemoryWorkspaceConfigStore();
 
   async open(): Promise<PersistenceSession> {
     return {
+      workspaceConfigs: this.workspaceConfigs,
       scopes: this.scopes,
       subscriptions: this.subscriptions,
       executions: this.executions,
@@ -125,10 +128,12 @@ export class MemoryPersistenceAdapter implements PersistenceAdapter {
         const subscriptions = this.subscriptions.snapshot();
         const records = this.records.snapshot();
         const executions = this.executions.snapshot();
+        const configs = this.workspaceConfigs.snapshot();
         try {
           this.records.deleteWorkspace(workspaceId);
           this.executions.deleteWorkspace(workspaceId);
           this.repository.deleteWorkspace(workspaceId);
+          this.workspaceConfigs.deleteWorkspace(workspaceId);
           this.scopes.deleteWorkspace(workspaceId);
           await this.subscriptions.deleteWorkspace(workspaceId);
         } catch (error) {
@@ -137,6 +142,7 @@ export class MemoryPersistenceAdapter implements PersistenceAdapter {
           this.subscriptions.restore(subscriptions);
           this.records.restore(records);
           this.executions.restore(executions);
+          this.workspaceConfigs.restore(configs);
           throw error;
         }
       },

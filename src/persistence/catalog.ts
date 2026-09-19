@@ -14,6 +14,7 @@ import type { CollectionDefinition } from "../spec/model.ts";
 import type { ExecutionStore } from "./executions.ts";
 import type { ScopeStore } from "./scopes.ts";
 import type { RuleSubscriptionStore } from "./subscriptions.ts";
+import type { WorkspaceConfigStore } from "./workspace-config.ts";
 
 export interface CollectionSeed {
   readonly collection: CollectionDefinition;
@@ -67,6 +68,7 @@ export interface PersistenceAdapter {
 }
 
 export interface PersistenceSession {
+  readonly workspaceConfigs: WorkspaceConfigStore;
   readonly scopes: ScopeStore;
   readonly subscriptions: RuleSubscriptionStore;
   readonly executions: ExecutionStore;

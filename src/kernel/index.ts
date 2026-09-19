@@ -23,3 +23,5 @@ export type {
 } from "./durable-rules.ts";
 export * from "./sources.ts";
 export * from "./views.ts";
+export * from "./workspace-config.ts";
+export * from "./workspace-config-service.ts";

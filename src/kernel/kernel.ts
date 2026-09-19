@@ -54,7 +54,13 @@ import {
   type CreateModelConfigInput,
   type UpdateModelConfigInput,
 } from "./agent-config.ts";
-import { ActionRegistry, type ActionDefinition } from "./action-registry.ts";
+import {
+  ActionRegistry,
+  type ActionDefinition,
+  type RuntimeActionExecutor,
+} from "./action-registry.ts";
+import { WorkspaceConfigService, type SettingInput } from "./workspace-config-service.ts";
+import type { RuntimeAction, SecretStore } from "./workspace-config.ts";
 import {
   collectInferenceRun,
   type InferenceInput,
@@ -108,6 +114,8 @@ export interface KernelOptions {
   readonly clock?: Clock;
   readonly environment?: EnvironmentProfile;
   readonly actions?: readonly ActionDefinition[];
+  readonly actionExecutors?: readonly RuntimeActionExecutor[];
+  readonly secrets?: SecretStore;
   readonly conditions?: readonly ConditionDefinition[];
   readonly inference?: InferenceRuntime;
   /** Trusted host extensions for tools whose availability depends on the current step. */
@@ -183,6 +191,7 @@ export class Kernel {
   private readonly rules: RuleService;
   private readonly durableRules: DurableRuleService;
   private readonly actions: ActionRegistry;
+  private readonly workspaceConfig: WorkspaceConfigService;
   private readonly recordPolicies: RecordPolicyService;
   private constructor(
     private readonly persistence: PersistenceSession,
@@ -192,6 +201,8 @@ export class Kernel {
     private readonly clock: Clock,
     readonly environment: EnvironmentProfile,
     actions: readonly ActionDefinition[],
+    actionExecutors: readonly RuntimeActionExecutor[],
+    secrets: SecretStore | undefined,
     conditions: readonly ConditionDefinition[],
     private readonly inference: InferenceRuntime | undefined,
     inferenceTools: readonly InferenceToolProvider[],
@@ -273,12 +284,22 @@ export class Kernel {
       (request) => this.assertAuthorized(request),
     );
     this.actions = new ActionRegistry([...this.coreActions(), ...actions]);
+    this.workspaceConfig = new WorkspaceConfigService(
+      persistence.workspaceConfigs,
+      this.actions,
+      secrets,
+      (context) => this.assertContext(context),
+      (request) => this.assertAuthorized(request),
+    );
     this.rules = new RuleService(
       catalog,
       persistence.subscriptions,
       (context) => this.resolveWorkspace(context),
       clock,
       this.actions,
+      persistence.workspaceConfigs,
+      new Map(actionExecutors.map((executor) => [executor.kind, executor])),
+      (context, key) => this.workspaceConfig.actionSetting(context, key),
       new ConditionRegistry([...coreConditions(), ...conditions]),
       this,
       (context) => this.assertContext(context),
@@ -307,6 +328,8 @@ export class Kernel {
     this.inferenceToolService = new InferenceToolService(
       catalog,
       this.actions,
+      persistence.workspaceConfigs,
+      new Set(actionExecutors.map((executor) => executor.kind)),
       inferenceTools,
       {
         executeAction: (context, key, input) => this.executeAction(context, key, input),
@@ -549,6 +572,27 @@ export class Kernel {
   ) {
     return this.rules.executeAction(context, key, input);
   }
+  listSettings(context: ExecutionContext) {
+    return this.workspaceConfig.listSettings(context);
+  }
+  getSetting(context: ExecutionContext, key: string) {
+    return this.workspaceConfig.getSetting(context, key);
+  }
+  putSetting(context: ExecutionContext, input: SettingInput) {
+    return this.workspaceConfig.putSetting(context, input);
+  }
+  deleteSetting(context: ExecutionContext, key: string) {
+    return this.workspaceConfig.deleteSetting(context, key);
+  }
+  listRuntimeActions(context: ExecutionContext) {
+    return this.workspaceConfig.listRuntimeActions(context);
+  }
+  putRuntimeAction(context: ExecutionContext, input: RuntimeAction) {
+    return this.workspaceConfig.putRuntimeAction(context, input);
+  }
+  deleteRuntimeAction(context: ExecutionContext, key: string) {
+    return this.workspaceConfig.deleteRuntimeAction(context, key);
+  }
   dispatchEvent(context: ExecutionContext, event: RuleEvent) {
     return this.rules.dispatch(context, event);
   }
@@ -652,6 +696,8 @@ export class Kernel {
       options.clock ?? new SystemClock(),
       options.environment ?? LOCAL_BROWSER_ENVIRONMENT,
       options.actions ?? [],
+      options.actionExecutors ?? [],
+      options.secrets,
       options.conditions ?? [],
       options.inference,
       options.inferenceTools ?? [],
