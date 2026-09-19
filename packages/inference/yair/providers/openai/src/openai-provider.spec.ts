@@ -212,13 +212,13 @@ describe("OpenAIProvider", () => {
           {
             choices: [
               {
-                delta: { content: "nk>Check carefully.</think>Visible " },
+                delta: { content: "nk>Check carefully.</think>Visible </thi" },
                 finish_reason: null,
               },
             ],
           },
           {
-            choices: [{ delta: { content: "answer." }, finish_reason: "stop" }],
+            choices: [{ delta: { content: "nk>answer." }, finish_reason: "stop" }],
           },
         ]),
     });

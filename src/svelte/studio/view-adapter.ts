@@ -52,19 +52,23 @@ export function viewDraftFromDefinition(
   const parameters: NonNullable<ViewDraft["parameters"]> = {};
   for (const parameter of view.parameters ?? []) {
     const field = keyPath(schema, parameter.path, schemas);
-    if ((parameter.source ?? "input") === "input" && (parameter.operator ?? "eq") === "eq") {
+    if ((parameter.source ?? "input") === "input") {
       const expectedKey = selectionAlias(field);
       const expectedLabel = labelFromKey(field.split(".").at(-1) ?? field);
       expose.push(field);
       if (
         parameter.key !== expectedKey ||
         parameter.required !== undefined ||
+        parameter.operator !== undefined ||
+        parameter.source !== undefined ||
         (parameter.label !== undefined && parameter.label !== expectedLabel)
       )
         parameters[field] = {
           key: parameter.key,
           ...(parameter.label !== undefined ? { label: parameter.label } : {}),
           ...(parameter.required !== undefined ? { required: parameter.required } : {}),
+          ...(parameter.operator !== undefined ? { operator: parameter.operator } : {}),
+          ...(parameter.source === "input" ? { source: parameter.source } : {}),
         };
     } else if (parameter.source === "context" && parameter.key === "record_id") {
       if (parameter.required !== true || parameter.label !== "Current record")
@@ -189,6 +193,8 @@ export function viewDefinitionFromDraft(
       label: retained?.label ?? labelFromKey(field.split(".").at(-1) ?? field),
       path: idPath(schema, field, schemas),
       ...(retained?.required !== undefined ? { required: retained.required } : {}),
+      ...(retained?.operator !== undefined ? { operator: retained.operator } : {}),
+      ...(retained?.source !== undefined ? { source: retained.source } : {}),
     });
   }
   const aggregate = draft.group_by
@@ -226,6 +232,17 @@ export function viewDefinitionFromDraft(
         as: draft.aliases?.[field] ?? selectionAlias(field),
         label: draft.column_labels?.[field] ?? labelFromKey(field.split(".").at(-1) ?? field),
       }));
+  const query = {
+    ...(filters.length === 1
+      ? { filter: filters[0] }
+      : filters.length
+        ? { filter: { all: filters } }
+        : {}),
+    ...(sort.length ? { sort } : {}),
+    ...(select?.length ? { select } : {}),
+    ...(aggregate ? { aggregate } : {}),
+    ...(draft.limit !== undefined ? { limit: draft.limit } : {}),
+  };
   return {
     id: draft.id,
     key: draft.key,
@@ -235,17 +252,7 @@ export function viewDefinitionFromDraft(
       ? { meta: withStudioManaged(draft.meta, draft.implicit) }
       : {}),
     source: draft.source,
-    query: {
-      ...(filters.length === 1
-        ? { filter: filters[0] }
-        : filters.length
-          ? { filter: { all: filters } }
-          : {}),
-      ...(sort.length ? { sort } : {}),
-      ...(select?.length ? { select } : {}),
-      ...(aggregate ? { aggregate } : {}),
-      ...(draft.limit !== undefined ? { limit: draft.limit } : {}),
-    },
+    ...(Object.keys(query).length ? { query } : {}),
     ...(parameters.length ? { parameters } : {}),
     ...(draft.presentation ? { presentation: structuredClone(draft.presentation) } : {}),
   };

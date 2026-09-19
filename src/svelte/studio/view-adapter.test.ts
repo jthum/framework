@@ -146,6 +146,34 @@ describe("View Studio adapter", () => {
     expect(viewDefinitionFromDraft(draft, schemas)).toEqual(customAlias);
   });
 
+  it("round-trips non-equality input parameters used by canonical Views", () => {
+    const view: ViewDefinition = {
+      id: "view-open-projects",
+      key: "open_projects",
+      label: "Open projects",
+      source: "project",
+      parameters: [
+        {
+          key: "status",
+          label: "Status",
+          path: ["field-project-status"],
+          operator: "neq",
+          required: true,
+          source: "input",
+        },
+      ],
+    };
+
+    const draft = viewDraftFromDefinition(view, schemas);
+    expect(draft).toMatchObject({
+      expose: ["status"],
+      parameters: {
+        status: { key: "status", operator: "neq", required: true, source: "input" },
+      },
+    });
+    expect(viewDefinitionFromDraft(draft, schemas)).toEqual(view);
+  });
+
   it("rejects canonical features the editor cannot preserve", () => {
     const nestedFilter: ViewDefinition = {
       id: "view-nested",

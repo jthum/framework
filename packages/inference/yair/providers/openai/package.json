@@ -11,6 +11,7 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.mts",
+      "development": "./src/index.ts",
       "import": "./dist/index.mjs"
     }
   },

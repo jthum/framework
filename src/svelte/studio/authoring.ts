@@ -2,7 +2,7 @@
  * Studio working models, not a second persisted Spec or a runtime API.
  * Keys are editable UI choices; a host maps them to stable Spec identities.
  */
-import type { SpecMeta } from "@jthum/framework/spec";
+import type { FieldOperator, SpecMeta } from "@jthum/framework/spec";
 import type {
   FieldFormat,
   FieldKind,
@@ -123,7 +123,16 @@ export interface ViewDraft extends DraftIdentity {
   implicit?: boolean;
   presentation?: { block: string; config?: SpecMeta };
   /** Caller-parameter contracts retained while expose remains a field-path picker. */
-  parameters?: Record<string, { key: string; label?: string; required?: boolean }>;
+  parameters?: Record<
+    string,
+    {
+      key: string;
+      label?: string;
+      required?: boolean;
+      operator?: FieldOperator;
+      source?: "input";
+    }
+  >;
 }
 export interface FormDraft extends DraftIdentity {
   type?: string;

@@ -14,42 +14,52 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.mts",
+      "development": "./src/index.ts",
       "import": "./dist/index.mjs"
     },
     "./blocks": {
       "types": "./dist/blocks/index.d.mts",
+      "development": "./src/blocks/index.ts",
       "import": "./dist/blocks/index.mjs"
     },
     "./catalog": {
       "types": "./dist/catalog/index.d.mts",
+      "development": "./src/catalog/index.ts",
       "import": "./dist/catalog/index.mjs"
     },
     "./client": {
       "types": "./dist/client/index.d.mts",
+      "development": "./src/client/index.ts",
       "import": "./dist/client/index.mjs"
     },
     "./errors": {
       "types": "./dist/errors/index.d.mts",
+      "development": "./src/errors/index.ts",
       "import": "./dist/errors/index.mjs"
     },
     "./kernel": {
       "types": "./dist/kernel/index.d.mts",
+      "development": "./src/kernel/index.ts",
       "import": "./dist/kernel/index.mjs"
     },
     "./persistence": {
       "types": "./dist/persistence/index.d.mts",
+      "development": "./src/persistence/index.ts",
       "import": "./dist/persistence/index.mjs"
     },
     "./spec": {
       "types": "./dist/spec/index.d.mts",
+      "development": "./src/spec/index.ts",
       "import": "./dist/spec/index.mjs"
     },
     "./sqlite": {
       "types": "./dist/sqlite/index.d.mts",
+      "development": "./src/sqlite/index.ts",
       "import": "./dist/sqlite/index.mjs"
     },
     "./sqlite/node": {
       "types": "./dist/sqlite/node-index.d.mts",
+      "development": "./src/sqlite/node-index.ts",
       "import": "./dist/sqlite/node-index.mjs"
     },
     "./svelte/utils": {

@@ -363,6 +363,15 @@ class TaggedReasoningState {
   private drain(final: boolean): ContentPart[] {
     const result: ContentPart[] = [];
     while (this.buffer) {
+      if (!this.reasoning) {
+        const opening = this.buffer.indexOf("<think>");
+        const closing = this.buffer.indexOf("</think>");
+        if (closing >= 0 && (opening < 0 || closing < opening)) {
+          this.emit(result, this.buffer.slice(0, closing));
+          this.buffer = this.buffer.slice(closing + "</think>".length);
+          continue;
+        }
+      }
       const tag = this.reasoning ? "</think>" : "<think>";
       const index = this.buffer.indexOf(tag);
       if (index >= 0) {
@@ -371,7 +380,12 @@ class TaggedReasoningState {
         this.reasoning = !this.reasoning;
         continue;
       }
-      const retained = final ? 0 : trailingTagPrefix(this.buffer, tag);
+      const retained = final
+        ? 0
+        : Math.max(
+            trailingTagPrefix(this.buffer, tag),
+            this.reasoning ? 0 : trailingTagPrefix(this.buffer, "</think>"),
+          );
       const ready = retained ? this.buffer.slice(0, -retained) : this.buffer;
       this.emit(result, ready);
       this.buffer = retained ? this.buffer.slice(-retained) : "";
