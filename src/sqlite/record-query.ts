@@ -9,6 +9,7 @@ import type {
   SourceQueryDefinition,
 } from "../spec/model.ts";
 import type { SqliteDatabase } from "./gateway.ts";
+import { decodeField, encodeField, explicitNulls, isStructuredField } from "./field-storage.ts";
 
 type Row = Record<string, null | number | string | Uint8Array>;
 
@@ -21,12 +22,16 @@ export async function querySqliteRecords(
   options: {
     readonly tableExpression?: string;
     readonly parameters?: readonly (null | number | string | Uint8Array)[];
+    readonly nullColumns?: Readonly<Record<string, string>>;
   } = {},
 ): Promise<RecordQueryResult> {
   const parameters: Array<null | number | string | Uint8Array> = [...(options.parameters ?? [])];
-  const where = query.filter ? compileFilter(query.filter, collection, parameters) : "1 = 1";
+  const where = query.filter
+    ? compileFilter(query.filter, collection, parameters, "", options.nullColumns)
+    : "1 = 1";
   const quoted = options.tableExpression ?? quote(table);
-  if (query.aggregate) return aggregate(database, quoted, collection, query, where, parameters);
+  if (query.aggregate)
+    return aggregate(database, quoted, collection, query, where, parameters, options.nullColumns);
 
   const count = await database.get<{ total: number }>(
     `SELECT COUNT(*) AS total FROM ${quoted} WHERE ${where}`,
@@ -47,22 +52,30 @@ export async function querySqliteRecords(
   );
   return {
     total: count?.total ?? 0,
-    rows: rows.map((row) => ({
-      id: String(row._id),
-      values: query.select
-        ? Object.fromEntries(
-            query.select.flatMap((selection) => {
-              const value = readField(row, field(collection, selection.path));
-              return value === undefined ? [] : [[selection.as, value]];
-            }),
-          )
-        : Object.fromEntries(
-            collection.fields.flatMap((definition) => {
-              const value = readField(row, definition);
-              return value === undefined ? [] : [[definition.key, value]];
-            }),
-          ),
-    })),
+    rows: rows.map((row) => {
+      const nulls = explicitNulls(row._null_fields);
+      return {
+        id: String(row._id),
+        values: query.select
+          ? Object.fromEntries(
+              query.select.flatMap((selection) => {
+                const value = readField(
+                  row,
+                  field(collection, selection.path),
+                  options.nullColumns,
+                  nulls,
+                );
+                return value === undefined ? [] : [[selection.as, value]];
+              }),
+            )
+          : Object.fromEntries(
+              collection.fields.flatMap((definition) => {
+                const value = readField(row, definition, options.nullColumns, nulls);
+                return value === undefined ? [] : [[definition.key, value]];
+              }),
+            ),
+      };
+    }),
   };
 }
 
@@ -73,6 +86,7 @@ async function aggregate(
   query: SourceQueryDefinition,
   where: string,
   parameters: Array<null | number | string | Uint8Array>,
+  nullColumns?: Readonly<Record<string, string>>,
 ): Promise<RecordQueryResult> {
   const definition = query.aggregate!;
   const groupField = field(collection, definition.group.path);
@@ -81,6 +95,11 @@ async function aggregate(
   const label = definition.group.labelPath
     ? valueExpression(field(collection, definition.group.labelPath))
     : identity;
+  const syntheticNull = nullColumns?.[groupField.id];
+  if (!syntheticNull) parameters.push(groupField.id);
+  const nullGroup = syntheticNull
+    ? `COALESCE(${quote(syntheticNull)}, 0)`
+    : `CASE WHEN ${groupKey} IS NULL THEN EXISTS (SELECT 1 FROM json_each("_null_fields") WHERE json_each.value = ?) ELSE 0 END`;
   const measures = definition.measures.map((measure, index) => {
     if (measure.operation === "count") return `COUNT(*) AS ${quote(`_measure_${index}`)}`;
     const expression = measure.paths?.length
@@ -89,7 +108,7 @@ async function aggregate(
     const fn = measure.operation.toUpperCase();
     return `${fn}(${expression}) AS ${quote(`_measure_${index}`)}`;
   });
-  const grouped = `SELECT ${identity} AS "_identity", MIN(${label}) AS "_label", ${measures.join(", ")} FROM ${table} WHERE ${where} GROUP BY ${groupKey}`;
+  const grouped = `SELECT ${identity} AS "_identity", MIN(${label}) AS "_label", ${measures.join(", ")} FROM ${table} WHERE ${where} GROUP BY ${groupKey}, ${nullGroup}`;
   const count = await database.get<{ total: number }>(
     `SELECT COUNT(*) AS total FROM (${grouped})`,
     parameters,
@@ -129,43 +148,97 @@ export function compileFilter(
   collection: CollectionDefinition,
   parameters: Array<null | number | string | Uint8Array>,
   qualifier = "",
+  nullColumns?: Readonly<Record<string, string>>,
 ): string {
   if ("all" in filter)
     return filter.all.length
-      ? `(${filter.all.map((item) => compileFilter(item, collection, parameters, qualifier)).join(" AND ")})`
+      ? `(${filter.all.map((item) => compileFilter(item, collection, parameters, qualifier, nullColumns)).join(" AND ")})`
       : "1 = 1";
   if ("any" in filter)
     return filter.any.length
-      ? `(${filter.any.map((item) => compileFilter(item, collection, parameters, qualifier)).join(" OR ")})`
+      ? `(${filter.any.map((item) => compileFilter(item, collection, parameters, qualifier, nullColumns)).join(" OR ")})`
       : "1 = 0";
   if ("not" in filter)
-    return `NOT (${compileFilter(filter.not, collection, parameters, qualifier)})`;
+    return `NOT COALESCE((${compileFilter(filter.not, collection, parameters, qualifier, nullColumns)}), 0)`;
   const definition = field(collection, filter.path);
   const column = `${qualifier}${quote(fieldColumn(definition))}`;
+  const textLike =
+    definition.type === "text" ||
+    definition.type === "date" ||
+    definition.type === "datetime" ||
+    definition.type === "choice" ||
+    definition.type === "reference";
   if (filter.operator === "empty")
-    return `(${column} IS NULL OR ${column} IN ('null', '""', '[]'))`;
+    return isStructuredField(definition)
+      ? `(${column} IS NULL OR ${column} IN ('""', '[]'))`
+      : `(${column} IS NULL OR ${textLike ? `${column} = ''` : "0 = 1"})`;
   if (filter.operator === "notEmpty")
-    return `(${column} IS NOT NULL AND ${column} NOT IN ('null', '""', '[]'))`;
+    return isStructuredField(definition)
+      ? `(${column} IS NOT NULL AND ${column} NOT IN ('""', '[]'))`
+      : `(${column} IS NOT NULL AND ${textLike ? `${column} <> ''` : "1 = 1"})`;
 
-  const expected = filter.value === undefined ? undefined : JSON.stringify(filter.value);
+  const structured = isStructuredField(definition);
+  if (
+    (filter.operator === "eq" || filter.operator === "neq") &&
+    filter.value !== undefined &&
+    filter.value !== null &&
+    !structured
+  ) {
+    const type =
+      definition.type === "number"
+        ? "number"
+        : definition.type === "boolean"
+          ? "boolean"
+          : "string";
+    if (typeof filter.value !== type) return filter.operator === "eq" ? "0 = 1" : "1 = 1";
+  }
+  const expected = filter.value === undefined ? undefined : encodeField(definition, filter.value);
   if (filter.operator === "eq" || filter.operator === "neq") {
-    if (expected === undefined)
-      return filter.operator === "eq" ? `${column} IS NULL` : `${column} IS NOT NULL`;
-    if (filter.value === null) {
-      const comparison = filter.operator === "eq" ? "IS" : "IS NOT";
-      const scalar =
-        filter.operator === "eq"
-          ? `${column} = 'null'`
-          : `(${column} <> 'null' OR ${column} IS NULL)`;
-      return `(CASE WHEN json_type(${column}) = 'array' THEN EXISTS (SELECT 1 FROM json_each(${column}) WHERE json_each.value ${comparison} NULL) ELSE ${scalar} END)`;
+    const arrayComparison = structured && expected !== undefined;
+    if (arrayComparison) {
+      const value = filter.value;
+      parameters.push(
+        value === null
+          ? null
+          : typeof value === "boolean"
+            ? value
+              ? 1
+              : 0
+            : typeof value === "string" || typeof value === "number"
+              ? value
+              : (expected ?? null),
+      );
     }
-    parameters.push(expected, expected);
+    let match: string;
+    if (expected === undefined || filter.value === null) {
+      const syntheticNull = nullColumns?.[definition.id];
+      if (!syntheticNull) parameters.push(definition.id);
+      const present = syntheticNull
+        ? `COALESCE(${qualifier}${quote(syntheticNull)}, 0) = 1`
+        : `EXISTS (SELECT 1 FROM json_each(${qualifier}${quote("_null_fields")}) WHERE json_each.value = ?)`;
+      match =
+        expected === undefined
+          ? `(${column} IS NULL AND NOT ${present})`
+          : `(${column} IS NULL AND ${present})`;
+    } else if (structured) {
+      parameters.push(expected);
+      match = `${column} = ?`;
+    } else {
+      parameters.push(expected);
+      match = `${column} = ?`;
+    }
     const scalar =
-      filter.operator === "eq"
-        ? `COALESCE(${column} = ?, 0)`
-        : `(${column} <> ? OR ${column} IS NULL)`;
-    const array = `EXISTS (SELECT 1 FROM json_each(${column}) WHERE json_each.value ${filter.operator === "eq" ? "IS" : "IS NOT"} json_extract(?, '$'))`;
-    return `(CASE WHEN json_type(${column}) = 'array' THEN ${array} ELSE ${scalar} END)`;
+      !structured && expected !== undefined && filter.value !== null
+        ? filter.operator === "eq"
+          ? match
+          : `(${column} <> ? OR ${column} IS NULL)`
+        : filter.operator === "eq"
+          ? `COALESCE(${match}, 0)`
+          : `NOT COALESCE(${match}, 0)`;
+    const elementMatch = jsonElementMatch(filter.value);
+    return arrayComparison
+      ? `(CASE WHEN json_type(${column}) = 'array' THEN EXISTS (SELECT 1 FROM json_each(${column}) WHERE ${filter.operator === "eq" ? elementMatch : `NOT ${elementMatch}`}) ELSE ${scalar} END)`
+      : scalar;
   }
   if (filter.operator === "contains") {
     const value = filter.value;
@@ -173,19 +246,59 @@ export function compileFilter(
       typeof value === "string" || typeof value === "number" || typeof value === "boolean"
         ? String(value)
         : "";
-    parameters.push(text, expected ?? null);
-    return `(CASE json_type(${column}) WHEN 'text' THEN COALESCE(instr(json_extract(${column}, '$'), ?) > 0, 0) WHEN 'array' THEN EXISTS (SELECT 1 FROM json_each(${column}) WHERE json_each.value IS json_extract(?, '$')) ELSE 0 END)`;
+    if (!structured) {
+      if (!textLike) return "0 = 1";
+      parameters.push(text);
+      return `COALESCE(instr(${column}, ?) > 0, 0)`;
+    }
+    parameters.push(text);
+    if (value !== undefined)
+      parameters.push(
+        typeof value === "boolean"
+          ? value
+            ? 1
+            : 0
+          : typeof value === "string" || typeof value === "number"
+            ? value
+            : (expected ?? null),
+      );
+    return `(CASE json_type(${column}) WHEN 'text' THEN COALESCE(instr(json_extract(${column}, '$'), ?) > 0, 0) WHEN 'array' THEN EXISTS (SELECT 1 FROM json_each(${column}) WHERE ${jsonElementMatch(value)}) ELSE 0 END)`;
   }
   const comparator = { gt: ">", gte: ">=", lt: "<", lte: "<=" }[
     filter.operator as Exclude<FieldOperator, "eq" | "neq" | "contains" | "empty" | "notEmpty">
   ];
   const actual =
-    definition.type === "number"
-      ? `COALESCE(${valueExpression(definition, qualifier)}, 0)`
-      : `COALESCE(${valueExpression(definition, qualifier)}, '')`;
+    definition.type === "boolean"
+      ? "''"
+      : definition.type === "number"
+        ? `COALESCE(${valueExpression(definition, qualifier)}, 0)`
+        : `COALESCE(${valueExpression(definition, qualifier)}, '')`;
   const value = filter.value;
-  parameters.push(typeof value === "number" || typeof value === "string" ? value : "");
+  parameters.push(
+    typeof value === "number" || typeof value === "string"
+      ? definition.type === "datetime" && typeof value === "string"
+        ? new Date(value).toISOString()
+        : value
+      : "",
+  );
   return `${actual} ${comparator} ?`;
+}
+
+function jsonElementMatch(value: JsonValue | undefined): string {
+  if (value === undefined) return "0 = 1";
+  const type =
+    value === null
+      ? "json_each.type = 'null'"
+      : typeof value === "boolean"
+        ? `json_each.type = '${value ? "true" : "false"}'`
+        : typeof value === "number"
+          ? "json_each.type IN ('integer', 'real')"
+          : typeof value === "string"
+            ? "json_each.type = 'text'"
+            : Array.isArray(value)
+              ? "json_each.type = 'array'"
+              : "json_each.type = 'object'";
+  return `(${type} AND json_each.value IS ?)`;
 }
 
 function page(
@@ -219,23 +332,44 @@ function field(collection: CollectionDefinition, path: readonly string[]): Field
 }
 
 function valueExpression(definition: FieldDefinition, qualifier = ""): string {
-  return `json_extract(${qualifier}${quote(fieldColumn(definition))}, '$')`;
+  const column = `${qualifier}${quote(fieldColumn(definition))}`;
+  return isStructuredField(definition) ? `json_extract(${column}, '$')` : column;
 }
 
 function sortExpression(definition: FieldDefinition): string {
   const column = quote(fieldColumn(definition));
+  // The portable evaluator sorts numeric NULL/unset as zero (between negatives
+  // and positives) and text NULL/unset as the empty string. SQLite's native
+  // NULLS FIRST/LAST cannot place them there while preserving ties, so keep
+  // COALESCE until a workload justifies a matching expression index.
+  if (definition.type === "number") return `COALESCE(${column}, 0)`;
+  if (definition.type === "boolean") return "''";
+  if (!isStructuredField(definition)) return `COALESCE(${column}, '')`;
   const value = `CASE WHEN json_type(${column}) = 'array' THEN json_extract(${column}, '$[0]') ELSE ${valueExpression(definition)} END`;
-  return `COALESCE(${definition.type === "number" ? value : `CASE WHEN json_type(${column}) IN ('true', 'false', 'object') THEN '' ELSE ${value} END`}, ${definition.type === "number" ? "0" : "''"})`;
+  return `COALESCE(CASE WHEN json_type(${column}) IN ('true', 'false', 'object') THEN '' ELSE ${value} END, '')`;
 }
 
 function numericExpression(definition: FieldDefinition): string {
-  const value = valueExpression(definition);
-  return `CASE WHEN json_type(${quote(fieldColumn(definition))}) IN ('integer', 'real') THEN ${value} ELSE NULL END`;
+  if (definition.type === "number") return quote(fieldColumn(definition));
+  const column = quote(fieldColumn(definition));
+  return isStructuredField(definition)
+    ? `CASE WHEN json_type(${column}) IN ('integer', 'real') THEN json_extract(${column}, '$') ELSE NULL END`
+    : "NULL";
 }
 
-function readField(row: Row, definition: FieldDefinition): JsonValue | undefined {
+function readField(
+  row: Row,
+  definition: FieldDefinition,
+  nullColumns: Readonly<Record<string, string>> | undefined,
+  nulls: ReadonlySet<string>,
+): JsonValue | undefined {
   const value = row[fieldColumn(definition)];
-  return typeof value === "string" ? (JSON.parse(value) as JsonValue) : undefined;
+  const syntheticNull = nullColumns?.[definition.id];
+  return decodeField(
+    definition,
+    value,
+    syntheticNull ? row[syntheticNull] === 1 : nulls.has(definition.id),
+  );
 }
 
 function fieldColumn(field: FieldDefinition): string {

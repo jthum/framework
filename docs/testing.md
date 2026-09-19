@@ -6,16 +6,22 @@ Tests protect the portable Framework contract, adapter interchangeability, and r
 
 Vite+ owns the quality loop:
 
-| Command                      | Purpose                                     |
-| ---------------------------- | ------------------------------------------- |
-| `vp test`                    | Run the complete configured test suite once |
-| `vp test <filter>`           | Run matching tests while developing         |
-| `vp test watch <filter>`     | Watch a focused area                        |
-| `vp test related <files...>` | Run tests related to changed files          |
-| `vp check`                   | Formatting, lint, and type checks           |
-| `vp pack`                    | Library build and export verification       |
+| Command                      | Purpose                                       |
+| ---------------------------- | --------------------------------------------- |
+| `vp test`                    | Run the complete configured test suite once   |
+| `vp test <filter>`           | Run matching tests while developing           |
+| `vp test watch <filter>`     | Watch a focused area                          |
+| `vp test related <files...>` | Run tests related to changed files            |
+| `vp test bench <filter>`     | Run an opt-in benchmark without CI thresholds |
+| `vp check`                   | Formatting, lint, and type checks             |
+| `vp pack`                    | Library build and export verification         |
 
 Use targeted tests during implementation. Before handing off a meaningful Framework change, run `vp check` and `vp test`. Run `vp pack` when exports, packaging, or delivery boundaries change. A consuming host owns its own browser smoke tests.
+
+Benchmarks record representative workload observations; they are not correctness tests or stable
+CI thresholds. SQLite record-query filtering, sorting, and aggregation can be sampled with
+`vp test bench src/sqlite/record-query.bench.ts`. Interpret results for the actual deployment and
+data distribution before adding workload-specific indexes.
 
 Purely visual changes may use proportionate browser inspection without paying for the entire suite unless behaviour also changed.
 

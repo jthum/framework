@@ -8,6 +8,7 @@ import type {
 } from "../spec/model.ts";
 import type { SqliteDatabase, SqliteValue } from "./gateway.ts";
 import { compileFilter, querySqliteRecords } from "./record-query.ts";
+import { isStructuredField } from "./field-storage.ts";
 
 export interface PhysicalQueryRelation extends RecordQueryRelation {
   readonly table: string;
@@ -35,8 +36,11 @@ export async function queryRelatedSqliteRecords(
     const target = relations.find((relation) => key(relation.path) === key(path.slice(0, -1)));
     const terminal = target?.collection.fields.find((field) => field.id === path.at(-1));
     if (!terminal) throw invalidPath();
-    const field: FieldDefinition = { ...terminal, id, key: id };
-    return { path, field, expression: relationExpression(root, path, relations, parameters) };
+    const projection = relationExpression(root, path, relations, parameters);
+    const field: FieldDefinition = projection.plural
+      ? { id, key: id, label: terminal.label, type: "json" }
+      : { ...terminal, id, key: id };
+    return { path, field, ...projection };
   });
   const byPath = new Map(synthetic.map((item) => [key(item.path), item.field.id]));
   const rewrite = (path: readonly string[]) => {
@@ -74,13 +78,28 @@ export async function queryRelatedSqliteRecords(
         }
       : {}),
   };
-  const projected = `SELECT root.*, ${synthetic.map((item) => `${item.expression} AS ${quote(fieldColumn(item.field))}`).join(", ")} FROM ${quote(rootTable)} AS root`;
+  const projected = `SELECT root.*, ${synthetic
+    .flatMap((item) => [
+      `${item.expression} AS ${quote(fieldColumn(item.field))}`,
+      ...(item.nullExpression
+        ? [`${item.nullExpression} AS ${quote(`_null_${item.field.id}`)}`]
+        : []),
+    ])
+    .join(", ")} FROM ${quote(rootTable)} AS root`;
   const result = await querySqliteRecords(
     database,
     rootTable,
     { ...root, fields: [...root.fields, ...synthetic.map((item) => item.field)] },
     rewritten,
-    { tableExpression: `(${projected})`, parameters },
+    {
+      tableExpression: `(${projected})`,
+      parameters,
+      nullColumns: Object.fromEntries(
+        synthetic
+          .filter((item) => item.nullExpression)
+          .map((item) => [item.field.id, `_null_${item.field.id}`]),
+      ),
+    },
   );
   if (query.select || query.aggregate) return result;
   return {
@@ -102,7 +121,8 @@ function relationExpression(
   path: readonly string[],
   relations: readonly PhysicalQueryRelation[],
   parameters: SqliteValue[],
-): string {
+): { expression: string; plural: boolean; nullExpression?: string } {
+  const parameterStart = parameters.length;
   let current = root;
   let previousAlias = "root";
   let from = "";
@@ -126,9 +146,9 @@ function relationExpression(
       order.push(`${jsonAlias}.key`);
     } else {
       from += from
-        ? ` JOIN ${table} AS ${alias} ON json_extract(${referenceColumn}, '$') = ${alias}."_id"`
+        ? ` JOIN ${table} AS ${alias} ON ${referenceColumn} = ${alias}."_id"`
         : ` FROM ${table} AS ${alias}`;
-      if (index === 0) conditions.push(`json_extract(${referenceColumn}, '$') = ${alias}."_id"`);
+      if (index === 0) conditions.push(`${referenceColumn} = ${alias}."_id"`);
     }
     if (relation.filter)
       conditions.push(compileFilter(relation.filter, relation.collection, parameters, `${alias}.`));
@@ -139,10 +159,23 @@ function relationExpression(
   if (!terminal) throw invalidPath();
   const value = `${previousAlias}.${quote(fieldColumn(terminal))}`;
   const where = conditions.length ? ` WHERE ${conditions.join(" AND ")}` : "";
-  if (!plural) return `(SELECT ${value}${from}${where} LIMIT 1)`;
-  const flattened = `json_each(CASE WHEN json_type(${value}) = 'array' THEN ${value} ELSE json_array(json(${value})) END) AS terminal`;
-  const ordered = `SELECT CASE WHEN terminal.type IN ('array', 'object') THEN json(terminal.value) ELSE json_quote(terminal.value) END AS "_value"${from} JOIN ${flattened} ON 1 = 1 WHERE ${[...conditions, `${value} IS NOT NULL`].join(" AND ")} ORDER BY ${[...order, "terminal.key"].join(", ")}`;
-  return `COALESCE((SELECT json_group_array(json("_value")) FROM (${ordered})), '[]')`;
+  if (!plural) {
+    const filterParameters = parameters.slice(parameterStart);
+    parameters.push(terminal.id);
+    parameters.push(...filterParameters);
+    const explicitNull = `EXISTS (SELECT 1 FROM json_each(${previousAlias}."_null_fields") WHERE json_each.value = ?)`;
+    return {
+      expression: `(SELECT ${value}${from}${where} LIMIT 1)`,
+      nullExpression: `(SELECT ${explicitNull}${from}${where} LIMIT 1)`,
+      plural: false,
+    };
+  }
+  const flattened = `json_each(${isStructuredField(terminal) ? `CASE WHEN json_type(${value}) = 'array' THEN ${value} ELSE json_array(json(${value})) END` : terminal.type === "boolean" ? `json_array(json(CASE WHEN ${value} = 1 THEN 'true' ELSE 'false' END))` : `json_array(${value})`}) AS terminal`;
+  const ordered = `SELECT CASE WHEN terminal.type IN ('array', 'object') THEN json(terminal.value) WHEN terminal.type IN ('true', 'false') THEN json(terminal.type) ELSE json_quote(terminal.value) END AS "_value"${from} JOIN ${flattened} ON 1 = 1 WHERE ${[...conditions, `${value} IS NOT NULL`].join(" AND ")} ORDER BY ${[...order, "terminal.key"].join(", ")}`;
+  return {
+    expression: `COALESCE((SELECT json_group_array(json("_value")) FROM (${ordered})), '[]')`,
+    plural: true,
+  };
 }
 
 function rewriteFilter(

@@ -8,6 +8,14 @@ import type {
   SourceQueryDefinition,
 } from "../spec/model.ts";
 import type { SqliteConnection, SqliteDatabase, SqliteParameters } from "./gateway.ts";
+import {
+  decodeField,
+  encodeField,
+  explicitNulls,
+  fieldSqlType,
+  nullFieldIds,
+  isStructuredField,
+} from "./field-storage.ts";
 import { compileFilter, querySqliteRecords } from "./record-query.ts";
 import { queryRelatedSqliteRecords, type PhysicalQueryRelation } from "./related-query.ts";
 
@@ -107,6 +115,7 @@ export class SqliteRecordStore implements RecordStore {
     const table = await requireTableWith(connection, workspaceId, collection.id);
     const columns: string[] = [
       ...systemColumns.map((column) => column.name),
+      "_null_fields",
       ...collection.fields.map(fieldColumn),
     ];
     const parameters: SqliteParameters = [
@@ -116,7 +125,8 @@ export class SqliteRecordStore implements RecordStore {
       record.updatedAt,
       record.createdBy,
       record.updatedBy,
-      ...collection.fields.map((field) => encodeValue(record.values[field.key])),
+      nullFieldIds(collection.fields, record.values),
+      ...collection.fields.map((field) => encodeField(field, record.values[field.key])),
     ];
     try {
       await connection.run(
@@ -288,8 +298,9 @@ export class SqliteRecordStore implements RecordStore {
     const values: Array<readonly [string, null | number | string | Uint8Array]> = [
       ["_updated_at", record.updatedAt],
       ["_updated_by", record.updatedBy],
+      ["_null_fields", nullFieldIds(collection.fields, record.values)],
       ...collection.fields.map(
-        (field) => [fieldColumn(field), encodeValue(record.values[field.key])] as const,
+        (field) => [fieldColumn(field), encodeField(field, record.values[field.key])] as const,
       ),
     ];
     await this.database.run(
@@ -346,11 +357,7 @@ async function createCollectionTable(
   collection: CollectionDefinition,
 ): Promise<void> {
   const table = physicalTableName(workspaceId, collection.id);
-  const columns = [
-    ...systemColumns.map((column) => `${quoteIdentifier(column.name)} ${column.sql}`),
-    ...collection.fields.map((field) => `${quoteIdentifier(fieldColumn(field))} TEXT`),
-  ];
-  await connection.execute(`CREATE TABLE ${quoteIdentifier(table)} (${columns.join(", ")})`);
+  await createRecordTable(connection, table, collection);
   await createCreationIndex(connection, table);
   await connection.run(
     "INSERT INTO framework_record_schemas (workspace_id, collection_id, table_name, definition_json) VALUES (?, ?, ?, ?)",
@@ -358,7 +365,24 @@ async function createCollectionTable(
   );
 }
 
+async function createRecordTable(
+  connection: SqliteConnection,
+  table: string,
+  collection: CollectionDefinition,
+): Promise<void> {
+  const columns = [
+    ...systemColumns.map((column) => `${quoteIdentifier(column.name)} ${column.sql}`),
+    `${quoteIdentifier("_null_fields")} TEXT NOT NULL DEFAULT '[]'`,
+    ...collection.fields.map(
+      (field) => `${quoteIdentifier(fieldColumn(field))} ${fieldSqlType(field)}`,
+    ),
+  ];
+  await connection.execute(`CREATE TABLE ${quoteIdentifier(table)} (${columns.join(", ")})`);
+}
+
 async function createCreationIndex(connection: SqliteConnection, table: string): Promise<void> {
+  // _id is the primary key and serves relationship joins. Ordinary Fields stay
+  // unindexed by default; add workload-specific indexes only when queries need them.
   await connection.execute(
     `CREATE INDEX IF NOT EXISTS ${quoteIdentifier(`${table}_created`)} ON ${quoteIdentifier(table)} (${quoteIdentifier("_created_at")}, ${quoteIdentifier("_id")})`,
   );
@@ -370,19 +394,41 @@ async function reconcileFields(
   previous: CollectionDefinition,
   next: CollectionDefinition,
 ): Promise<void> {
+  const oldFields = new Map(previous.fields.map((field) => [field.id, field]));
+  if (
+    next.fields.some((field) => {
+      const old = oldFields.get(field.id);
+      return (
+        old &&
+        (fieldSqlType(old) !== fieldSqlType(field) ||
+          isStructuredField(old) !== isStructuredField(field) ||
+          (old.type === "datetime") !== (field.type === "datetime") ||
+          (old.type === "boolean") !== (field.type === "boolean"))
+      );
+    })
+  ) {
+    await rebuildRecordTable(connection, table, previous, next);
+    return;
+  }
   const previousIds = new Set(previous.fields.map((field) => field.id));
   const nextIds = new Set(next.fields.map((field) => field.id));
   for (const field of next.fields) {
     if (!previousIds.has(field.id)) {
       await connection.execute(
-        `ALTER TABLE ${quoteIdentifier(table)} ADD COLUMN ${quoteIdentifier(fieldColumn(field))} TEXT`,
+        `ALTER TABLE ${quoteIdentifier(table)} ADD COLUMN ${quoteIdentifier(fieldColumn(field))} ${fieldSqlType(field)}`,
       );
       const fallback = schemaDefault(next, field.id);
       if (fallback !== undefined) {
         await connection.run(
           `UPDATE ${quoteIdentifier(table)} SET ${quoteIdentifier(fieldColumn(field))} = ?`,
-          [encodeValue(fallback)],
+          [encodeField(field, fallback)],
         );
+        if (fallback === null) {
+          await connection.run(
+            `UPDATE ${quoteIdentifier(table)} SET ${quoteIdentifier("_null_fields")} = json_insert(${quoteIdentifier("_null_fields")}, '$[#]', ?)`,
+            [field.id],
+          );
+        }
       }
     }
   }
@@ -391,8 +437,65 @@ async function reconcileFields(
       await connection.execute(
         `ALTER TABLE ${quoteIdentifier(table)} DROP COLUMN ${quoteIdentifier(fieldColumn(field))}`,
       );
+      await connection.run(
+        `UPDATE ${quoteIdentifier(table)} SET ${quoteIdentifier("_null_fields")} = (SELECT json_group_array(value) FROM json_each(${quoteIdentifier("_null_fields")}) WHERE value <> ?)`,
+        [field.id],
+      );
     }
   }
+}
+
+/** A live Field storage-kind edit rebuilds its table transactionally, without reading old formats. */
+async function rebuildRecordTable(
+  connection: SqliteConnection,
+  table: string,
+  previous: CollectionDefinition,
+  next: CollectionDefinition,
+): Promise<void> {
+  const replacement = `${table}_rebuild`;
+  await createRecordTable(connection, replacement, next);
+  const oldFields = new Map(previous.fields.map((field) => [field.id, field]));
+  const columns = [
+    ...systemColumns.map((column) => column.name),
+    "_null_fields",
+    ...next.fields.map(fieldColumn),
+  ];
+  let after = "";
+  while (true) {
+    const rows = await connection.all<DataRow>(
+      `SELECT * FROM ${quoteIdentifier(table)} WHERE "_id" > ? ORDER BY "_id" LIMIT 250`,
+      [after],
+    );
+    if (!rows.length) break;
+    for (const row of rows) {
+      const record = decodeRecord(row, previous);
+      const values: Record<string, JsonValue> = {};
+      for (const field of next.fields) {
+        const old = oldFields.get(field.id);
+        const value = old ? record.values[old.key] : schemaDefault(next, field.id);
+        if (value !== undefined) values[field.key] = value;
+      }
+      await connection.run(
+        `INSERT INTO ${quoteIdentifier(replacement)} (${columns.map(quoteIdentifier).join(", ")}) VALUES (${columns.map(() => "?").join(", ")})`,
+        [
+          record.id,
+          record.collectionId,
+          record.createdAt,
+          record.updatedAt,
+          record.createdBy,
+          record.updatedBy,
+          nullFieldIds(next.fields, values),
+          ...next.fields.map((field) => encodeField(field, values[field.key])),
+        ],
+      );
+    }
+    after = requireString(rows.at(-1)?._id);
+  }
+  await connection.execute(`DROP TABLE ${quoteIdentifier(table)}`);
+  await connection.execute(
+    `ALTER TABLE ${quoteIdentifier(replacement)} RENAME TO ${quoteIdentifier(table)}`,
+  );
+  await createCreationIndex(connection, table);
 }
 
 function schemaDefault(collection: CollectionDefinition, fieldId: string): JsonValue | undefined {
@@ -403,9 +506,11 @@ function schemaDefault(collection: CollectionDefinition, fieldId: string): JsonV
 
 function decodeRecord(row: DataRow, collection: CollectionDefinition): CollectionRecord {
   const values: Record<string, JsonValue> = {};
+  const nulls = explicitNulls(row._null_fields);
   for (const field of collection.fields) {
     const value = row[fieldColumn(field)];
-    if (typeof value === "string") values[field.key] = JSON.parse(value) as JsonValue;
+    const decoded = decodeField(field, value, nulls.has(field.id));
+    if (decoded !== undefined) values[field.key] = decoded;
   }
   return {
     id: requireString(row._id),
@@ -416,10 +521,6 @@ function decodeRecord(row: DataRow, collection: CollectionDefinition): Collectio
     createdBy: requireString(row._created_by),
     updatedBy: requireString(row._updated_by),
   };
-}
-
-function encodeValue(value: JsonValue | undefined): string | null {
-  return value === undefined ? null : JSON.stringify(value);
 }
 
 function fieldColumn(field: FieldDefinition): string {

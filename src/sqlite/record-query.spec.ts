@@ -31,6 +31,7 @@ describe("SQLite Source queries", () => {
           label: "Client",
           fields: [
             { id: "client-name", key: "name", label: "Name", type: "text" },
+            { id: "client-status", key: "status", label: "Status", type: "text" },
             { id: "client-tags", key: "tags", label: "Tags", type: "json" },
             {
               id: "client-company",
@@ -69,6 +70,7 @@ describe("SQLite Source queries", () => {
     const parent = await kernel.createRecord(context, "company", { name: "North" });
     const client = await kernel.createRecord(context, "client", {
       name: "Acme",
+      status: null,
       company: parent.id,
       tags: ["priority"],
     });
@@ -171,6 +173,15 @@ describe("SQLite Source queries", () => {
       });
       expect(nested.total).toBe(3);
       expect(nested.rows.map((row) => row.values.company)).toEqual(["North", "North", "North"]);
+      const nullable = await kernel.querySource(context, "project", {
+        filter: { path: ["project-client", "client-status"], operator: "eq", value: null },
+        select: [{ path: ["project-client", "client-status"], as: "status" }],
+      });
+      expect(nullable.rows.map((row) => row.values)).toEqual([{ status: null }, { status: null }]);
+      const absent = await kernel.querySource(context, "project", {
+        filter: { path: ["project-client", "client-status"], operator: "eq" },
+      });
+      expect(absent.total).toBe(1);
       expect(list).not.toHaveBeenCalled();
     } finally {
       list.mockRestore();
@@ -203,6 +214,18 @@ describe("SQLite Source queries", () => {
         filter: { path: ["status"], operator: "eq", value: "open" },
         sort: [{ path: ["score"], direction: "desc" }],
         limit: 1,
+      },
+      {
+        filter: { path: ["status"], operator: "eq", value: 42 },
+        sort: [{ path: ["name"], direction: "asc" }],
+      },
+      {
+        filter: { path: ["score"], operator: "eq", value: "5" },
+        sort: [{ path: ["name"], direction: "asc" }],
+      },
+      {
+        filter: { path: ["score"], operator: "neq", value: "5" },
+        sort: [{ path: ["name"], direction: "asc" }],
       },
       {
         filter: { path: ["name"], operator: "contains", value: "a" },
@@ -262,6 +285,12 @@ describe("SQLite Source queries", () => {
         sort: [{ path: ["score"], direction: "asc" }],
       },
       {
+        sort: [
+          { path: ["status"], direction: "asc" },
+          { path: ["name"], direction: "asc" },
+        ],
+      },
+      {
         aggregate: {
           group: { path: ["status"], as: "status" },
           measures: [
@@ -284,9 +313,10 @@ describe("SQLite Source queries", () => {
         const actual = await sqlite.kernel.querySource(sqlite.context, "task", query);
         expect(actual.columns).toEqual(expected.columns);
         expect(actual.total, JSON.stringify(query)).toBe(expected.total);
-        expect(actual.rows.map((row) => row.values)).toEqual(
-          expected.rows.map((row) => row.values),
-        );
+        expect(
+          actual.rows.map((row) => row.values),
+          JSON.stringify(query),
+        ).toEqual(expected.rows.map((row) => row.values));
       }
     } finally {
       await memory.kernel.close();
@@ -339,5 +369,6 @@ async function sample(persistence: MemoryPersistenceAdapter | SqlitePersistenceA
   await kernel.createRecord(context, "task", { name: "Delta", score: 1, tags: [] });
   await kernel.createRecord(context, "task", { name: "Epsilon", status: null, score: 2 });
   await kernel.createRecord(context, "task", { name: "Zeta", status: "done", score: -2 });
+  await kernel.createRecord(context, "task", { name: "Eta", status: "", tags: [] });
   return { kernel, context };
 }
