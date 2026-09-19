@@ -103,7 +103,7 @@ async function aggregate(
   const measures = definition.measures.map((measure, index) => {
     if (measure.operation === "count") return `COUNT(*) AS ${quote(`_measure_${index}`)}`;
     const expression = measure.paths?.length
-      ? `(${measure.paths.map((path) => numericExpression(field(collection, path))).join(" + ")}) / ${measure.paths.length}`
+      ? `(${measure.paths.map((path) => numericExpression(field(collection, path))).join(" + ")}) / ${measure.paths.length}.0`
       : numericExpression(field(collection, measure.path ?? []));
     const fn = measure.operation.toUpperCase();
     return `${fn}(${expression}) AS ${quote(`_measure_${index}`)}`;
@@ -269,17 +269,19 @@ export function compileFilter(
   ];
   const actual =
     definition.type === "boolean"
-      ? "''"
+      ? `COALESCE(${valueExpression(definition, qualifier)}, 0)`
       : definition.type === "number"
         ? `COALESCE(${valueExpression(definition, qualifier)}, 0)`
         : `COALESCE(${valueExpression(definition, qualifier)}, '')`;
   const value = filter.value;
   parameters.push(
-    typeof value === "number" || typeof value === "string"
-      ? definition.type === "datetime" && typeof value === "string"
-        ? new Date(value).toISOString()
-        : value
-      : "",
+    typeof value === "boolean"
+      ? Number(value)
+      : typeof value === "number" || typeof value === "string"
+        ? definition.type === "datetime" && typeof value === "string"
+          ? new Date(value).toISOString()
+          : value
+        : "",
   );
   return `${actual} ${comparator} ?`;
 }
@@ -343,7 +345,7 @@ function sortExpression(definition: FieldDefinition): string {
   // NULLS FIRST/LAST cannot place them there while preserving ties, so keep
   // COALESCE until a workload justifies a matching expression index.
   if (definition.type === "number") return `COALESCE(${column}, 0)`;
-  if (definition.type === "boolean") return "''";
+  if (definition.type === "boolean") return `COALESCE(${column}, 0)`;
   if (!isStructuredField(definition)) return `COALESCE(${column}, '')`;
   const value = `CASE WHEN json_type(${column}) = 'array' THEN json_extract(${column}, '$[0]') ELSE ${valueExpression(definition)} END`;
   return `COALESCE(CASE WHEN json_type(${column}) IN ('true', 'false', 'object') THEN '' ELSE ${value} END, '')`;

@@ -335,6 +335,26 @@ export class AttachmentService {
     return { attachment, collection, record };
   }
 
+  /** Resolve reference targets while validating a mutation already authorized through a binding. */
+  async referenceRecords(
+    context: ExecutionContext,
+    targetId: string,
+    sourceId: string,
+    ids: readonly string[],
+  ): Promise<CollectionRecord[]> {
+    const attachment = await this.catalog.getAttachmentBySource(targetId, sourceId);
+    if (!attachment) return [];
+    await this.assertLive(attachment.id);
+    const origin = await this.catalog.getWorkspace(attachment.originId);
+    const collection = origin?.spec.collections.find((item) => item.id === attachment.collectionId);
+    if (!collection) return [];
+    const records = await this.records.getMany(attachment.originId, collection, ids);
+    const visible = records.filter((record) =>
+      evaluateCondition(attachment.filter, collection, record.values, true),
+    );
+    return this.policies.filter(context, attachment.originId, collection, visible);
+  }
+
   private async resolve(
     context: ExecutionContext,
     key: string,

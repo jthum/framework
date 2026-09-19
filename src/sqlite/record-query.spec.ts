@@ -291,6 +291,25 @@ describe("SQLite Source queries", () => {
         ],
       },
       {
+        sort: [
+          { path: ["active"], direction: "asc" },
+          { path: ["name"], direction: "asc" },
+        ],
+      },
+      {
+        aggregate: {
+          group: { path: ["status"], as: "status" },
+          measures: [
+            {
+              as: "average_pair",
+              operation: "avg",
+              paths: [["count"], ["quantity"]],
+            },
+          ],
+          sort: [{ key: "status", direction: "asc" }],
+        },
+      },
+      {
         aggregate: {
           group: { path: ["status"], as: "status" },
           measures: [
@@ -343,6 +362,21 @@ async function sample(persistence: MemoryPersistenceAdapter | SqlitePersistenceA
           { id: "name", key: "name", label: "Name", type: "text" },
           { id: "status", key: "status", label: "Status", type: "text" },
           { id: "score", key: "score", label: "Score", type: "number" },
+          {
+            id: "count",
+            key: "count",
+            label: "Count",
+            type: "number",
+            validation: { integer: true },
+          },
+          {
+            id: "quantity",
+            key: "quantity",
+            label: "Quantity",
+            type: "number",
+            validation: { integer: true },
+          },
+          { id: "active", key: "active", label: "Active", type: "boolean" },
           { id: "tags", key: "tags", label: "Tags", type: "json" },
         ],
       },
@@ -352,23 +386,58 @@ async function sample(persistence: MemoryPersistenceAdapter | SqlitePersistenceA
     name: "Alpha",
     status: "open",
     score: 5,
+    count: 5,
+    quantity: 6,
+    active: true,
     tags: ["blue", "urgent"],
   });
   await kernel.createRecord(context, "task", {
     name: "Beta",
     status: "done",
     score: 3,
+    count: 3,
+    quantity: 4,
+    active: false,
     tags: ["red"],
   });
   await kernel.createRecord(context, "task", {
     name: "Gamma",
     status: "open",
     score: 8,
+    count: 7,
+    quantity: 8,
+    active: true,
     tags: ["blue"],
   });
-  await kernel.createRecord(context, "task", { name: "Delta", score: 1, tags: [] });
-  await kernel.createRecord(context, "task", { name: "Epsilon", status: null, score: 2 });
-  await kernel.createRecord(context, "task", { name: "Zeta", status: "done", score: -2 });
-  await kernel.createRecord(context, "task", { name: "Eta", status: "", tags: [] });
+  await kernel.createRecord(context, "task", {
+    name: "Delta",
+    score: 1,
+    count: 1,
+    quantity: 2,
+    tags: [],
+  });
+  await kernel.createRecord(context, "task", {
+    name: "Epsilon",
+    status: null,
+    score: 2,
+    count: 9,
+    quantity: 10,
+    active: false,
+  });
+  await kernel.createRecord(context, "task", {
+    name: "Zeta",
+    status: "done",
+    score: -2,
+    count: 11,
+    quantity: 12,
+    active: true,
+  });
+  await kernel.createRecord(context, "task", {
+    name: "Eta",
+    status: "",
+    count: 13,
+    quantity: 14,
+    tags: [],
+  });
   return { kernel, context };
 }

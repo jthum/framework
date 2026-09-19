@@ -67,7 +67,7 @@ describe("SQLite native record fields", () => {
         count: 7,
         active: true,
         day: "2026-09-19",
-        instant: "2026-09-19T10:30:00+05:30",
+        instant: "2026-09-19T05:00:00.000Z",
         status: "open",
         owner: "person-1",
         labels: ["a", "b"],
@@ -103,10 +103,7 @@ describe("SQLite native record fields", () => {
       `SELECT typeof("${column("title")}") AS title, typeof("${column("amount")}") AS amount, typeof("${column("count")}") AS count, typeof("${column("active")}") AS active FROM "${table}"`,
     );
     expect(types).toEqual({ title: "text", amount: "real", count: "integer", active: "integer" });
-    expect((await store.get("ws", collection, "one"))?.values).toEqual({
-      ...record.values,
-      instant: "2026-09-19T05:00:00.000Z",
-    });
+    expect((await store.get("ws", collection, "one"))?.values).toEqual(record.values);
     const schema = await db.all<{ name: string; type: string }>(`PRAGMA table_info("${table}")`);
     expect(schema.find((item) => item.name === column("amount"))?.type).toBe("REAL");
     expect(schema.find((item) => item.name === column("count"))?.type).toBe("INTEGER");

@@ -50,6 +50,48 @@ describe("Kernel Collections and records", () => {
     });
   });
 
+  it("canonicalizes datetimes and rejects integers outside JavaScript's safe range", async () => {
+    expect.hasAssertions();
+    const { kernel, context } = await bootstrap();
+    const workspace = (await kernel.getWorkspace(context))!;
+    await kernel.applySpec(context, {
+      ...workspace.spec,
+      collections: [
+        {
+          id: "collection-event",
+          key: "event",
+          label: "Event",
+          fields: [
+            { id: "field-instant", key: "instant", label: "Instant", type: "datetime" },
+            {
+              id: "field-count",
+              key: "count",
+              label: "Count",
+              type: "number",
+              validation: { integer: true },
+            },
+          ],
+        },
+      ],
+    });
+
+    const event = await kernel.createRecord(context, "event", {
+      instant: "2026-09-19T10:30:00+05:30",
+      count: Number.MAX_SAFE_INTEGER,
+    });
+    expect(event.values).toEqual({
+      instant: "2026-09-19T05:00:00.000Z",
+      count: Number.MAX_SAFE_INTEGER,
+    });
+    expect(await kernel.getRecord(context, "event", event.id)).toEqual(event);
+    await expect(
+      kernel.createRecord(context, "event", { count: Number.MAX_SAFE_INTEGER + 1 }),
+    ).rejects.toMatchObject({
+      code: ERROR_CODES.validationInvalidInput,
+      issues: [expect.objectContaining({ code: "VALIDATION.INTEGER" })],
+    });
+  });
+
   it("preserves data when semantic Collection and Field keys change", async () => {
     expect.hasAssertions();
     const { kernel, context } = await bootstrap();

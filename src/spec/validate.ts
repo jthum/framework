@@ -2192,12 +2192,12 @@ function validateNumberValue(
   if (validation?.max !== undefined && value > validation.max) {
     issue(issues, path, "VALIDATION.MAX", validation.message ?? `${field.label} is too large.`);
   }
-  if (validation?.integer && !Number.isInteger(value)) {
+  if (validation?.integer && !Number.isSafeInteger(value)) {
     issue(
       issues,
       path,
       "VALIDATION.INTEGER",
-      validation.message ?? `${field.label} must be a whole number.`,
+      validation.message ?? `${field.label} must be a safe whole number.`,
     );
   }
 }

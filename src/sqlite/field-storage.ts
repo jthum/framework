@@ -4,7 +4,7 @@ import type { SqliteValue } from "./gateway.ts";
 /**
  * SQLite record-field mapping (the portable Spec and RecordStore remain logically typed):
  * - text, single choice/reference, date: raw TEXT; dates are YYYY-MM-DD.
- * - datetime: UTC ISO-8601 TEXT with milliseconds, so lexical order is chronological.
+ * - datetime: canonical UTC ISO-8601 TEXT supplied by the Kernel, so lexical order is chronological.
  * - number: REAL, or INTEGER when validation.integer is true; boolean: INTEGER 0/1.
  * - json and multiple choice/reference: JSON TEXT. SQL NULL represents logical null.
  *
@@ -29,7 +29,6 @@ export function encodeField(field: FieldDefinition, value: JsonValue | undefined
   if (value === undefined || value === null) return null;
   if (isStructuredField(field)) return JSON.stringify(value);
   if (field.type === "boolean") return value === true ? 1 : 0;
-  if (field.type === "datetime") return new Date(value as string).toISOString();
   return value as string | number;
 }
 

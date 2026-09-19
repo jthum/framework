@@ -90,7 +90,18 @@ function validatePreparedValues(
     );
   }
   if (issues.length > 0) throw invalidInput(issues);
-  return structuredClone(values);
+  return Object.fromEntries(
+    collection.fields.flatMap((field) => {
+      const value = values[field.key];
+      if (value === undefined) return [];
+      return [[field.key, normalizeValue(field, value)]];
+    }),
+  );
+}
+
+function normalizeValue(field: FieldDefinition, value: JsonValue): JsonValue {
+  if (field.type === "datetime" && typeof value === "string") return new Date(value).toISOString();
+  return structuredClone(value);
 }
 
 function rejectUnknownValues(collection: CollectionDefinition, values: RecordValues): void {
@@ -205,6 +216,7 @@ function scalarEqual(left: JsonValue | undefined, right: JsonValue | undefined):
 }
 
 function comparable(value: JsonValue | undefined): number | string {
+  if (typeof value === "boolean") return Number(value);
   return typeof value === "number" || typeof value === "string" ? value : "";
 }
 

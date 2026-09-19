@@ -540,6 +540,7 @@ function scalarText(value: JsonValue | undefined): string {
 }
 
 function comparable(value: JsonValue | undefined): number | string {
+  if (typeof value === "boolean") return Number(value);
   return typeof value === "number" || typeof value === "string" ? value : "";
 }
 

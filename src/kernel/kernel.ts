@@ -445,8 +445,29 @@ export class Kernel {
     if (!workspace.spec.sources.some((source) => source.key === key))
       throw resourceNotFound("Source", key);
     const target = await this.attachments.resolveMutation(context, key, "update", id);
-    const originContext = { workspaceId: target.attachment.originId, actorId: context.actorId };
-    return this.updateRecord(originContext, target.collection.key, id, patch);
+    const values = prepareUpdateValues(target.collection, target.record.values, patch);
+    await this.assertAttachedReferences(
+      context,
+      target.attachment.originId,
+      target.collection,
+      values,
+    );
+    await this.recordPolicies.assert({
+      context,
+      workspaceId: target.attachment.originId,
+      collection: target.collection,
+      operation: "update",
+      current: target.record,
+      values,
+    });
+    const record: CollectionRecord = {
+      ...target.record,
+      values,
+      updatedAt: this.clock.now(),
+      updatedBy: context.actorId,
+    };
+    await this.persistence.records.update(target.attachment.originId, target.collection, record);
+    return record;
   }
   async deleteSourceRecord(context: ExecutionContext, key: string, id: string): Promise<void> {
     const workspace = await this.resolveWorkspace(context);
@@ -455,8 +476,11 @@ export class Kernel {
     if (!workspace.spec.sources.some((source) => source.key === key))
       throw resourceNotFound("Source", key);
     const target = await this.attachments.resolveMutation(context, key, "delete", id);
-    const originContext = { workspaceId: target.attachment.originId, actorId: context.actorId };
-    return this.deleteRecord(originContext, target.collection.key, id);
+    await this.persistence.records.delete(
+      target.attachment.originId,
+      target.collection,
+      target.record.id,
+    );
   }
   listViews(context: ExecutionContext) {
     return this.views.list(context);
@@ -1908,6 +1932,44 @@ export class Kernel {
       if (ids.some((id) => !found.has(id as string))) {
         throw this.invalidReference(field.key, field.label);
       }
+    }
+  }
+
+  private async assertAttachedReferences(
+    context: ExecutionContext,
+    workspaceId: string,
+    collection: CollectionDefinition,
+    values: RecordValues,
+  ): Promise<void> {
+    const workspace = await this.requireWorkspace(workspaceId);
+    for (const field of collection.fields) {
+      if (field.type !== "reference") continue;
+      const value = values[field.key];
+      const ids = typeof value === "string" ? [value] : Array.isArray(value) ? value : [];
+      if (ids.length === 0) continue;
+      const target = sourceDefinition(workspace.spec, field.sourceId);
+      if (!target || ids.some((id) => typeof id !== "string"))
+        throw this.invalidReference(field.key, field.label);
+      const records = workspace.spec.collections.some((item) => item.id === target.id)
+        ? await this.recordPolicies.filter(
+            context,
+            workspace.id,
+            target as CollectionDefinition,
+            await this.persistence.records.getMany(
+              workspace.id,
+              target as CollectionDefinition,
+              ids as string[],
+            ),
+          )
+        : await this.attachments.referenceRecords(
+            context,
+            workspace.id,
+            target.id,
+            ids as string[],
+          );
+      const found = new Set(records.map((record) => record.id));
+      if (ids.some((id) => !found.has(id as string)))
+        throw this.invalidReference(field.key, field.label);
     }
   }
 

@@ -125,6 +125,38 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
       await kernel.close();
     });
 
+    it("mutates attached records through the target binding without origin Membership", async () => {
+      expect.hasAssertions();
+      const { kernel, origin, target, candidate, collection } = await setup(createAdapter());
+      await kernel.createAttachment(origin, {
+        collectionKey: collection.key,
+        targetId: target.workspaceId,
+        sourceId: "source-jobs",
+        permissions: ["read", "update", "delete"],
+      });
+      const record = await kernel.createRecord(origin, collection.key, {
+        title: "Engineer",
+        status: "open",
+      });
+
+      const changed = await kernel.updateSourceRecord(candidate, "shared_jobs", record.id, {
+        title: "Senior Engineer",
+      });
+      expect(changed).toMatchObject({
+        id: record.id,
+        values: { title: "Senior Engineer", status: "open" },
+        updatedBy: candidate.actorId,
+      });
+      expect(await kernel.getRecord(origin, collection.key, record.id)).toEqual(changed);
+      await expect(
+        kernel.listRecords({ ...candidate, workspaceId: origin.workspaceId }, collection.key),
+      ).rejects.toMatchObject({ code: ERROR_CODES.permissionDenied });
+
+      await kernel.deleteSourceRecord(candidate, "shared_jobs", record.id);
+      expect(await kernel.getRecord(origin, collection.key, record.id)).toBeNull();
+      await kernel.close();
+    });
+
     it("revokes live access, retains provenance, and allows explicit rebinding", async () => {
       expect.hasAssertions();
       const { kernel, origin, target, collection } = await setup(createAdapter());
@@ -449,6 +481,7 @@ async function setup(
     actorId: actor.id,
     workspaceId: target.workspaceId,
     roles: ["candidate"],
+    permissions: ["read", "update", "delete"],
   });
   return {
     kernel,
