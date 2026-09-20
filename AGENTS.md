@@ -6,16 +6,19 @@ authentication providers, and domain vocabulary belong to hosts.
 
 Before changing code, select the relevant reading path:
 
-| Task                            | Read first                                                                         |
-| ------------------------------- | ---------------------------------------------------------------------------------- |
-| Build a host application        | `docs/getting-started.md`, `docs/host-architecture.md`, `docs/deployment-modes.md` |
-| Change the portable Spec        | `docs/concepts.md`, `docs/architecture.md`, `docs/coding-standards.md`             |
-| Add Kernel behavior             | `docs/architecture.md`, the relevant capability guide, `docs/testing.md`           |
-| Add or change persistence       | `docs/host-architecture.md`, `docs/coding-standards.md`, `docs/testing.md`         |
-| Use or change Svelte interfaces | `docs/svelte.md`, `docs/authoring.md`                                              |
-| Add host/domain extensions      | `docs/extensions.md`, `docs/deployment-modes.md`, `docs/catalogs.md`               |
-| Change errors                   | `docs/errors.md`                                                                   |
-| Plan a new phase                | `docs/implementation-plan.md`                                                      |
+| Task                            | Read first                                                                       |
+| ------------------------------- | -------------------------------------------------------------------------------- |
+| Build a host application        | `docs/building-a-host.md`, `docs/getting-started.md`, `docs/deployment-modes.md` |
+| Guide a coding agent            | `docs/coding-agents.md`, then the task-specific guide                            |
+| Add a domain module             | `docs/domain-modules.md`, `docs/extensions.md`, `docs/deployment-modes.md`       |
+| Change the portable Spec        | `docs/concepts.md`, `docs/architecture.md`, `docs/coding-standards.md`           |
+| Add Kernel behavior             | `docs/architecture.md`, the relevant capability guide, `docs/testing.md`         |
+| Add or change persistence       | `docs/host-architecture.md`, `docs/coding-standards.md`, `docs/testing.md`       |
+| Use or change Svelte interfaces | `docs/svelte.md`, `docs/authoring.md`                                            |
+| Add host/domain extensions      | `docs/extensions.md`, `docs/deployment-modes.md`, `docs/catalogs.md`             |
+| Add an optional package         | `docs/developing-framework.md`, `docs/testing.md`, `docs/public-api.md`          |
+| Change errors                   | `docs/errors.md`                                                                 |
+| Plan a new phase                | `docs/implementation-plan.md`                                                    |
 
 Use `docs/public-api.md` to locate authoritative exported symbols and their behavioral tests.
 Prefer links to source and contract tests over restating complete TypeScript shapes in prose.

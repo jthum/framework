@@ -18,6 +18,10 @@ Vite+ owns the quality loop:
 
 Use targeted tests during implementation. Before handing off a meaningful Framework change, run `vp check` and `vp test`. Run `vp pack` when exports, packaging, or delivery boundaries change. A consuming host owns its own browser smoke tests.
 
+Workspace packages under `packages` run their own `vp check`, `vp test`, and `vp run build` gates.
+The root suite does not imply that optional providers, workers, or assets were built. When a package
+depends on host bundling behavior, also run a deterministic proof in a consuming host.
+
 Benchmarks record representative workload observations; they are not correctness tests or stable
 CI thresholds. SQLite record-query filtering, sorting, and aggregation can be sampled with
 `vp test bench src/sqlite/record-query.bench.ts`. Interpret results for the actual deployment and
@@ -189,6 +193,7 @@ Choose verification proportional to the change:
 | Critical user flow            | browser smoke or focused browser test                 |
 | Documentation only            | content review + `vp test src/docs.spec.ts`           |
 
-`src/docs.spec.ts` checks local Markdown targets and requires every package export to appear in
-the public API map. It intentionally does not validate prose or remote links. Executable examples
-receive their own behavior tests.
+`src/docs.spec.ts` checks local Markdown targets, requires every root package export to appear in
+the public API map, and requires every workspace package to have a README and API-map entry. It
+intentionally does not validate prose or remote links. Executable examples receive their own
+behavior tests.

@@ -130,10 +130,12 @@ await kernel.close();
 
 ## Choose the next layer
 
+- Assemble a complete host: follow [Building a host](building-a-host.md).
 - Persist locally or on a server: implement `PersistenceAdapter`, or use the SQLite adapter.
 - Build an interface: use the granular Svelte entry points or write a custom UI against
   `WorkspaceClient`.
 - Add domain behavior: register Actions and Conditions, then reference them from Rules.
+- Own intrinsic product entities: create a [domain module](domain-modules.md) beside Framework.
 - Share selected data: declare a Source binding and create an instance Attachment.
 - Distribute optional resources: expose host-selected Catalog sources.
 - Add application-specific Spec: use a host-owned document envelope described in

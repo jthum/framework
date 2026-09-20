@@ -1,7 +1,8 @@
 # Host architecture
 
 A host turns Framework primitives into a product. Framework provides composable layers; it does
-not require one deployment shape.
+not require one deployment shape. Use [Building a host](building-a-host.md) as the implementation
+sequence and [Domain modules](domain-modules.md) for intrinsic product entities.
 
 ## Recommended composition
 

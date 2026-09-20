@@ -47,10 +47,13 @@ aliases or migration baggage.
 ## Start here
 
 - [Build an application](docs/getting-started.md)
+- [Assemble a complete host](docs/building-a-host.md)
+- [Guide a coding agent](docs/coding-agents.md)
 - [Understand the core model](docs/concepts.md)
 - [Choose package boundaries](docs/host-architecture.md)
 - [Choose local or remote deployment](docs/deployment-modes.md)
 - [Extend a host safely](docs/extensions.md)
+- [Build domain modules](docs/domain-modules.md)
 - [Find public APIs and authoritative code](docs/public-api.md)
 - [Integrate inference and Agents](docs/agents.md)
 - [Develop Framework itself](docs/developing-framework.md)

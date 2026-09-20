@@ -28,6 +28,42 @@ leave a missing cross-layer capability in host code merely to avoid changing a p
 | Catalog discovery              | `src/catalog`                                    | provenance, filtering, defensive-copy tests       |
 | Reusable capability UI         | `src/svelte/authoring`, `operations`, `settings` | public injection contracts and focused tests      |
 | UI primitive/theme             | `src/svelte/ui`, `src/svelte/theme.css`          | accessibility and semantic-token review           |
+| Optional integration package   | `packages/<capability>`                          | package tests, package build, API map, host proof |
+
+## Optional packages
+
+An integration belongs in an optional package when it implements a Framework port but brings an
+environment, provider, SDK, WASM asset, or dependency that ordinary Framework consumers should not
+install. Keep the core contract in the root package and the concrete integration under `packages`.
+
+Every optional package must provide:
+
+- a focused `package.json` with explicit Framework dependencies and exports;
+- a short README describing the implemented port and configuration ownership;
+- source entry points, deterministic contract/failure tests, and its own Vite+ configuration;
+- a build that resolves from the consuming host, including workers or assets where relevant;
+- a row in [the public API map](public-api.md);
+- at least one consuming-host proof when packaging or bundler behavior is part of the contract.
+
+Root `vp test` validates the root package; it does not replace a workspace package's own tests and
+build. Run the package gates from its directory, then the root gates and any affected consumer
+integration:
+
+```bash
+cd packages/<capability>
+vp check
+vp test
+vp run build
+
+cd "$(git rev-parse --show-toplevel)"
+vp check
+vp test
+vp pack
+```
+
+Do not move an optional dependency into root merely to simplify workspace resolution. Do not make
+an optional package reach into root private files; it consumes published subpaths like any external
+host.
 
 ## Public contract checklist
 

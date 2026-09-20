@@ -5,11 +5,16 @@ Use this page as the documentation router. Read the smallest path that matches t
 ## Build an application with Framework
 
 1. [Getting started](getting-started.md) — run a minimal host and apply a Spec.
-2. [Core concepts](concepts.md) — understand the portable and instance boundaries.
-3. [Host architecture](host-architecture.md) — choose Kernel, client, persistence, UI, and transport boundaries.
-4. [Local and remote deployment](deployment-modes.md) — keep local and server hosts behind the same clients.
-5. [Extensions](extensions.md) — add domain modules and a host-owned document envelope without forking the core Spec.
-6. [Public API and code map](public-api.md) — find authoritative exports, source, and contract tests.
+2. [Building a host](building-a-host.md) — assemble production boundaries without duplicating Framework.
+3. [Core concepts](concepts.md) — understand the portable and instance boundaries.
+4. [Host architecture](host-architecture.md) — choose Kernel, client, persistence, UI, and transport boundaries.
+5. [Local and remote deployment](deployment-modes.md) — keep local and server hosts behind the same clients.
+6. [Extensions](extensions.md) — add a host-owned document envelope without forking the core Spec.
+7. [Domain modules](domain-modules.md) — own intrinsic product entities and integrate them deliberately.
+8. [Public API and code map](public-api.md) — find authoritative exports, source, and contract tests.
+
+Coding agents should begin with [Coding-agent guide](coding-agents.md), then follow the same
+task-specific path. The guide points to canonical source and tests instead of duplicating APIs.
 
 Then use the capability guide relevant to the feature:
 
@@ -35,6 +40,7 @@ Start with [Developing Framework](developing-framework.md), then consult:
 - [Coding standards](coding-standards.md)
 - [Testing strategy](testing.md)
 - [Errors](errors.md)
+- [Coding-agent guide](coding-agents.md)
 
 Architecture, coding standards, tests, and public contracts are normative. The implementation plan
 records delivered and planned capability slices; it is not an application-authoring tutorial.

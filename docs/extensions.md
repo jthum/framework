@@ -38,7 +38,8 @@ A module can contribute:
 - custom routes, screens, and invariants.
 
 Module entities need not become new Framework primitives. Prefer composing the small shared
-primitives and keep domain invariants in module code.
+primitives and keep domain invariants in module code. See [Domain modules](domain-modules.md) for
+the client, storage, integration, and testing pattern.
 
 Module-owned state uses a module-owned client contract in interface code. Local and remote hosts
 implement that same contract against their chosen storage or transport and compose it beside

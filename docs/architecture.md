@@ -274,21 +274,31 @@ A Spec never names a concrete Workspace or Attachment. Exporting a Spec clones t
 
 ## 8. Framework packaging
 
-Framework lives in its own repository and exposes one package with subpath boundaries. A host is a
-separate composition and may consume a local checkout, a pinned Git revision, or a future release.
+Framework lives in its own repository. The core package uses subpath boundaries; integrations that
+bring optional runtimes, providers, workers, WASM, or other heavy dependencies live in separate
+workspace packages. A host is a separate composition and may consume a local checkout, a pinned
+Git revision, or a future release.
 
-Initial shape may be one package with subpath exports:
+Core entry points include:
 
 ```text
 @jthum/framework/spec
 @jthum/framework/kernel
 @jthum/framework/persistence
 @jthum/framework/sqlite
-@jthum/framework/svelte
 @jthum/framework/blocks
+@jthum/framework/client
+@jthum/framework/catalog
+@jthum/framework/svelte/authoring/*
+@jthum/framework/svelte/operations/*
+@jthum/framework/svelte/settings/*
+@jthum/framework/svelte/ui/*
 ```
 
-Suggested internal organization:
+Optional workspace packages currently include the browser SQLite driver and inference runtime/provider
+integrations. They implement core ports without making their dependencies part of the core package.
+
+Current internal organization:
 
 ```text
 src/
@@ -298,14 +308,19 @@ src/
   sqlite/
   svelte/
   blocks/
+  client/
+  catalog/
+packages/
+  inference/
+  sqlite/
 ```
 
 The Kernel must not import Svelte, application navigation, browser session globals, or
 SQLite-specific implementations. Framework Svelte editors depend on public Kernel/client
 contracts, not concrete adapters.
 
-The package name is `@jthum/framework`. Publication and independently versioned package splitting
-can wait until distribution requirements justify them.
+The core package name is `@jthum/framework`. Publication and independent versioning can wait until
+distribution requirements justify them.
 
 Do not add dual persisted formats, legacy readers, aliases, or migration baggage during greenfield
 development.
