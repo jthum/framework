@@ -1,7 +1,7 @@
 # Rules and Actions
 
 A Rule is portable orchestration built from nested primitives. The canonical Spec uses `action`
-and `ruleId`; Studio's editable working model may use friendlier or older UI terms internally, but
+and `ruleId`; the authoring working model may use friendlier UI terms internally, but
 its adapter never persists those terms as a second Spec format.
 
 ## Code map
@@ -34,12 +34,12 @@ its adapter never persists those terms as a second Spec format.
 The primitives are gate, compute, action, nested Rule invocation, delay, wait, foreach, repeat,
 and parallel branches. Predicates compose with `all`, `any`, and `not`. Values are JSON plus a
 `{ $ref }` binding rooted at `trigger`, `actor`, `vars`, or `meta`. A record binding may add one
-stable `fieldId`; Studio projects that to an ordinary friendly field selector.
+stable `fieldId`; authoring projects that to an ordinary friendly field selector.
 `meta.now` is the scope's initial ISO timestamp; `meta.today` is its UTC `YYYY-MM-DD` date.
 Both use the injected runtime clock and remain checkpointed across a durable wait, rather
 than changing when a saved run resumes. Use the date binding for date-only Fields.
 
-Every step and parallel branch has a stable ID. Studio assigns one automatically when an author
+Every step and parallel branch has a stable ID. Authoring assigns one automatically when an author
 adds an item, so trace and idempotency identity adds no authoring ceremony. Rule inputs, built-in
 record triggers, Form triggers, and nested invocation use stable definition IDs. Action input is
 owned by the immutable semantic contract registered under its Action key; custom Actions remain
@@ -86,7 +86,7 @@ controls tool policy, dispatch, and authorization; agents see the authored name 
 
 Record Actions identify their target with a stable `sourceId`; their authored `values` maps use
 stable Field IDs, and resolved record values carry both the Source ID and an internal stable Field
-map. Studio and direct Form/record APIs remain key-oriented. This keeps simple authoring readable
+map. Authoring and direct Form/record APIs remain key-oriented. This keeps simple authoring readable
 while persisted Rules survive Collection and Field key renames—including Rules over attached
 Sources—without rewriting consumer Specs. Reads therefore work uniformly across local Collections and attached Sources. Update and
 delete may cross an Attachment only when its permission, target-side policy, resolved Actor membership,

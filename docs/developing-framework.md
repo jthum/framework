@@ -17,17 +17,17 @@ leave a missing cross-layer capability in host code merely to avoid changing a p
 
 ## Change map
 
-| Change                         | Primary location                        | Required companion work                           |
-| ------------------------------ | --------------------------------------- | ------------------------------------------------- |
-| Definition shape or validation | `src/spec`                              | conformance tests, docs, reference handling       |
-| Runtime semantics              | `src/kernel`                            | authorization, failure paths, deterministic tests |
-| Logical storage contract       | `src/persistence`                       | shared contract suite and every adapter           |
-| SQLite behavior                | `src/sqlite`                            | adapter-specific tests plus shared contracts      |
-| Context-bound API              | `src/client`                            | local implementation and remote-safe semantics    |
-| Block metadata/loading         | `src/blocks`                            | lazy-loading and failure/retry tests              |
-| Catalog discovery              | `src/catalog`                           | provenance, filtering, defensive-copy tests       |
-| Reusable UI                    | `src/svelte/studio`                     | public injection contract and focused tests       |
-| UI primitive/theme             | `src/svelte/ui`, `src/svelte/theme.css` | accessibility and semantic-token review           |
+| Change                         | Primary location                                 | Required companion work                           |
+| ------------------------------ | ------------------------------------------------ | ------------------------------------------------- |
+| Definition shape or validation | `src/spec`                                       | conformance tests, docs, reference handling       |
+| Runtime semantics              | `src/kernel`                                     | authorization, failure paths, deterministic tests |
+| Logical storage contract       | `src/persistence`                                | shared contract suite and every adapter           |
+| SQLite behavior                | `src/sqlite`                                     | adapter-specific tests plus shared contracts      |
+| Context-bound API              | `src/client`                                     | local implementation and remote-safe semantics    |
+| Block metadata/loading         | `src/blocks`                                     | lazy-loading and failure/retry tests              |
+| Catalog discovery              | `src/catalog`                                    | provenance, filtering, defensive-copy tests       |
+| Reusable capability UI         | `src/svelte/authoring`, `operations`, `settings` | public injection contracts and focused tests      |
+| UI primitive/theme             | `src/svelte/ui`, `src/svelte/theme.css`          | accessibility and semantic-token review           |
 
 ## Public contract checklist
 

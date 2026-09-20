@@ -91,7 +91,7 @@ A View editor should make the common path short: list local Collection Sources f
 A Block is registry metadata plus a lazy renderer loader. Metadata is cheap to list for a library or editor. Renderer code—and any heavy dependency imported by that renderer—is loaded only when `BlockRegistry.load(key)` is called, then cached.
 
 Block metadata may declare optional configuration inputs, catalog ordering, default configuration,
-and a preferred Page height. This metadata is portable and eager so Studio can build a picker and
+and a preferred Page height. This metadata is portable and eager so an authoring UI can build a picker and
 settings form without importing renderer code. A zero-configuration Block omits `inputs`; simple
 Blocks do not need an empty schema or registration ceremony. View, Form, Rule, and Field inputs are
 semantic selectors resolved by the host against the active Spec.

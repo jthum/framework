@@ -16,10 +16,12 @@ another stack can consume the same Spec without importing this package.
 - `@jthum/framework/sqlite` — the driver-neutral SQLite adapter
 - `@jthum/framework/blocks` — Block definitions and lazy renderer registry
 - `@jthum/framework/catalog` — host-selected discovery catalogs
-- `@jthum/framework/svelte/studio/*` — reusable Svelte 5 authoring surfaces
+- `@jthum/framework/svelte/authoring/*` — reusable Svelte 5 authoring surfaces
+- `@jthum/framework/svelte/operations/*` — Rule execution and ActorRequest surfaces
+- `@jthum/framework/svelte/settings/*` — reusable Workspace settings surfaces
 - `@jthum/framework/svelte/ui/*` — semantic Svelte UI primitives
 
-Hosts may adopt the complete stack, use only the portable Spec, replace the Studio, or supply
+Hosts may adopt the complete stack, use only the portable Spec, replace the authoring UI, or supply
 their own persistence and transport implementations. Framework does not own application routing,
 authentication, navigation, product vocabulary, or domain-specific modules.
 

@@ -8,7 +8,7 @@ not require one deployment shape.
 ```text
 product shell and domain modules
         |             |
- Svelte Studio   custom surfaces
+ Svelte interfaces   custom surfaces
         \             /
        WorkspaceClient
               |
@@ -41,14 +41,14 @@ logical persistence contracts, context-bound clients, and reusable editors.
 
 ## Adoption levels
 
-| Need                              | Use                                                   |
-| --------------------------------- | ----------------------------------------------------- |
-| Portable configuration only       | `@jthum/framework/spec`                               |
-| Reference execution               | Spec + Kernel + a persistence adapter                 |
-| Transport-neutral application API | `WorkspaceClient`                                     |
-| Reusable authoring                | granular `@jthum/framework/svelte/studio/*` imports   |
-| Fully custom interface            | canonical Spec and client contracts, without Studio   |
-| Another language/runtime          | implement the documented Spec semantics independently |
+| Need                              | Use                                                                    |
+| --------------------------------- | ---------------------------------------------------------------------- |
+| Portable configuration only       | `@jthum/framework/spec`                                                |
+| Reference execution               | Spec + Kernel + a persistence adapter                                  |
+| Transport-neutral application API | `WorkspaceClient`                                                      |
+| Reusable authoring                | granular `@jthum/framework/svelte/authoring/*` imports                 |
+| Fully custom interface            | canonical Spec and client contracts, without Framework Svelte surfaces |
+| Another language/runtime          | implement the documented Spec semantics independently                  |
 
 An optional `InferenceRuntime` supplies a complete inference run. A host may use YAIR, a bridge to
 another inference library, or its own implementation without changing Kernel semantics. See
@@ -127,10 +127,10 @@ Framework's Svelte components inherit semantic tokens from the host. Import full
 granular subpaths so route-level code remains lazy:
 
 ```ts
-import PageEditor from "@jthum/framework/svelte/studio/page-editor";
+import PageEditor from "@jthum/framework/svelte/authoring/page-editor";
 ```
 
-Use the aggregate Studio barrel only when eager loading the complete authoring surface is
+Use the aggregate authoring barrel only when eager loading the complete authoring surface is
 intentional. Block renderers and their dependencies load through `BlockRegistry` only when asked.
 
 ## Administrative boundaries

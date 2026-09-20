@@ -20,8 +20,8 @@ Then use the capability guide relevant to the feature:
 - [Forms and Pages](forms-pages.md)
 - [Workspace client](workspace-client.md)
 - [Catalogs](catalogs.md)
-- [Svelte UI and Studio](svelte.md)
-- [Studio editor contracts](studio-editors.md)
+- [Svelte integration](svelte.md)
+- [Authoring interface contracts](authoring.md)
 - [Errors](errors.md)
 
 ## Develop Framework itself

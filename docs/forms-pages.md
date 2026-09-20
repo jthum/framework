@@ -9,7 +9,7 @@ components, or persistence-specific behavior.
 - Form execution: [`src/kernel/forms.ts`](../src/kernel/forms.ts)
 - Page reads: [`src/kernel/pages.ts`](../src/kernel/pages.ts)
 - Behavioral tests: [`src/kernel/forms-pages.spec.ts`](../src/kernel/forms-pages.spec.ts)
-- Reusable editors: [`src/svelte/studio/form-editor.svelte`](../src/svelte/studio/form-editor.svelte) and [`src/svelte/studio/page-editor.svelte`](../src/svelte/studio/page-editor.svelte)
+- Reusable editors: [`src/svelte/authoring/form-editor.svelte`](../src/svelte/authoring/form-editor.svelte) and [`src/svelte/authoring/page-editor.svelte`](../src/svelte/authoring/page-editor.svelte)
 
 ## Forms
 

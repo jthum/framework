@@ -23,7 +23,7 @@ shapes and installation operations:
 - a Page template creates a layout tree referencing installed Block keys;
 - a Workspace template may install a complete host-owned document, seed records, and Attachments.
 
-Framework Studio may receive catalog entries from a host, but neither Framework nor Studio decides
+Framework authoring surfaces may receive catalog entries from a host, but neither Framework nor the authoring layer decides
 which sources are installed or whether an app exposes a library UI. Apps may provide only private
 entries, combine them with optional shared packages, or omit catalogs entirely.
 

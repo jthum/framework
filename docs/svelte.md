@@ -1,4 +1,4 @@
-# Svelte UI and Studio
+# Svelte integration
 
 Framework supplies a polished Svelte implementation without making that implementation mandatory.
 The portable Spec and Kernel do not depend on Svelte.
@@ -7,17 +7,22 @@ The portable Spec and Kernel do not depend on Svelte.
 
 - Semantic theme: [`src/svelte/theme.css`](../src/svelte/theme.css)
 - UI primitives: [`src/svelte/ui`](../src/svelte/ui)
-- Studio public barrel: [`src/svelte/studio/index.ts`](../src/svelte/studio/index.ts)
-- Studio dependency guard: [`src/svelte/studio/editor-boundaries.test.ts`](../src/svelte/studio/editor-boundaries.test.ts)
+- Authoring surfaces: [`src/svelte/authoring`](../src/svelte/authoring)
+- Operational surfaces: [`src/svelte/operations`](../src/svelte/operations)
+- Settings surfaces: [`src/svelte/settings`](../src/svelte/settings)
+- Public hooks: [`src/svelte/hooks`](../src/svelte/hooks)
+- Private shared implementation: [`src/svelte/internal`](../src/svelte/internal)
 - Exact package exports: [`package.json`](../package.json)
 
 ## Ownership
 
-| Layer                            | Owns                                                                                        |
-| -------------------------------- | ------------------------------------------------------------------------------------------- |
-| `@jthum/framework/svelte/ui/*`   | Framework-owned shadcn-Svelte source and semantic design primitives                         |
-| `@jthum/framework/svelte/studio` | Reusable editors, editor controls, and authoring interactions                               |
-| Implementing app                 | Routes, product shell, navigation, app screens, product policy, and app-specific components |
+| Layer                                | Owns                                                                                        |
+| ------------------------------------ | ------------------------------------------------------------------------------------------- |
+| `@jthum/framework/svelte/ui/*`       | Framework-owned shadcn-Svelte source and reusable visual primitives                         |
+| `@jthum/framework/svelte/authoring`  | Portable-definition editors, working models, adapters, and authoring interactions           |
+| `@jthum/framework/svelte/operations` | Rule execution history, inspectors, launchers, and ActorRequest interaction                 |
+| `@jthum/framework/svelte/settings`   | Host-arranged and user-defined Workspace setting surfaces                                   |
+| Implementing app                     | Routes, product shell, navigation, app screens, product policy, and app-specific components |
 
 An implementing app does not move all of its Svelte code into Framework. A component belongs in
 Framework only when it is useful to more than one host and can depend on portable definitions or
@@ -54,11 +59,11 @@ Use the least powerful level that solves the requirement:
 Framework components import Framework's default UI primitives internally. There is deliberately no
 global component-override registry: ordinary Svelte composition is more explicit, tree-shakeable,
 and easier to understand. A host that needs a different primitive can compose the lower-level
-Studio exports or replace the relevant editor.
+authoring exports or replace the relevant editor.
 
 ```svelte
 <script lang="ts">
-  import { PageHeader } from "@jthum/framework/svelte/studio";
+  import { PageHeader } from "@jthum/framework/svelte/ui/page-header";
   import MyAction from "$lib/components/my-action.svelte";
 </script>
 
@@ -76,7 +81,7 @@ Studio exports or replace the relevant editor.
 `onPreview(key)` to preload renderers and `getIcon(block)` to customize catalog icons. Selection
 always comes from the currently visible results, so filtering cannot submit a hidden Block.
 
-`OptionSelect` is the shared single-choice control used by Studio. It accepts readonly option
+`OptionSelect` is the shared single-choice UI control used by Framework surfaces. It accepts readonly option
 lists, a bound value, and an optional change callback; it has no app or session dependency.
 
 `PageEditor` edits canonical `PageDefinition.layout` directly. Supply a Block catalog,
@@ -120,6 +125,6 @@ Reusable editors must:
 This keeps the common case as a direct import while allowing a host to replace presentation without
 forking the Spec, Kernel, or persistence implementation.
 
-The full Collection, View, Form, Rule, and Page editor surfaces are exported from Studio. See
-[Studio editors](studio-editors.md) for their injection contracts. Working models are not another
+The full Collection, View, Form, Rule, and Page editor surfaces are exported from `authoring`. See
+[authoring interfaces](authoring.md) for their injection contracts. Working models are not another
 supported persisted Spec version.

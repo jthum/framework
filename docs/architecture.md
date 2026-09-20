@@ -90,7 +90,7 @@ One View has one **root** Source. It may traverse explicitly declared relationsh
 
 Source capabilities may include schema discovery, relationship traversal, filtering, sorting, aggregation, batched relation resolution, and optional search suggestions. An external Source need not provide every capability a local Collection Source provides. External Source kinds are later work.
 
-Components are implementation-level UI pieces. Blocks are configurable Page units. Templates are host/studio distribution artifacts that package or generate Specs; Templates are not a v1 Kernel primitive.
+Components are implementation-level UI pieces. Blocks are configurable Page units. Templates are host authoring artifacts that package or generate Specs; Templates are not a v1 Kernel primitive.
 
 ```text
 Components -> Blocks -> Templates
@@ -240,11 +240,11 @@ Do not grow a `KernelConfig` junk drawer. Adapter URLs belong to adapters. Secre
 
 ## 5. Host and module shapes
 
-| Host shape                      | Kernel composition                                         | Host responsibility                              | Optional module                             |
-| ------------------------------- | ---------------------------------------------------------- | ------------------------------------------------ | ------------------------------------------- |
-| Configurable application studio | root and child Workspaces, Collections, Attachments, Rules | application switching, implicit surfaces, Studio | none required                               |
-| Collaboration product           | root and operational Workspaces                            | conversation chrome and navigation               | Channel, Topic, Conversation, domain Events |
-| Delegated portal                | spawn policy, local Actors, filtered Attachments           | invite/local-identity UX and restricted policy   | none required                               |
+| Host shape                         | Kernel composition                                         | Host responsibility                                    | Optional module                             |
+| ---------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------- |
+| Configurable application authoring | root and child Workspaces, Collections, Attachments, Rules | application switching, implicit surfaces, authoring UI | none required                               |
+| Collaboration product              | root and operational Workspaces                            | conversation chrome and navigation                     | Channel, Topic, Conversation, domain Events |
+| Delegated portal                   | spawn policy, local Actors, filtered Attachments           | invite/local-identity UX and restricted policy         | none required                               |
 
 These shapes are conformance pressures, not different engines or product prescriptions.
 

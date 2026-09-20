@@ -130,7 +130,7 @@ await kernel.close();
 ## Choose the next layer
 
 - Persist locally or on a server: implement `PersistenceAdapter`, or use the SQLite adapter.
-- Build an interface: use the granular Svelte Studio entry points or write a custom UI against
+- Build an interface: use the granular Svelte entry points or write a custom UI against
   `WorkspaceClient`.
 - Add domain behavior: register Actions and Conditions, then reference them from Rules.
 - Share selected data: declare a Source binding and create an instance Attachment.

@@ -63,7 +63,7 @@ policy belong to the host. When an executor deliberately composes installed Acti
 A Rule may call `company.lookup` by key. A saved Action with `tool` metadata is projected directly as `action:company.lookup` for eligible Agents; it does not need a one-step Rule wrapper. Tool policy and execution-time authorization still apply. Actions whose implementation executor is not installed remain stored but cannot run or appear as Agent tools. This permits a host to disable an executor without deleting its definitions.
 
 Hosts can import `WorkspaceSettings` and `SettingsPanel` from their individual
-`@jthum/framework/svelte/studio/*` paths. Framework deliberately does not provide a generic
+`@jthum/framework/svelte/authoring/*` paths. Framework deliberately does not provide a generic
 runtime-Action editor: each implementation kind needs an authoring experience that explains the
 capability it creates. A host that enables HTTP, code, WASM, or another executor builds or imports
 the corresponding interface on the same `WorkspaceClient` operations.

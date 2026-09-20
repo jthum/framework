@@ -18,7 +18,7 @@ canonical path.
 | 1     | Complete | Collection and Field Spec, validation, RecordStore contracts, CRUD, schema materialization     |
 | 2     | Complete | Live Attachments, semantic Source binding, filtered reads, attenuation, and revocation         |
 | 3     | Complete | Sources, Views, declared relationships, Block contracts, lazy renderer registry                |
-| 4     | Complete | Forms, Pages, reusable Svelte Studio, context-bound client, browser-capable SQLite boundary    |
+| 4     | Complete | Forms, Pages, reusable Svelte authoring, context-bound client, browser-capable SQLite boundary |
 | 5     | Complete | Actions, Conditions, Events, short Rules, snapshots, and attached mutations                    |
 | 6     | Complete | Membership ACL, `others`, explicit re-share, spawn policy, delegated-Workspace proof           |
 | 7     | Complete | Durable Rules, waits, User requests, execution UI, and durable Event subscriptions             |
@@ -108,18 +108,18 @@ graph access, database-aware renderer, or assumption that every Source supports 
 
 See [Sources, Views, and Blocks](sources-views-blocks.md).
 
-## Phase 4 — Forms, Pages, client, and Studio
+## Phase 4 — Forms, Pages, client, and Svelte authoring
 
 Add create/edit/standalone Forms, stable Page layout trees, and a context-bound `WorkspaceClient`.
-Extract reusable Collection, View, Form, Rule, and Page editors into Svelte Studio with explicit
-injection contracts. Studio working models are authoring state, never a second persisted Spec.
+Extract reusable Collection, View, Form, Rule, and Page editors into Svelte authoring surfaces with
+explicit injection contracts. Authoring working models are UI state, never a second persisted Spec.
 
 The host owns routes, navigation, runtime composition, template installation, and Block rendering.
 Editors import neither application sessions nor concrete persistence. Granular subpath imports keep
 route-level editors code-split.
 
 See [Forms and Pages](forms-pages.md), [Workspace client](workspace-client.md), and
-[Studio editor contracts](studio-editors.md).
+[Authoring contracts](authoring.md).
 
 ## Phase 5 — Actions, Events, and short Rules
 
@@ -128,7 +128,7 @@ loops, parallel branches, retries, compensation, nested Rules, and Actor propaga
 Action mutations publish Events through the same path. Provide explicit snapshot and attached
 mutation operations without adding a second mutation implementation.
 
-Built-in record and query Actions use stable definition IDs. Friendly Studio adapters translate
+Built-in record and query Actions use stable definition IDs. Friendly authoring adapters translate
 author-facing keys into that canonical representation and reject shapes they cannot preserve.
 
 See [Rules and Actions](rules.md).
@@ -213,7 +213,7 @@ This phase does not add general cross-database transactions or distributed locki
 ## Dependency order
 
 ```text
-0 boundary -> 1 collections -> 2 attachments -> 3 views/blocks -> 4 forms/pages/studio
+0 boundary -> 1 collections -> 2 attachments -> 3 views/blocks -> 4 forms/pages/authoring
                                   \-> 5 actions/rules -> 6 ACL -> 7 durable rules -> 8 agents
                                                        \-> 9 module scope
 ```

@@ -71,27 +71,47 @@
       "import": "./src/svelte/hooks/is-mobile.svelte.ts"
     },
     "./svelte/theme.css": "./src/svelte/theme.css",
-    "./svelte/studio": {
-      "types": "./src/svelte/studio/index.ts",
-      "svelte": "./src/svelte/studio/index.ts",
-      "import": "./src/svelte/studio/index.ts"
+    "./svelte/authoring": {
+      "types": "./src/svelte/authoring/index.ts",
+      "svelte": "./src/svelte/authoring/index.ts",
+      "import": "./src/svelte/authoring/index.ts"
     },
-    "./svelte/studio/adapters": {
-      "types": "./src/svelte/studio/adapters.ts",
-      "import": "./src/svelte/studio/adapters.ts"
+    "./svelte/authoring/adapters": {
+      "types": "./src/svelte/authoring/adapters.ts",
+      "import": "./src/svelte/authoring/adapters.ts"
     },
-    "./svelte/studio/data": {
-      "types": "./src/svelte/studio/data.ts",
-      "import": "./src/svelte/studio/data.ts"
+    "./svelte/authoring/data": {
+      "types": "./src/svelte/authoring/data.ts",
+      "import": "./src/svelte/authoring/data.ts"
     },
-    "./svelte/studio/settings-layout": {
-      "types": "./src/svelte/studio/settings-layout.ts",
-      "import": "./src/svelte/studio/settings-layout.ts"
+    "./svelte/authoring/*": {
+      "types": "./src/svelte/authoring/*.svelte",
+      "svelte": "./src/svelte/authoring/*.svelte",
+      "import": "./src/svelte/authoring/*.svelte"
     },
-    "./svelte/studio/*": {
-      "types": "./src/svelte/studio/*.svelte",
-      "svelte": "./src/svelte/studio/*.svelte",
-      "import": "./src/svelte/studio/*.svelte"
+    "./svelte/operations": {
+      "types": "./src/svelte/operations/index.ts",
+      "svelte": "./src/svelte/operations/index.ts",
+      "import": "./src/svelte/operations/index.ts"
+    },
+    "./svelte/operations/*": {
+      "types": "./src/svelte/operations/*.svelte",
+      "svelte": "./src/svelte/operations/*.svelte",
+      "import": "./src/svelte/operations/*.svelte"
+    },
+    "./svelte/settings": {
+      "types": "./src/svelte/settings/index.ts",
+      "svelte": "./src/svelte/settings/index.ts",
+      "import": "./src/svelte/settings/index.ts"
+    },
+    "./svelte/settings/settings-layout": {
+      "types": "./src/svelte/settings/settings-layout.ts",
+      "import": "./src/svelte/settings/settings-layout.ts"
+    },
+    "./svelte/settings/*": {
+      "types": "./src/svelte/settings/*.svelte",
+      "svelte": "./src/svelte/settings/*.svelte",
+      "import": "./src/svelte/settings/*.svelte"
     },
     "./svelte/ui/*": {
       "types": "./src/svelte/ui/*/index.ts",

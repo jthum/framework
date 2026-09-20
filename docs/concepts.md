@@ -47,7 +47,7 @@ authority. Authorization uses the active Workspace, Membership, ACL, and Attachm
   code and reusable UI.
 - The **host** owns composition: authentication, routes, navigation, terminology, deployment,
   persistence selection, application modules, and policy.
-- **Svelte Studio** supplies optional editors. It is not required to consume the Spec.
+- **Svelte integration** supplies optional authoring, operations, settings, and UI surfaces. It is not required to consume the Spec.
 
 This separation lets a local single-user host and a server-side multiplayer host share definitions
 without pretending they share authentication, storage topology, or process lifetime.

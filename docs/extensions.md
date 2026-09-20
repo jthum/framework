@@ -50,7 +50,7 @@ Hosts can customize progressively:
 
 1. override semantic CSS variables;
 2. pass supported classes, callbacks, and snippets;
-3. compose lower-level Studio controls;
+3. compose lower-level authoring controls;
 4. replace a full editor while persisting the same canonical definitions.
 
 There is no global component override registry. Explicit Svelte composition keeps imports
@@ -90,7 +90,7 @@ and Workspace keys must not collide; validation rejects ambiguous names instead 
 
 Local definitions are available only in the selected scope. Workspace Collections remain available,
 so local records may reference shared data. A context-bound WorkspaceClient carries the selection
-into Forms, Views, Pages, and Studio surfaces; Rules, domain Events, and durable executions retain
+into Forms, Views, Pages, and authoring surfaces; Rules, domain Events, and durable executions retain
 it. Persisted subscriptions select Workspace and current-scope event Rules, never sibling scopes.
 Definitions are still loaded from their configuration; this index is not a compiled Rule cache.
 
