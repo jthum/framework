@@ -18,7 +18,7 @@ export {
   prepareFormField,
 } from "./form-adapter.js";
 export { createFormActions, type FormAuthoringOptions } from "./form-authoring.js";
-export type { RuleActions, RuleEffect, RuleCompatibility } from "./rule-model.js";
+export type { RuleActions, RuleActorOption, RuleEffect, RuleCompatibility } from "./rule-model.js";
 export { CORE_RULE_EFFECTS } from "./rule-effects.js";
 export { FIELD_KINDS, cloneData } from "./authoring.js";
 export type {

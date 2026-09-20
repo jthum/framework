@@ -74,6 +74,11 @@ export interface AutomationEffect extends AutomationEffectCall {
   compensate?: AutomationEffectCall;
 }
 
+export interface RuleActorOption {
+  readonly key: string;
+  readonly label: string;
+}
+
 interface StepIdentity {
   /** Optional stable identity for traces, retries, waits, and idempotency. */
   id?: string;
