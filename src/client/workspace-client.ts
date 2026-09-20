@@ -38,7 +38,7 @@ import type {
 } from "../kernel/model.ts";
 import type { RunRuleInput, RuleRun } from "../kernel/rules.ts";
 import type { JsonValue, RuleDefinition } from "../spec/model.ts";
-import type { RuntimeAction } from "../kernel/workspace-config.ts";
+import type { ActorBinding, RuntimeAction } from "../kernel/workspace-config.ts";
 import type { SettingInput, SettingSummary } from "../kernel/workspace-config-service.ts";
 
 /** Transport-neutral durable operations. Components receive this, never a Kernel or database. */
@@ -159,6 +159,9 @@ export interface WorkspaceClient
   getSetting(key: string): Promise<SettingSummary | null>;
   putSetting(input: SettingInput): Promise<SettingSummary>;
   deleteSetting(key: string): Promise<void>;
+  listActorBindings(): Promise<readonly ActorBinding[]>;
+  putActorBinding(input: ActorBinding): Promise<ActorBinding>;
+  deleteActorBinding(key: string): Promise<void>;
   listRuntimeActions(): Promise<readonly RuntimeAction[]>;
   putRuntimeAction(input: RuntimeAction): Promise<RuntimeAction>;
   deleteRuntimeAction(key: string): Promise<void>;
@@ -311,6 +314,15 @@ class LocalWorkspaceClient implements WorkspaceClient {
   }
   deleteSetting(key: string) {
     return this.kernel.deleteSetting(this.context, key);
+  }
+  listActorBindings() {
+    return this.kernel.listActorBindings(this.context);
+  }
+  putActorBinding(input: ActorBinding) {
+    return this.kernel.putActorBinding(this.context, input);
+  }
+  deleteActorBinding(key: string) {
+    return this.kernel.deleteActorBinding(this.context, key);
   }
   listRuntimeActions() {
     return this.kernel.listRuntimeActions(this.context);

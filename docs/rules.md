@@ -47,7 +47,9 @@ portable opaque data rather than expanding the Kernel schema.
 
 Actions inherit the execution Actor. `runAs` is optional and defaults to `trigger`; `system` and a
 semantic Actor-binding key are explicit overrides. A concrete User ID does not belong in portable
-Spec.
+Spec. Workspace clients manage the instance mapping through `listActorBindings`, `putActorBinding`,
+and `deleteActorBinding`; the default Kernel resolver rechecks that the bound Actor remains a member
+when the step runs.
 
 Structural validation and runtime compatibility are separate. A Spec remains valid when a host
 does not install one of its Action, Condition, or Event contracts. `checkRuleCompatibility`

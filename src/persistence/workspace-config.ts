@@ -1,4 +1,5 @@
 import type { WorkspaceConfig } from "../kernel/workspace-config.ts";
+import { EMPTY_WORKSPACE_CONFIG } from "../kernel/workspace-config.ts";
 
 export interface WorkspaceConfigStore {
   get(workspaceId: string): Promise<WorkspaceConfig>;
@@ -13,7 +14,7 @@ export class MemoryWorkspaceConfigStore implements WorkspaceConfigStore {
   private queue: Promise<unknown> = Promise.resolve();
 
   async get(workspaceId: string): Promise<WorkspaceConfig> {
-    return structuredClone(this.configs.get(workspaceId) ?? { settings: [], actions: [] });
+    return structuredClone(this.configs.get(workspaceId) ?? EMPTY_WORKSPACE_CONFIG);
   }
 
   update(
@@ -22,7 +23,7 @@ export class MemoryWorkspaceConfigStore implements WorkspaceConfigStore {
   ): Promise<WorkspaceConfig> {
     const run = this.queue.then(() => {
       const next = structuredClone(
-        change(structuredClone(this.configs.get(workspaceId) ?? { settings: [], actions: [] })),
+        change(structuredClone(this.configs.get(workspaceId) ?? EMPTY_WORKSPACE_CONFIG)),
       );
       this.configs.set(workspaceId, next);
       return structuredClone(next);

@@ -9,7 +9,12 @@ import type { JsonValue } from "../spec/model.ts";
 import type { AuthorizationRequest } from "./authorization.ts";
 import type { ActionRegistry } from "./action-registry.ts";
 import type { ExecutionContext } from "./model.ts";
-import type { RuntimeAction, SecretStore, WorkspaceSetting } from "./workspace-config.ts";
+import type {
+  ActorBinding,
+  RuntimeAction,
+  SecretStore,
+  WorkspaceSetting,
+} from "./workspace-config.ts";
 
 export type SettingInput = Omit<WorkspaceSetting, "value" | "secretRef"> & {
   readonly value?: JsonValue;
@@ -108,6 +113,44 @@ export class WorkspaceConfigService {
     if (setting.secretRef) await this.secrets?.delete(setting.secretRef);
   }
 
+  async listActorBindings(context: ExecutionContext): Promise<readonly ActorBinding[]> {
+    await this.authorizeFor(context, "actor_bindings.list");
+    return structuredClone((await this.store.get(context.workspaceId)).actorBindings);
+  }
+
+  async putActorBinding(context: ExecutionContext, input: ActorBinding): Promise<ActorBinding> {
+    await this.authorizeFor(context, "actor_bindings.manage");
+    const binding = {
+      key: semanticKey(input.key, "Actor binding"),
+      actorId: requiredKey(input.actorId, "Actor ID"),
+    };
+    await this.store.update(context.workspaceId, (current) => ({
+      ...current,
+      actorBindings: [...current.actorBindings.filter((item) => item.key !== binding.key), binding],
+    }));
+    return binding;
+  }
+
+  async deleteActorBinding(context: ExecutionContext, key: string): Promise<void> {
+    await this.authorizeFor(context, "actor_bindings.manage");
+    const bindingKey = semanticKey(key, "Actor binding");
+    await this.store.update(context.workspaceId, (current) => {
+      if (!current.actorBindings.some((item) => item.key === bindingKey))
+        throw resourceNotFound("Actor binding", bindingKey);
+      return {
+        ...current,
+        actorBindings: current.actorBindings.filter((item) => item.key !== bindingKey),
+      };
+    });
+  }
+
+  async resolveActorBinding(workspaceId: string, key: string): Promise<string | null> {
+    return (
+      (await this.store.get(workspaceId)).actorBindings.find((item) => item.key === key)?.actorId ??
+      null
+    );
+  }
+
   async listRuntimeActions(context: ExecutionContext): Promise<readonly RuntimeAction[]> {
     await this.authorizeFor(context, "actions.list");
     return (await this.store.get(context.workspaceId)).actions;
@@ -166,6 +209,15 @@ function maskSetting(setting: WorkspaceSetting): SettingSummary {
 function requiredKey(value: string, label: string): string {
   if (typeof value !== "string" || !value.trim()) throw invalid(`${label} is required.`);
   return value.trim();
+}
+
+function semanticKey(value: string, label: string): string {
+  const key = requiredKey(value, label);
+  if (!/^[a-z][a-z0-9_]*$/.test(key))
+    throw invalid(
+      `${label} must begin with a lowercase letter and use letters, numbers, or underscores.`,
+    );
+  return key;
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {

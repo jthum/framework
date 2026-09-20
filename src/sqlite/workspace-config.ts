@@ -1,4 +1,5 @@
 import type { WorkspaceConfig } from "../kernel/workspace-config.ts";
+import { EMPTY_WORKSPACE_CONFIG } from "../kernel/workspace-config.ts";
 import type { WorkspaceConfigStore } from "../persistence/workspace-config.ts";
 import type { SqliteConnection, SqliteDatabase } from "./gateway.ts";
 
@@ -10,7 +11,9 @@ export class SqliteWorkspaceConfigStore implements WorkspaceConfigStore {
       "SELECT config_json FROM workspace_configs WHERE workspace_id = ?",
       [workspaceId],
     );
-    return row ? (JSON.parse(row.config_json) as WorkspaceConfig) : { settings: [], actions: [] };
+    return row
+      ? (JSON.parse(row.config_json) as WorkspaceConfig)
+      : structuredClone(EMPTY_WORKSPACE_CONFIG);
   }
 
   update(
@@ -37,5 +40,7 @@ async function readConfig(
     "SELECT config_json FROM workspace_configs WHERE workspace_id = ?",
     [workspaceId],
   );
-  return row ? (JSON.parse(row.config_json) as WorkspaceConfig) : { settings: [], actions: [] };
+  return row
+    ? (JSON.parse(row.config_json) as WorkspaceConfig)
+    : structuredClone(EMPTY_WORKSPACE_CONFIG);
 }

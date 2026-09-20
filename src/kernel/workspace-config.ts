@@ -12,6 +12,12 @@ export interface WorkspaceSetting {
   readonly secretRef?: string;
 }
 
+/** Instance mapping from one portable semantic Rule binding to a concrete Actor. */
+export interface ActorBinding {
+  readonly key: string;
+  readonly actorId: string;
+}
+
 /** A runtime-installed Action contract; executors interpret the opaque implementation. */
 export interface RuntimeAction {
   readonly key: string;
@@ -31,9 +37,14 @@ export interface RuntimeAction {
 export interface WorkspaceConfig {
   readonly settings: readonly WorkspaceSetting[];
   readonly actions: readonly RuntimeAction[];
+  readonly actorBindings: readonly ActorBinding[];
 }
 
-export const EMPTY_WORKSPACE_CONFIG: WorkspaceConfig = { settings: [], actions: [] };
+export const EMPTY_WORKSPACE_CONFIG: WorkspaceConfig = {
+  settings: [],
+  actions: [],
+  actorBindings: [],
+};
 
 /** The host decides how secret values are protected in its deployment. */
 export interface SecretStore {

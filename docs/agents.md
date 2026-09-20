@@ -125,8 +125,11 @@ execution identity and current status. Compact built-in tools cover Source and V
 generic record operations, and View operations without generating per-Collection CRUD tools.
 
 `inference.run` is a built-in Action. A Rule inherits its current Actor unless an action uses an
-explicit semantic `runAs` binding. The host resolves that binding to an Actor without placing a
-concrete Actor ID in portable Spec.
+explicit semantic `runAs` binding. Persist the Workspace-instance mapping with
+`putActorBinding({ key, actorId })`; list and remove mappings with `listActorBindings()` and
+`deleteActorBinding(key)`. The default Kernel resolver verifies current Workspace membership before
+using the bound Actor. Hosts only need `KernelOptions.resolveActorBinding` for bindings backed by an
+external identity system. Concrete Actor IDs never enter portable Spec.
 
 ## Event contract
 

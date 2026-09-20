@@ -263,6 +263,13 @@ describe("WorkspaceClient", () => {
       });
 
       await expect(client.listAgents()).resolves.toEqual([created.actor]);
+      await expect(
+        client.putActorBinding({ key: "planner", actorId: created.actor.id }),
+      ).resolves.toEqual({ key: "planner", actorId: created.actor.id });
+      await expect(client.listActorBindings()).resolves.toEqual([
+        { key: "planner", actorId: created.actor.id },
+      ]);
+      await expect(client.deleteActorBinding("planner")).resolves.toBeUndefined();
       await expect(client.getModelConfig(alternate.id)).resolves.toEqual(alternate);
       await expect(
         client.configureAgent(created.actor.id, {

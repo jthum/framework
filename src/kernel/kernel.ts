@@ -60,7 +60,7 @@ import {
   type RuntimeActionExecutor,
 } from "./action-registry.ts";
 import { WorkspaceConfigService, type SettingInput } from "./workspace-config-service.ts";
-import type { RuntimeAction, SecretStore } from "./workspace-config.ts";
+import type { ActorBinding, RuntimeAction, SecretStore } from "./workspace-config.ts";
 import {
   collectInferenceRun,
   type InferenceInput,
@@ -614,6 +614,22 @@ export class Kernel {
   }
   deleteSetting(context: ExecutionContext, key: string) {
     return this.workspaceConfig.deleteSetting(context, key);
+  }
+  listActorBindings(context: ExecutionContext) {
+    return this.workspaceConfig.listActorBindings(context);
+  }
+  async putActorBinding(context: ExecutionContext, input: ActorBinding) {
+    await this.assertContext(context);
+    if (!(await this.catalog.getMembership(input.actorId, context.workspaceId)))
+      throw new FrameworkError({
+        code: ERROR_CODES.validationInvalidInput,
+        message: "An Actor binding must reference a member of this Workspace.",
+        details: { actorId: input.actorId, workspaceId: context.workspaceId },
+      });
+    return this.workspaceConfig.putActorBinding(context, input);
+  }
+  deleteActorBinding(context: ExecutionContext, key: string) {
+    return this.workspaceConfig.deleteActorBinding(context, key);
   }
   listRuntimeActions(context: ExecutionContext) {
     return this.workspaceConfig.listRuntimeActions(context);
@@ -1862,12 +1878,19 @@ export class Kernel {
   }
 
   private async resolveRuleActor(request: ActorBindingRequest): Promise<string> {
-    if (request.binding !== "system")
+    if (request.binding !== "system") {
+      const actorId = await this.workspaceConfig.resolveActorBinding(
+        request.context.workspaceId,
+        request.binding,
+      );
+      if (actorId && (await this.catalog.getMembership(actorId, request.context.workspaceId)))
+        return actorId;
       throw new FrameworkError({
         code: ERROR_CODES.persistenceUnsupported,
         message: `The ${request.binding} Actor binding is not installed in this runtime.`,
         details: { binding: request.binding },
       });
+    }
     const system = (await this.catalog.listMembers(request.context.workspaceId)).find(
       (actor) => actor.kind === "system",
     );

@@ -70,7 +70,7 @@ describe("Workspace settings and runtime Actions", () => {
     await secrets.set(ref, "old-value");
     const store: WorkspaceConfigStore = {
       async get() {
-        return { settings: [], actions: [] };
+        return { settings: [], actions: [], actorBindings: [] };
       },
       async update() {
         throw new Error("write failed");
@@ -138,6 +138,58 @@ describe("Workspace settings and runtime Actions", () => {
       expect(await kernel.executeAction(context, "test.secret")).toBe("private-token");
       await kernel.deleteSetting(context, "api_key");
       expect(secrets.values.size).toBe(0);
+    } finally {
+      await kernel.close();
+    }
+  });
+
+  it("resolves portable Rule bindings to current Workspace Actors", async () => {
+    const kernel = await Kernel.open({
+      persistence: new MemoryPersistenceAdapter(),
+      actions: [{ key: "test.actor", run: ({ context }) => context.actorId }],
+    });
+    const { workspace, user } = await kernel.createRootWorkspace({
+      name: "Space",
+      user: { name: "Jane" },
+    });
+    const context = { workspaceId: workspace.id, actorId: user.id };
+    try {
+      const created = await kernel.createAgent(context, {
+        name: "Researcher",
+        instructions: "Research carefully.",
+        provider: "test",
+        model: "test",
+      });
+      await expect(
+        kernel.putActorBinding(context, { key: "researcher", actorId: "missing" }),
+      ).rejects.toMatchObject({ code: ERROR_CODES.validationInvalidInput });
+      await expect(
+        kernel.putActorBinding(context, { key: "researcher", actorId: created.actor.id }),
+      ).resolves.toEqual({ key: "researcher", actorId: created.actor.id });
+      expect(await kernel.listActorBindings(context)).toEqual([
+        { key: "researcher", actorId: created.actor.id },
+      ]);
+      await kernel.applySpec(context, {
+        ...workspace.spec,
+        rules: [
+          {
+            id: "rule-bound-actor",
+            key: "bound_actor",
+            label: "Bound actor",
+            steps: [
+              {
+                id: "step-bound-actor",
+                action: { key: "test.actor", runAs: "researcher", as: "actorId" },
+              },
+            ],
+          },
+        ],
+      });
+      expect((await kernel.runRule(context, "bound_actor")).vars.actorId).toBe(created.actor.id);
+      await kernel.deleteActorBinding(context, "researcher");
+      await expect(kernel.runRule(context, "bound_actor")).rejects.toMatchObject({
+        code: ERROR_CODES.persistenceUnsupported,
+      });
     } finally {
       await kernel.close();
     }
