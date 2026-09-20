@@ -423,6 +423,29 @@
 		return { ...step, effect: { ...step.effect, params } };
 	}
 
+	function inferencePrompt(step: RuleStep): AutomationValue {
+		if (!("effect" in step) || step.effect.key !== "inference.run") return "";
+		const messages = step.effect.params?.messages;
+		if (!Array.isArray(messages)) return "";
+		const first = messages[0];
+		if (!first || typeof first !== "object" || Array.isArray(first) || !("content" in first)) return "";
+		return first.content as AutomationValue;
+	}
+
+	function setInferencePrompt(step: RuleStep, content: AutomationValue): RuleStep {
+		if (!("effect" in step)) return step;
+		return {
+			...step,
+			effect: {
+				...step.effect,
+				params: {
+					...step.effect.params,
+					messages: [{ role: "user", content }],
+				},
+			},
+		};
+	}
+
 	function setRunAs(step: RuleStep, runAs: string): RuleStep {
 		if (!("effect" in step)) return step;
 		return {
@@ -730,6 +753,17 @@
 						<div class="flex min-w-0 flex-col gap-3 rounded-xl bg-muted/45 p-3 ring-1 ring-foreground/8"><p class="text-xs font-semibold">If the wait times out</p><AutomationStepList {actorRequests} {actorOptions} {effects} steps={step.wait.on_timeout ?? []} onStepsChange={(childSteps) => replace(index, { ...step, wait: { ...step.wait, on_timeout: childSteps } })} {inputName} {inputType} {inputFields} {inputLabel} {recordInput} {types} {workflows} {spec} references={referencesBefore(index)} depth={depth + 1} /></div>
 					{/if}
 				</div>
+			{:else if "effect" in step && step.effect.key === "inference.run"}
+				<Field.Field>
+					<Field.Label>Message</Field.Label>
+					<AutomationValueInput
+						value={inferencePrompt(step)}
+						onValueChange={(content) => replace(index, setInferencePrompt(step, content))}
+						references={referencesBefore(index)}
+						placeholder="What should the Agent do?"
+					/>
+					<Field.Description>Use a value from an earlier step or write a direct instruction.</Field.Description>
+				</Field.Field>
 			{:else if "effect" in step && step.effect.key === "records.delete"}
 				<p class="text-xs text-muted-foreground">Deletes the current {inputTypeDef?.label?.toLowerCase() ?? "record"}.</p>
 			{:else if "effect" in step}

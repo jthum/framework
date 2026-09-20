@@ -20,6 +20,7 @@ describe("Actor binding authoring", () => {
 
     expect(body).toContain("Run as");
     expect(body).toContain("Researcher");
+    expect(body).toContain("What should the Agent do?");
     expect(body).toContain(
       "Choose an Agent only when this step should use that teammate’s instructions",
     );
