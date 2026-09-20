@@ -7,7 +7,18 @@ import type {
   CreateModelConfigInput,
   UpdateModelConfigInput,
 } from "../kernel/agent-config.ts";
-import type { Kernel, UpdateActorInput } from "../kernel/kernel.ts";
+import type {
+  AddMembershipInput,
+  CreateActorInput,
+  CreateWorkspaceInput,
+  Kernel,
+  RenameWorkspaceInput,
+  UpdateActorInput,
+  UpdateMembershipInput,
+  UpdateWorkspaceAccessInput,
+  UpdateWorkspacePolicyInput,
+} from "../kernel/kernel.ts";
+import type { CreateAttachmentInput, ReshareAttachmentInput } from "../kernel/attachments.ts";
 import type {
   ActorRequest,
   ResumeRuleInput,
@@ -17,8 +28,11 @@ import type {
 import type {
   Actor,
   AgentConfig,
+  Attachment,
   ExecutionContext,
+  Membership,
   ModelConfig,
+  ScopeConfig,
   Workspace,
 } from "../kernel/model.ts";
 import type { RunRuleInput, RuleRun } from "../kernel/rules.ts";
@@ -59,6 +73,52 @@ export interface AgentManagementClient {
   updateModelConfig(id: string, input: UpdateModelConfigInput): Promise<ModelConfig>;
   deleteModelConfig(id: string): Promise<void>;
 }
+
+/** Context-bound Workspace topology operations. Root bootstrap remains a trusted host concern. */
+export interface WorkspaceManagementClient {
+  listChildWorkspaces(parentId?: string): Promise<readonly Workspace[]>;
+  /** Creates one child of the bound Workspace. */
+  createWorkspace(
+    input: CreateWorkspaceInput,
+  ): Promise<{ workspace: Workspace; membership: Membership }>;
+  renameWorkspace(input: RenameWorkspaceInput): Promise<Workspace>;
+  deleteWorkspace(): Promise<void>;
+  updateWorkspaceAccess(input: UpdateWorkspaceAccessInput): Promise<Workspace>;
+  updateWorkspacePolicy(input: UpdateWorkspacePolicyInput): Promise<Workspace>;
+}
+
+/** Context-bound Actor profile and roster operations. Login identity remains host-owned. */
+export interface ActorClient {
+  getActor(id: string): Promise<Actor | null>;
+  updateActor(id: string, input: UpdateActorInput): Promise<Actor>;
+  createActor(input: CreateActorInput): Promise<Actor>;
+  listActorsByOrigin(originId?: string): Promise<readonly Actor[]>;
+  listMembers(workspaceId?: string): Promise<readonly Actor[]>;
+}
+
+/** Context-bound participation and permission assignments. */
+export interface MembershipClient {
+  listMembershipsForActor(actorId: string): Promise<readonly Membership[]>;
+  listMembershipsForWorkspace(workspaceId?: string): Promise<readonly Membership[]>;
+  addMembership(input: AddMembershipInput): Promise<Membership>;
+  updateMembership(input: UpdateMembershipInput): Promise<Membership>;
+}
+
+/** Context-bound live Attachment operations; portable Specs never contain these bindings. */
+export interface AttachmentClient {
+  createAttachment(input: CreateAttachmentInput): Promise<Attachment>;
+  reshareAttachment(input: ReshareAttachmentInput): Promise<Attachment>;
+  listAttachmentsTo(): Promise<readonly Attachment[]>;
+  listAttachmentsFrom(): Promise<readonly Attachment[]>;
+  revokeAttachment(id: string): Promise<void>;
+}
+
+/** Optional configuration attached to the opaque module scope in the bound context. */
+export interface ScopeClient {
+  getScopeConfig(): Promise<ScopeConfig>;
+  applyScopeConfig(config: ScopeConfig): Promise<ScopeConfig>;
+  deleteScopeConfig(): Promise<void>;
+}
 import type { SourceDescriptor, SourceResult, SourceRow } from "../kernel/sources.ts";
 import type { ViewQueryResult } from "../kernel/views.ts";
 import type { CollectionRecord, RecordValues } from "../persistence/records.ts";
@@ -79,10 +139,16 @@ import type {
  * implement the same contract over its transport without exposing Kernel lifecycle to the UI.
  */
 export interface WorkspaceClient
-  extends RuleExecutionClient, InferenceClient, AgentManagementClient {
+  extends
+    RuleExecutionClient,
+    InferenceClient,
+    AgentManagementClient,
+    WorkspaceManagementClient,
+    ActorClient,
+    MembershipClient,
+    AttachmentClient,
+    ScopeClient {
   getWorkspace(): Promise<Workspace>;
-  getActor(id: string): Promise<Actor | null>;
-  updateActor(id: string, input: UpdateActorInput): Promise<Actor>;
   applySpec(spec: Spec): Promise<Workspace>;
   listRules(): Promise<readonly RuleDefinition[]>;
   /** Published Action Events run matching short Rules through the same authorization spine. */
@@ -142,6 +208,90 @@ class LocalWorkspaceClient implements WorkspaceClient {
 
   getActor(id: string) {
     return this.kernel.getActor(this.context, id);
+  }
+
+  listChildWorkspaces(parentId?: string) {
+    return this.kernel.listChildWorkspaces(this.context, parentId);
+  }
+
+  createWorkspace(input: CreateWorkspaceInput) {
+    return this.kernel.createWorkspace(this.context, input);
+  }
+
+  renameWorkspace(input: RenameWorkspaceInput) {
+    return this.kernel.renameWorkspace(this.context, input);
+  }
+
+  deleteWorkspace() {
+    return this.kernel.deleteWorkspace(this.context);
+  }
+
+  updateWorkspaceAccess(input: UpdateWorkspaceAccessInput) {
+    return this.kernel.updateWorkspaceAccess(this.context, input);
+  }
+
+  updateWorkspacePolicy(input: UpdateWorkspacePolicyInput) {
+    return this.kernel.updateWorkspacePolicy(this.context, input);
+  }
+
+  createActor(input: CreateActorInput) {
+    return this.kernel.createActor(this.context, input);
+  }
+
+  listActorsByOrigin(originId?: string) {
+    return this.kernel.listActorsByOrigin(this.context, originId);
+  }
+
+  listMembers(workspaceId?: string) {
+    return this.kernel.listMembers(this.context, workspaceId);
+  }
+
+  listMembershipsForActor(actorId: string) {
+    return this.kernel.listMembershipsForActor(this.context, actorId);
+  }
+
+  listMembershipsForWorkspace(workspaceId?: string) {
+    return this.kernel.listMembershipsForWorkspace(this.context, workspaceId);
+  }
+
+  addMembership(input: AddMembershipInput) {
+    return this.kernel.addMembership(this.context, input);
+  }
+
+  updateMembership(input: UpdateMembershipInput) {
+    return this.kernel.updateMembership(this.context, input);
+  }
+
+  createAttachment(input: CreateAttachmentInput) {
+    return this.kernel.createAttachment(this.context, input);
+  }
+
+  reshareAttachment(input: ReshareAttachmentInput) {
+    return this.kernel.reshareAttachment(this.context, input);
+  }
+
+  listAttachmentsTo() {
+    return this.kernel.listAttachmentsTo(this.context);
+  }
+
+  listAttachmentsFrom() {
+    return this.kernel.listAttachmentsFrom(this.context);
+  }
+
+  revokeAttachment(id: string) {
+    return this.kernel.revokeAttachment(this.context, id);
+  }
+
+  getScopeConfig() {
+    return this.kernel.getScopeConfig(this.context);
+  }
+
+  applyScopeConfig(config: ScopeConfig) {
+    return this.kernel.applyScopeConfig(this.context, config);
+  }
+
+  deleteScopeConfig() {
+    return this.kernel.deleteScopeConfig(this.context);
   }
 
   listSettings() {

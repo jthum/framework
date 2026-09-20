@@ -20,7 +20,8 @@ persistence  policy  environment
 For an embedded or local application, `createWorkspaceClient(kernel, context)` is the simplest
 path. For a remote application, implement `WorkspaceClient` over a transport and keep the Kernel
 on the trusted server. The browser must never choose a trusted `actorId`; authentication resolves
-the Actor on the server.
+the Actor on the server. See [local and remote deployment](deployment-modes.md) for the composition
+boundary and app-owned module clients.
 
 ## Host responsibilities
 

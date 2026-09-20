@@ -6,16 +6,16 @@ authentication providers, and domain vocabulary belong to hosts.
 
 Before changing code, select the relevant reading path:
 
-| Task                            | Read first                                                                 |
-| ------------------------------- | -------------------------------------------------------------------------- |
-| Build a host application        | `docs/getting-started.md`, `docs/host-architecture.md`                     |
-| Change the portable Spec        | `docs/concepts.md`, `docs/architecture.md`, `docs/coding-standards.md`     |
-| Add Kernel behavior             | `docs/architecture.md`, the relevant capability guide, `docs/testing.md`   |
-| Add or change persistence       | `docs/host-architecture.md`, `docs/coding-standards.md`, `docs/testing.md` |
-| Use or change Svelte interfaces | `docs/svelte.md`, `docs/authoring.md`                                      |
-| Add host/domain extensions      | `docs/extensions.md`, `docs/catalogs.md`                                   |
-| Change errors                   | `docs/errors.md`                                                           |
-| Plan a new phase                | `docs/implementation-plan.md`                                              |
+| Task                            | Read first                                                                         |
+| ------------------------------- | ---------------------------------------------------------------------------------- |
+| Build a host application        | `docs/getting-started.md`, `docs/host-architecture.md`, `docs/deployment-modes.md` |
+| Change the portable Spec        | `docs/concepts.md`, `docs/architecture.md`, `docs/coding-standards.md`             |
+| Add Kernel behavior             | `docs/architecture.md`, the relevant capability guide, `docs/testing.md`           |
+| Add or change persistence       | `docs/host-architecture.md`, `docs/coding-standards.md`, `docs/testing.md`         |
+| Use or change Svelte interfaces | `docs/svelte.md`, `docs/authoring.md`                                              |
+| Add host/domain extensions      | `docs/extensions.md`, `docs/deployment-modes.md`, `docs/catalogs.md`               |
+| Change errors                   | `docs/errors.md`                                                                   |
+| Plan a new phase                | `docs/implementation-plan.md`                                                      |
 
 Use `docs/public-api.md` to locate authoritative exported symbols and their behavioral tests.
 Prefer links to source and contract tests over restating complete TypeScript shapes in prose.
@@ -30,6 +30,8 @@ Prefer links to source and contract tests over restating complete TypeScript sha
 - Kernel code depends on logical persistence contracts, never SQL or host globals.
 - Svelte authoring and operations depend on canonical definitions and public client contracts, never a concrete
   adapter, router, or application session.
+- Module-owned entities use module-owned client contracts; a Framework scope may attach optional
+  configuration without changing ownership of the entity.
 - Host extensions use a host-owned envelope or registered Actions, Conditions, Sources, Blocks,
   and catalogs. Unknown `meta` is annotation space, not a hidden behavioral protocol.
 - Keep simple cases direct. Optional capabilities must not impose ceremony on ordinary local data,

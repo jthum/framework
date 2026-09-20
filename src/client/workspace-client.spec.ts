@@ -64,6 +64,79 @@ describe("WorkspaceClient", () => {
     await kernel.close();
   });
 
+  it("keeps Workspace administration, Memberships, Attachments, and module scopes transport-safe", async () => {
+    expect.hasAssertions();
+    const kernel = await Kernel.open({ persistence: new MemoryPersistenceAdapter() });
+    try {
+      const root = await kernel.createRootWorkspace({ name: "Space", user: { name: "Jane" } });
+      const rootContext = { workspaceId: root.workspace.id, actorId: root.user.id };
+      const rootClient = await createWorkspaceClient(kernel, rootContext);
+      const child = await rootClient.createWorkspace({ name: "Operations" });
+      const childContext = { ...rootContext, workspaceId: child.workspace.id };
+      const childClient = await createWorkspaceClient(kernel, childContext);
+
+      const candidate = await childClient.createActor({ kind: "user", name: "Ravi" });
+      await childClient.addMembership({
+        actorId: candidate.id,
+        workspaceId: child.workspace.id,
+        permissions: ["read"],
+      });
+      const candidateClient = await createWorkspaceClient(kernel, {
+        workspaceId: child.workspace.id,
+        actorId: candidate.id,
+      });
+
+      await expect(rootClient.listChildWorkspaces()).resolves.toEqual([child.workspace]);
+      await expect(childClient.listMembers()).resolves.toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: root.user.id }), candidate]),
+      );
+      await expect(candidateClient.getWorkspace()).resolves.toMatchObject({
+        id: child.workspace.id,
+      });
+      await expect(candidateClient.listMembers()).rejects.toMatchObject({
+        code: "PERMISSION.DENIED",
+      });
+      await expect(candidateClient.createWorkspace({ name: "Denied" })).rejects.toMatchObject({
+        code: "PERMISSION.DENIED",
+      });
+
+      const rootSpec = createEmptySpec({ id: "root-spec", key: "space", label: "Space" });
+      await rootClient.applySpec({
+        ...rootSpec,
+        collections: [{ id: "contacts", key: "contact", label: "Contact", fields: [] }],
+      });
+      const childSpec = createEmptySpec({
+        id: "child-spec",
+        key: "operations",
+        label: "Operations",
+      });
+      await childClient.applySpec({
+        ...childSpec,
+        sources: [{ id: "shared-contacts", key: "contact", label: "Contacts" }],
+      });
+      await rootClient.updateWorkspaceAccess({
+        members: ["read", "create", "update", "delete", "manage"],
+        others: ["read"],
+      });
+      const attachment = await rootClient.createAttachment({
+        collectionKey: "contact",
+        targetId: child.workspace.id,
+        sourceId: "shared-contacts",
+      });
+      await expect(childClient.listAttachmentsTo()).resolves.toEqual([attachment]);
+
+      const scopedClient = await createWorkspaceClient(kernel, {
+        ...childContext,
+        scope: { kind: "channel", id: "general" },
+      });
+      const empty = { collections: [], views: [], forms: [], pages: [], rules: [] };
+      await expect(scopedClient.applyScopeConfig(empty)).resolves.toEqual(empty);
+      await expect(scopedClient.getScopeConfig()).resolves.toEqual(empty);
+    } finally {
+      await kernel.close();
+    }
+  });
+
   it("rejects an invalid context before returning a client", async () => {
     expect.hasAssertions();
     const kernel = await Kernel.open({ persistence: new MemoryPersistenceAdapter() });

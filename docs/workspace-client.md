@@ -27,10 +27,18 @@ Binding validates and copies the execution context. Every operation still goes t
 
 On a server, authentication supplies the Actor. Resolve the client's Workspace selection against that trusted identity; never trust a browser-supplied Actor ID. A remote implementation can implement the same interface over a transport, while the server continues to derive the execution context itself. No HTTP transport or authentication provider is implemented by this contract.
 
-The contract currently covers Workspace Spec, local records, Sources, Views, Forms, Pages, Agent
-execution, and durable Rule execution. Catalog administration and Attachment management remain explicit Kernel
-operations; do not expose trusted persistence discovery APIs through a client. Attachment Sources
-are readable through Source operations, not writable local Collections.
+The aggregate contract covers Workspace Spec, local records, Sources, Views, Forms, Pages, Agent
+execution, durable Rule execution, context-bound Workspace management, Memberships, Attachments,
+and optional scope configuration. Its focused `WorkspaceManagementClient`, `ActorClient`,
+`MembershipClient`, `AttachmentClient`, and `ScopeClient` interfaces let components request a narrower
+capability.
+Root bootstrap, unrestricted root-wide discovery, authentication, and persistence access remain
+trusted host operations. Attachment Sources are readable through Source operations, not writable
+local Collections.
+
+These are Framework capabilities, not a universal application API. Domain modules define their own
+transport-neutral clients and compose them beside `WorkspaceClient`. See
+[local and remote deployment](deployment-modes.md).
 
 `executeAction(key, input)` and `runRule(key, input)` expose the same context-bound Action/short
 Rule spine. An Action-published Event preflights all matching Rules, then routes each Rule to the

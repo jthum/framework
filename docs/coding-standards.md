@@ -63,6 +63,10 @@ adapters      Svelte/editor bindings
 - SQLite and future adapters implement persistence contracts and contain their own physical queries and schema policy.
 - Framework Svelte code depends on public clients and contracts, not a global application session.
 - Host code composes the Kernel, adapters, editors, navigation, and product policy.
+- Ordinary interface code depends on context-bound clients. Direct Kernel, persistence, and adapter
+  imports belong at a local or server composition root.
+- Domain modules own their entities, storage, invariants, and client contracts. Compose module
+  clients beside `WorkspaceClient`; do not disguise intrinsic module data as Collections.
 - Blocks receive declared values and resolved data; they do not open databases or reach into host state.
 
 Do not bypass a package boundary for convenience. Change the public contract when a genuine cross-layer capability is missing.
@@ -182,6 +186,8 @@ EnvironmentProfile describes capabilities, not URLs, credentials, or arbitrary c
 
 - Use Svelte 5 runes consistently.
 - Keep business rules out of components; components call public clients and Actions.
+- Keep client contracts deployment-neutral. Local implementations may call an in-process Kernel or
+  module store; remote implementations may use HTTP, streams, or another host transport.
 - Convert reactive/proxy state to validated plain data before it crosses the Kernel boundary.
 - Reuse the established shadcn-svelte primitives, design tokens, chrome cards, tables, modals, tabs, fields, and interaction patterns.
 - Do not introduce a parallel component system or one-off visual language.

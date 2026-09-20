@@ -37,20 +37,20 @@ dependency direction remains visible.
 
 ## Canonical symbols
 
-| Concern                          | Read these symbols                                                                            | Source                                                                |
-| -------------------------------- | --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| Complete portable document       | `Spec`, `SPEC_VERSION`, `createEmptySpec`, `assertValidSpec`                                  | [`src/spec`](../src/spec)                                             |
-| Definition identity and metadata | `DefinitionIdentity`, `SpecMeta`                                                              | [`src/spec/model.ts`](../src/spec/model.ts)                           |
-| Runtime composition              | `Kernel`, `KernelOptions`                                                                     | [`src/kernel/kernel.ts`](../src/kernel/kernel.ts)                     |
-| Identity and execution context   | `Workspace`, `Actor`, `Membership`, `ExecutionContext`                                        | [`src/kernel/model.ts`](../src/kernel/model.ts)                       |
-| Authorization                    | `Authorizer`, `WorkspaceAuthorizer`, `AuthorizationRequest`                                   | [`src/kernel/authorization.ts`](../src/kernel/authorization.ts)       |
-| UI/transport boundary            | `WorkspaceClient`, `RuleExecutionClient`, `InferenceClient`, `AgentManagementClient`          | [`src/client/workspace-client.ts`](../src/client/workspace-client.ts) |
-| Persistence port                 | `PersistenceAdapter`, `PersistenceSession`, `CatalogRepository`                               | [`src/persistence/catalog.ts`](../src/persistence/catalog.ts)         |
-| Record port                      | `RecordStore`, `CollectionRecord`, `RecordValues`, `RecordQueryResult`, `RecordQueryRelation` | [`src/persistence/records.ts`](../src/persistence/records.ts)         |
-| Rule extensions                  | `ActionDefinition`, `ConditionDefinition`, `RuleRuntimeProfile`                               | [`src/kernel`](../src/kernel)                                         |
-| Inference and Agent execution    | `InferenceRuntime`, `InferenceToolGateway`, `AgentConfig`                                     | [`src/kernel`](../src/kernel)                                         |
-| Block loading                    | `BlockDefinition`, `BlockRegistry`, `BlockInput`                                              | [`src/blocks`](../src/blocks)                                         |
-| Catalog discovery                | `Catalog`, `CatalogSource`, `CatalogEntry`                                                    | [`src/catalog`](../src/catalog)                                       |
+| Concern                          | Read these symbols                                                                                                   | Source                                                                |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Complete portable document       | `Spec`, `SPEC_VERSION`, `createEmptySpec`, `assertValidSpec`                                                         | [`src/spec`](../src/spec)                                             |
+| Definition identity and metadata | `DefinitionIdentity`, `SpecMeta`                                                                                     | [`src/spec/model.ts`](../src/spec/model.ts)                           |
+| Runtime composition              | `Kernel`, `KernelOptions`                                                                                            | [`src/kernel/kernel.ts`](../src/kernel/kernel.ts)                     |
+| Identity and execution context   | `Workspace`, `Actor`, `Membership`, `ExecutionContext`                                                               | [`src/kernel/model.ts`](../src/kernel/model.ts)                       |
+| Authorization                    | `Authorizer`, `WorkspaceAuthorizer`, `AuthorizationRequest`                                                          | [`src/kernel/authorization.ts`](../src/kernel/authorization.ts)       |
+| UI/transport boundary            | `WorkspaceClient`, `WorkspaceManagementClient`, `ActorClient`, `MembershipClient`, `AttachmentClient`, `ScopeClient` | [`src/client/workspace-client.ts`](../src/client/workspace-client.ts) |
+| Persistence port                 | `PersistenceAdapter`, `PersistenceSession`, `CatalogRepository`                                                      | [`src/persistence/catalog.ts`](../src/persistence/catalog.ts)         |
+| Record port                      | `RecordStore`, `CollectionRecord`, `RecordValues`, `RecordQueryResult`, `RecordQueryRelation`                        | [`src/persistence/records.ts`](../src/persistence/records.ts)         |
+| Rule extensions                  | `ActionDefinition`, `ConditionDefinition`, `RuleRuntimeProfile`                                                      | [`src/kernel`](../src/kernel)                                         |
+| Inference and Agent execution    | `InferenceRuntime`, `InferenceToolGateway`, `AgentConfig`                                                            | [`src/kernel`](../src/kernel)                                         |
+| Block loading                    | `BlockDefinition`, `BlockRegistry`, `BlockInput`                                                                     | [`src/blocks`](../src/blocks)                                         |
+| Catalog discovery                | `Catalog`, `CatalogSource`, `CatalogEntry`                                                                           | [`src/catalog`](../src/catalog)                                       |
 
 ## Behavioral sources of truth
 

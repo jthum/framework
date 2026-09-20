@@ -7,8 +7,9 @@ Use this page as the documentation router. Read the smallest path that matches t
 1. [Getting started](getting-started.md) — run a minimal host and apply a Spec.
 2. [Core concepts](concepts.md) — understand the portable and instance boundaries.
 3. [Host architecture](host-architecture.md) — choose Kernel, client, persistence, UI, and transport boundaries.
-4. [Extensions](extensions.md) — add domain modules and a host-owned document envelope without forking the core Spec.
-5. [Public API and code map](public-api.md) — find authoritative exports, source, and contract tests.
+4. [Local and remote deployment](deployment-modes.md) — keep local and server hosts behind the same clients.
+5. [Extensions](extensions.md) — add domain modules and a host-owned document envelope without forking the core Spec.
+6. [Public API and code map](public-api.md) — find authoritative exports, source, and contract tests.
 
 Then use the capability guide relevant to the feature:
 

@@ -40,6 +40,11 @@ A module can contribute:
 Module entities need not become new Framework primitives. Prefer composing the small shared
 primitives and keep domain invariants in module code.
 
+Module-owned state uses a module-owned client contract in interface code. Local and remote hosts
+implement that same contract against their chosen storage or transport and compose it beside
+`WorkspaceClient`; see [local and remote deployment](deployment-modes.md). A Framework scope may
+attach optional configuration to a module entity without changing ownership of the entity itself.
+
 Custom Source-provider registration is not yet a public Kernel extension point. A host may expose
 external data through its own client or module boundary today; a future provider contract must
 retain capability discovery and the existing View semantics.

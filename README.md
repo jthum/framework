@@ -48,6 +48,7 @@ aliases or migration baggage.
 - [Build an application](docs/getting-started.md)
 - [Understand the core model](docs/concepts.md)
 - [Choose package boundaries](docs/host-architecture.md)
+- [Choose local or remote deployment](docs/deployment-modes.md)
 - [Extend a host safely](docs/extensions.md)
 - [Find public APIs and authoritative code](docs/public-api.md)
 - [Integrate inference and Agents](docs/agents.md)
