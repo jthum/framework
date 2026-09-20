@@ -150,6 +150,13 @@ export interface CreateActorInput {
   readonly email?: string;
 }
 
+export interface CreateMemberInput {
+  readonly name: string;
+  readonly email?: string;
+  readonly roles?: readonly string[];
+  readonly permissions?: readonly Permission[];
+}
+
 export interface UpdateActorInput {
   readonly name: string;
   readonly email?: string;
@@ -874,6 +881,53 @@ export class Kernel {
     };
     await this.catalog.transaction((transaction) => transaction.insertActor(actor));
     return actor;
+  }
+
+  async createMember(
+    context: ExecutionContext,
+    input: CreateMemberInput,
+  ): Promise<{ actor: Actor; membership: Membership }> {
+    await this.assertContext(context);
+    const workspace = await this.requireWorkspace(context.workspaceId);
+    await this.assertAuthorized({
+      context,
+      operation: "actors.create",
+      resource: { kind: "workspace", id: workspace.id, workspaceId: workspace.id },
+    });
+    await this.assertAuthorized({
+      context,
+      operation: "memberships.create",
+      resource: { kind: "workspace", id: workspace.id, workspaceId: workspace.id },
+    });
+    if (!workspace.policy.createActors)
+      throw new FrameworkError({
+        code: ERROR_CODES.permissionDenied,
+        message: "This Workspace does not permit creating local Actors.",
+      });
+    const stamp = this.clock.now();
+    const actor: Actor = {
+      id: this.ids.create("actor"),
+      originId: workspace.id,
+      rootId: workspace.rootId,
+      kind: "user",
+      name: requiredName(input.name, "Actor"),
+      ...(input.email === undefined ? {} : { email: input.email }),
+      createdAt: stamp,
+      updatedAt: stamp,
+    };
+    const next = membership(
+      this.ids,
+      stamp,
+      actor.id,
+      workspace.id,
+      input.roles ?? ["member"],
+      normalizePermissions(input.permissions ?? ["read"]),
+    );
+    await this.catalog.transaction(async (transaction) => {
+      await transaction.insertActor(actor);
+      await transaction.insertMembership(next);
+    });
+    return { actor, membership: next };
   }
 
   async createAgent(context: ExecutionContext, input: CreateAgentInput): Promise<AgentBootstrap> {

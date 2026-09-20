@@ -96,6 +96,17 @@ describe("WorkspaceClient", () => {
       await expect(candidateClient.listMembers()).rejects.toMatchObject({
         code: "PERMISSION.DENIED",
       });
+
+      const teammate = await childClient.createMember({
+        name: "Mina",
+        permissions: ["read", "create", "update"],
+      });
+      expect(teammate.actor).toMatchObject({ name: "Mina", originId: child.workspace.id });
+      expect(teammate.membership).toMatchObject({
+        actorId: teammate.actor.id,
+        workspaceId: child.workspace.id,
+        permissions: ["read", "create", "update"],
+      });
       await expect(candidateClient.createWorkspace({ name: "Denied" })).rejects.toMatchObject({
         code: "PERMISSION.DENIED",
       });

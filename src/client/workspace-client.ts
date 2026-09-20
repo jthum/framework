@@ -10,6 +10,7 @@ import type {
 import type {
   AddMembershipInput,
   CreateActorInput,
+  CreateMemberInput,
   CreateWorkspaceInput,
   Kernel,
   RenameWorkspaceInput,
@@ -92,6 +93,7 @@ export interface ActorClient {
   getActor(id: string): Promise<Actor | null>;
   updateActor(id: string, input: UpdateActorInput): Promise<Actor>;
   createActor(input: CreateActorInput): Promise<Actor>;
+  createMember(input: CreateMemberInput): Promise<{ actor: Actor; membership: Membership }>;
   listActorsByOrigin(originId?: string): Promise<readonly Actor[]>;
   listMembers(workspaceId?: string): Promise<readonly Actor[]>;
 }
@@ -236,6 +238,10 @@ class LocalWorkspaceClient implements WorkspaceClient {
 
   createActor(input: CreateActorInput) {
     return this.kernel.createActor(this.context, input);
+  }
+
+  createMember(input: CreateMemberInput) {
+    return this.kernel.createMember(this.context, input);
   }
 
   listActorsByOrigin(originId?: string) {
