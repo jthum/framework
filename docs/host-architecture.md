@@ -62,6 +62,11 @@ adapters. A host may use the included in-memory adapter, a SQLite gateway, or an
 passes the shared contracts. Analytics engines may sit beside primary persistence as Sources; they
 do not have to replace transactional storage.
 
+The optional `@jthum/framework-sqlite-browser` package supplies a worker-backed browser driver. It
+prefers OPFS and falls back to IndexedDB or memory. The package owns browser SQLite mechanics only;
+the host still chooses its namespace and database routing policy. Server hosts can use
+`@jthum/framework/sqlite/node` or provide any other `SqliteDatabase` implementation.
+
 ### Optional SQLite record databases
 
 `SqlitePersistenceAdapter` accepts optional `workspaceDatabases` and `scopeDatabases` callbacks.

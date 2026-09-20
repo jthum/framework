@@ -14,6 +14,7 @@ another stack can consume the same Spec without importing this package.
 - `@jthum/framework/client` — a context-bound interface for UI and transport layers
 - `@jthum/framework/persistence` — persistence ports and the in-memory adapter
 - `@jthum/framework/sqlite` — the driver-neutral SQLite adapter
+- `@jthum/framework-sqlite-browser` — optional wa-sqlite/OPFS browser storage
 - `@jthum/framework/blocks` — Block definitions and lazy renderer registry
 - `@jthum/framework/catalog` — host-selected discovery catalogs
 - `@jthum/framework/svelte/authoring/*` — reusable Svelte 5 authoring surfaces

@@ -1,0 +1,27 @@
+{
+  "name": "@jthum/framework-sqlite-browser",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Browser SQLite storage for Framework using wa-sqlite and OPFS.",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "development": "./src/index.ts",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "scripts": {
+    "build": "vp pack",
+    "check": "vp check",
+    "test": "vp test"
+  },
+  "dependencies": {
+    "@jthum/framework": "workspace:*",
+    "wa-sqlite": "^1.0.0"
+  }
+}

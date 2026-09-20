@@ -1,6 +1,7 @@
 packages:
   - "."
   - "packages/inference/**"
+  - "packages/sqlite/**"
 
 allowBuilds:
   esbuild: true

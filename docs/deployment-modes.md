@@ -79,6 +79,12 @@ database per Workspace, and optionally route scope-local Framework records to se
 Those callbacks choose OPFS names in a browser or filesystem paths on a server. Module-owned tables
 may use their own database layout; Framework scope databases do not prescribe module storage.
 
+Browser hosts can opt into `@jthum/framework-sqlite-browser`. Its `createBrowserSqlitePool` uses a
+host-chosen namespace, runs wa-sqlite in a worker, prefers OPFS, and implements the same
+`SqliteDatabase` contract consumed by `SqlitePersistenceAdapter`. It is a separate package so
+browser/WASM dependencies never become part of Framework core or a server deployment. Node hosts
+use `@jthum/framework/sqlite/node` or another driver implementing that contract.
+
 A single server process can keep one long-lived Kernel and serve multiple authenticated Actors.
 Multiple server processes require host coordination for lifecycle changes and recovery, as
 described in [host architecture](host-architecture.md#optional-sqlite-record-databases).

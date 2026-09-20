@@ -117,9 +117,10 @@ const result = await client.queryView("open_tasks");
 console.log(result.data.rows);
 ```
 
-Use the context-bound client from UI components and transport handlers. Use the Kernel directly at
-trusted composition boundaries for Workspace lifecycle, Membership, Attachments, and other
-administrative operations not intentionally exposed through the client.
+Use the context-bound client from UI components and transport handlers, including its focused
+Workspace, Actor, Membership, Attachment, and scope-management interfaces. Use the Kernel directly
+only at trusted composition boundaries and for host extensions that do not belong in a public
+client contract.
 
 Always close the Kernel when its owning process or request scope ends:
 
