@@ -57,7 +57,13 @@ export async function createBrowserSqlitePool(
     else waiter.resolve(event.data.result);
   });
   worker.addEventListener("error", (event) => {
-    const error = event.error instanceof Error ? event.error : new Error("SQLite worker failed.");
+    const location = event.filename
+      ? ` (${event.filename}${event.lineno ? `:${event.lineno}:${event.colno}` : ""})`
+      : "";
+    const error =
+      event.error instanceof Error
+        ? event.error
+        : new Error(`${event.message || "SQLite worker failed."}${location}`);
     for (const waiter of pending.values()) waiter.reject(error);
     pending.clear();
   });

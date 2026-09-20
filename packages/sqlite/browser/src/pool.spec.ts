@@ -67,4 +67,34 @@ describe("browser SQLite pool", () => {
     await reopened.close();
     await pool.close();
   });
+
+  it("preserves worker loading diagnostics when the browser omits an Error object", async () => {
+    vi.stubGlobal(
+      "Worker",
+      class {
+        private readonly listeners = new Map<string, (event: Record<string, unknown>) => void>();
+
+        addEventListener(name: string, listener: (event: Record<string, unknown>) => void): void {
+          this.listeners.set(name, listener);
+        }
+
+        postMessage(): void {
+          queueMicrotask(() =>
+            this.listeners.get("error")?.({
+              message: "Failed to load worker module",
+              filename: "worker.mjs",
+              lineno: 4,
+              colno: 2,
+            }),
+          );
+        }
+
+        terminate(): void {}
+      },
+    );
+
+    await expect(createBrowserSqlitePool({ namespace: "test-host" })).rejects.toThrow(
+      "Failed to load worker module (worker.mjs:4:2)",
+    );
+  });
 });
