@@ -137,7 +137,7 @@ Inject deterministic dependencies where behaviour depends on them:
 - scheduler;
 - InferenceRuntime;
 - external Sources;
-- SecretStore;
+- SecretCipher and key provider;
 - authorization policy.
 
 Do not weaken production randomness or time semantics globally for tests. Supply fakes through the same public ports used by real implementations.

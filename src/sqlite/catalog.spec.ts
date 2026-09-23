@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { ERROR_CODES } from "../errors/error.ts";
 import type { Clock, IdGenerator, IdKind } from "../kernel/defaults.ts";
 import { Kernel } from "../kernel/kernel.ts";
+import { createAesGcmSecretCipher } from "../kernel/secret-cipher.ts";
 import { catalogAdapterContract } from "../persistence/catalog.contract.ts";
 import { recordStoreContract } from "../persistence/records.contract.ts";
 import type { CollectionRecord } from "../persistence/records.ts";
@@ -39,6 +40,12 @@ describe("SQLite catalog adapter", () => {
       category: "Search",
       value: "web.search.mock",
     });
+    await first.putSetting(context, {
+      key: "api_key",
+      label: "API key",
+      secret: true,
+      value: "private-token",
+    });
     await first.putRuntimeAction(context, {
       key: "web.search",
       label: "Search",
@@ -48,6 +55,18 @@ describe("SQLite catalog adapter", () => {
       tool: { availability: "discoverable", keywords: ["search"] },
     });
     await first.close();
+
+    const database = openNodeSqlite(path);
+    try {
+      const stored = await database.get<{ config_json: string }>(
+        "SELECT config_json FROM workspace_configs WHERE workspace_id = ?",
+        [workspace.id],
+      );
+      expect(stored?.config_json).not.toContain("private-token");
+      expect(stored?.config_json).toContain("ciphertext");
+    } finally {
+      await database.close();
+    }
 
     const second = await openKernel(path);
     try {
@@ -59,7 +78,15 @@ describe("SQLite catalog adapter", () => {
           configured: true,
           value: "web.search.mock",
         },
+        {
+          key: "api_key",
+          label: "API key",
+          secret: true,
+          configured: true,
+          maskedValue: "••••oken",
+        },
       ]);
+      expect(await second.executeAction(context, "test.secret")).toBe("private-token");
       expect(await second.listRuntimeActions(context)).toEqual([
         expect.objectContaining({
           key: "web.search",
@@ -219,13 +246,17 @@ describe("SQLite catalog adapter", () => {
     const first = await openKernel(path);
     const root = await first.createRootWorkspace({ name: "Acme", user: { name: "Jane" } });
     const owner = { workspaceId: root.workspace.id, actorId: root.user.id };
-    const created = await first.createAgent(owner, {
-      name: "Planner",
-      instructions: "Plan and prioritize work.",
+    const model = await first.createModelConfig(owner, {
+      name: "Planner model",
       provider: "example",
       model: "reasoning-model",
       credentialRef: "secret/provider",
       settings: { temperature: 0.2 },
+    });
+    const created = await first.createAgent(owner, {
+      name: "Planner",
+      instructions: "Plan and prioritize work.",
+      modelConfigId: model.id,
       tools: { exclude: ["action:records.delete"], search: true },
     });
     await first.close();
@@ -299,6 +330,10 @@ describe("SQLite catalog adapter", () => {
 async function openKernel(path: string): Promise<Kernel> {
   return Kernel.open({
     persistence: new SqlitePersistenceAdapter(() => openNodeSqlite(path)),
+    secretCipher: createAesGcmSecretCipher(() =>
+      crypto.subtle.importKey("raw", new Uint8Array(32), "AES-GCM", false, ["encrypt", "decrypt"]),
+    ),
+    actions: [{ key: "test.secret", run: ({ getSetting }) => getSetting("api_key") }],
     ids: sequenceIds(),
     clock: fixedClock,
   });

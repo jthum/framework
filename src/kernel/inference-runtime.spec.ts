@@ -160,11 +160,15 @@ describe("InferenceRuntime", () => {
     });
     const root = await kernel.createRootWorkspace({ name: "Space", user: { name: "Jane" } });
     const owner = { workspaceId: root.workspace.id, actorId: root.user.id };
+    const model = await kernel.createModelConfig(owner, {
+      name: "Test",
+      provider: "test",
+      model: "small-model",
+    });
     const created = await kernel.createAgent(owner, {
       name: "Focused assistant",
       instructions: "Only echo.",
-      provider: "test",
-      model: "small-model",
+      modelConfigId: model.id,
       permissions: ["read"],
       tools: { include: ["action:tests.echo"], search: false },
     });
@@ -235,11 +239,15 @@ describe("InferenceRuntime", () => {
     });
     const root = await kernel.createRootWorkspace({ name: "Space", user: { name: "Jane" } });
     const owner = { workspaceId: root.workspace.id, actorId: root.user.id };
+    const model = await kernel.createModelConfig(owner, {
+      name: "Test",
+      provider: "test",
+      model: "test-model",
+    });
     const created = await kernel.createAgent(owner, {
       name: "Assistant",
       instructions: "Help the team.",
-      provider: "test",
-      model: "test-model",
+      modelConfigId: model.id,
     });
     const actor = created.actor;
     agentId = actor.id;
@@ -317,11 +325,15 @@ async function bootstrap(runtime: InferenceRuntime, actions: readonly ActionDefi
   });
   const root = await kernel.createRootWorkspace({ name: "Space", user: { name: "Jane" } });
   const owner = { workspaceId: root.workspace.id, actorId: root.user.id };
+  const model = await kernel.createModelConfig(owner, {
+    name: "Test",
+    provider: "test",
+    model: "test-model",
+  });
   const created = await kernel.createAgent(owner, {
     name: "Assistant",
     instructions: "Help the team.",
-    provider: "test",
-    model: "test-model",
+    modelConfigId: model.id,
     permissions: ["read", "create", "update", "delete", "manage"],
   });
   const actor = created.actor;

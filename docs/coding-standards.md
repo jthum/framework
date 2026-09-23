@@ -158,7 +158,7 @@ Hosts construct and inject:
 
 - PersistenceAdapter;
 - EnvironmentProfile;
-- SecretStore;
+- SecretCipher and its environment-owned key;
 - clocks and ID generators when determinism matters;
 - concrete Source and Actor bindings;
 - host policy.

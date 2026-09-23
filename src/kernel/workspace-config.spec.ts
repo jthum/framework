@@ -11,8 +11,9 @@ import { defineEnvironmentProfile, LOCAL_BROWSER_ENVIRONMENT } from "./environme
 import type { InferenceContext, InferenceEvent, InferenceRuntime } from "./inference-runtime.ts";
 import { Kernel } from "./kernel.ts";
 import { ActionRegistry } from "./action-registry.ts";
+import { createAesGcmSecretCipher } from "./secret-cipher.ts";
 import { WorkspaceConfigService } from "./workspace-config-service.ts";
-import type { RuntimeAction, SecretStore } from "./workspace-config.ts";
+import type { RuntimeAction } from "./workspace-config.ts";
 
 const input = {
   type: "object" as const,
@@ -32,17 +33,10 @@ function runtimeAction(key: string, tool = true): RuntimeAction {
   };
 }
 
-class MemorySecrets implements SecretStore {
-  readonly values = new Map<string, string>();
-  async get(ref: string) {
-    return this.values.get(ref) ?? null;
-  }
-  async set(ref: string, value: string) {
-    this.values.set(ref, value);
-  }
-  async delete(ref: string) {
-    this.values.delete(ref);
-  }
+function testCipher() {
+  return createAesGcmSecretCipher(() =>
+    crypto.subtle.importKey("raw", new Uint8Array(32), "AES-GCM", false, ["encrypt", "decrypt"]),
+  );
 }
 
 describe("Workspace settings and runtime Actions", () => {
@@ -64,10 +58,7 @@ describe("Workspace settings and runtime Actions", () => {
     ]);
   });
 
-  it("restores a secret if its configuration write fails", async () => {
-    const secrets = new MemorySecrets();
-    const ref = "workspace/space/setting/api_key";
-    await secrets.set(ref, "old-value");
+  it("does not write a secret when the configuration write fails", async () => {
     const store: WorkspaceConfigStore = {
       async get() {
         return { settings: [], actions: [], actorBindings: [] };
@@ -79,7 +70,7 @@ describe("Workspace settings and runtime Actions", () => {
     const service = new WorkspaceConfigService(
       store,
       new ActionRegistry(),
-      secrets,
+      testCipher(),
       async () => {},
       async () => {},
     );
@@ -89,14 +80,13 @@ describe("Workspace settings and runtime Actions", () => {
         { key: "api_key", label: "API key", secret: true, value: "new-value" },
       ),
     ).rejects.toThrow("write failed");
-    expect(await secrets.get(ref)).toBe("old-value");
   });
 
   it("masks secrets and lets trusted Actions resolve them", async () => {
-    const secrets = new MemorySecrets();
+    const persistence = new MemoryPersistenceAdapter();
     const kernel = await Kernel.open({
-      persistence: new MemoryPersistenceAdapter(),
-      secrets,
+      persistence,
+      secretCipher: testCipher(),
       actions: [
         {
           key: "test.secret",
@@ -131,13 +121,25 @@ describe("Workspace settings and runtime Actions", () => {
         category: "Search",
         secret: true,
         configured: true,
+        maskedValue: "••••oken",
       });
       expect(JSON.stringify(await kernel.listSettings(context))).not.toContain("private-token");
+      expect(
+        JSON.stringify(
+          await persistence.open().then(async (session) => {
+            try {
+              return await session.workspaceConfigs.get(workspace.id);
+            } finally {
+              await session.close();
+            }
+          }),
+        ),
+      ).not.toContain("private-token");
       expect(await kernel.executeAction(context, "test.secret")).toBe("private-token");
       await kernel.putSetting(context, { key: "api_key", label: "API key", secret: true });
       expect(await kernel.executeAction(context, "test.secret")).toBe("private-token");
       await kernel.deleteSetting(context, "api_key");
-      expect(secrets.values.size).toBe(0);
+      expect(await kernel.getSetting(context, "api_key")).toBeNull();
     } finally {
       await kernel.close();
     }
@@ -154,11 +156,15 @@ describe("Workspace settings and runtime Actions", () => {
     });
     const context = { workspaceId: workspace.id, actorId: user.id };
     try {
+      const model = await kernel.createModelConfig(context, {
+        name: "Test",
+        provider: "test",
+        model: "test",
+      });
       const created = await kernel.createAgent(context, {
         name: "Researcher",
         instructions: "Research carefully.",
-        provider: "test",
-        model: "test",
+        modelConfigId: model.id,
       });
       await expect(
         kernel.putActorBinding(context, { key: "researcher", actorId: "missing" }),
@@ -275,11 +281,15 @@ describe("Workspace settings and runtime Actions", () => {
         provider: "mock",
         query: "rule",
       });
+      const model = await kernel.createModelConfig(context, {
+        name: "Test",
+        provider: "test",
+        model: "test",
+      });
       const created = await kernel.createAgent(context, {
         name: "Assistant",
         instructions: "Search when useful.",
-        provider: "test",
-        model: "test",
+        modelConfigId: model.id,
         permissions: ["read", "create", "update", "delete", "manage"],
       });
       const agent = { ...context, actorId: created.actor.id };
@@ -410,11 +420,15 @@ describe("Workspace settings and runtime Actions", () => {
     owner = { workspaceId: workspace.id, actorId: user.id };
     try {
       await kernel.putRuntimeAction(owner, runtimeAction("web.search"));
+      const model = await kernel.createModelConfig(owner, {
+        name: "Test",
+        provider: "test",
+        model: "test",
+      });
       const created = await kernel.createAgent(owner, {
         name: "Assistant",
         instructions: "Use tools.",
-        provider: "test",
-        model: "test",
+        modelConfigId: model.id,
         permissions: ["read"],
       });
       const stream = await kernel.runInference(

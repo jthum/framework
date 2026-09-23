@@ -12,15 +12,15 @@ import type { ExecutionContext } from "./model.ts";
 import type {
   ActorBinding,
   RuntimeAction,
-  SecretStore,
+  SecretCipher,
   WorkspaceSetting,
 } from "./workspace-config.ts";
 
-export type SettingInput = Omit<WorkspaceSetting, "value" | "secretRef"> & {
+export type SettingInput = Omit<WorkspaceSetting, "value" | "encrypted" | "maskedValue"> & {
   readonly value?: JsonValue;
 };
 
-export type SettingSummary = Omit<WorkspaceSetting, "value" | "secretRef"> & {
+export type SettingSummary = Omit<WorkspaceSetting, "value" | "encrypted"> & {
   readonly configured: boolean;
   readonly value?: JsonValue;
 };
@@ -29,7 +29,7 @@ export class WorkspaceConfigService {
   constructor(
     private readonly store: WorkspaceConfigStore,
     private readonly actions: ActionRegistry,
-    private readonly secrets: SecretStore | undefined,
+    private readonly cipher: SecretCipher | undefined,
     private readonly assertContext: (context: ExecutionContext) => Promise<void>,
     private readonly authorize: (request: AuthorizationRequest) => Promise<void>,
   ) {}
@@ -54,63 +54,67 @@ export class WorkspaceConfigService {
     );
     if (!setting) return null;
     if (!setting.secret) return setting.value ?? null;
-    if (!setting.secretRef || !this.secrets) return null;
-    return await this.secrets.get(setting.secretRef);
+    if (!setting.encrypted || !this.cipher) return null;
+    return await this.cipher.decrypt(setting.encrypted, context.workspaceId, key);
+  }
+
+  /** Trusted inference runtimes resolve only the selected model's credential setting. */
+  async inferenceCredential(workspaceId: string, key: string): Promise<string | null> {
+    const setting = (await this.store.get(workspaceId)).settings.find((item) => item.key === key);
+    if (!setting?.secret || !setting.encrypted || !this.cipher) return null;
+    return this.cipher.decrypt(setting.encrypted, workspaceId, key);
+  }
+
+  async inferenceSetting(workspaceId: string, key: string): Promise<JsonValue | null> {
+    const setting = (await this.store.get(workspaceId)).settings.find((item) => item.key === key);
+    return setting && !setting.secret ? (setting.value ?? null) : null;
   }
 
   async putSetting(context: ExecutionContext, input: SettingInput): Promise<SettingSummary> {
     await this.authorizeFor(context, "settings.update");
     const key = requiredKey(input.key, "Setting");
     const label = requiredKey(input.label, "Setting label");
-    const previous = (await this.store.get(context.workspaceId)).settings.find(
-      (item) => item.key === key,
-    );
     if (input.secret && input.value !== undefined && typeof input.value !== "string")
       throw invalid("Secret setting values must be strings.");
-    if (input.secret && !this.secrets)
-      throw unsupported("Secret settings require a host SecretStore.");
-    const ref = `workspace/${encodeURIComponent(context.workspaceId)}/setting/${encodeURIComponent(key)}`;
-    const oldSecret =
-      input.secret && input.value !== undefined ? await this.secrets!.get(ref) : null;
-    if (input.secret && input.value !== undefined)
-      await this.secrets!.set(ref, input.value as string);
-    const setting: WorkspaceSetting = {
-      key,
-      label,
-      ...(input.category ? { category: input.category } : {}),
-      ...(input.secret
-        ? {
-            secret: true,
-            ...(input.value !== undefined || previous?.secretRef ? { secretRef: ref } : {}),
-          }
-        : { value: input.value ?? null }),
-    };
-    try {
-      await this.store.update(context.workspaceId, (current) => ({
+    if (input.secret && !this.cipher)
+      throw unsupported("Secret settings require a host encryption key.");
+    const encrypted =
+      input.secret && input.value !== undefined
+        ? await this.cipher!.encrypt(input.value as string, context.workspaceId, key)
+        : undefined;
+    const next = await this.store.update(context.workspaceId, (current) => {
+      const previous = current.settings.find((item) => item.key === key);
+      const setting: WorkspaceSetting = {
+        key,
+        label,
+        ...(input.category ? { category: input.category } : {}),
+        ...(input.secret
+          ? {
+              secret: true,
+              ...(encrypted
+                ? { encrypted, maskedValue: maskSecret(input.value as string) }
+                : previous?.secret && previous.encrypted
+                  ? { encrypted: previous.encrypted, maskedValue: previous.maskedValue }
+                  : {}),
+            }
+          : { value: input.value ?? null }),
+      };
+      return {
         ...current,
         settings: [...current.settings.filter((item) => item.key !== key), setting],
-      }));
-    } catch (error) {
-      if (input.secret && input.value !== undefined) {
-        if (oldSecret === null) await this.secrets!.delete(ref);
-        else await this.secrets!.set(ref, oldSecret);
-      }
-      throw error;
-    }
-    if (previous?.secretRef && !input.secret) await this.secrets?.delete(previous.secretRef);
-    return maskSetting(setting);
+      };
+    });
+    return maskSetting(next.settings.find((item) => item.key === key)!);
   }
 
   async deleteSetting(context: ExecutionContext, key: string): Promise<void> {
     await this.authorizeFor(context, "settings.delete");
     const current = await this.store.get(context.workspaceId);
-    const setting = current.settings.find((item) => item.key === key);
-    if (!setting) throw resourceNotFound("Setting", key);
+    if (!current.settings.some((item) => item.key === key)) throw resourceNotFound("Setting", key);
     await this.store.update(context.workspaceId, (value) => ({
       ...value,
       settings: value.settings.filter((item) => item.key !== key),
     }));
-    if (setting.secretRef) await this.secrets?.delete(setting.secretRef);
   }
 
   async listActorBindings(context: ExecutionContext): Promise<readonly ActorBinding[]> {
@@ -201,9 +205,14 @@ function maskSetting(setting: WorkspaceSetting): SettingSummary {
     label: setting.label,
     ...(setting.category ? { category: setting.category } : {}),
     ...(setting.secret ? { secret: true } : {}),
-    configured: setting.secret ? Boolean(setting.secretRef) : setting.value !== undefined,
+    configured: setting.secret ? Boolean(setting.encrypted) : setting.value !== undefined,
+    ...(setting.secret && setting.maskedValue ? { maskedValue: setting.maskedValue } : {}),
     ...(setting.secret ? {} : { value: setting.value ?? null }),
   };
+}
+
+function maskSecret(value: string): string {
+  return value.length >= 8 ? `••••${value.slice(-4)}` : "••••";
 }
 
 function requiredKey(value: string, label: string): string {

@@ -34,10 +34,7 @@ export interface CreateAgentInput {
   readonly name: string;
   readonly email?: string;
   readonly instructions: string;
-  readonly provider: string;
-  readonly model: string;
-  readonly credentialRef?: string;
-  readonly settings?: Readonly<Record<string, JsonValue>>;
+  readonly modelConfigId: string;
   readonly tools?: Partial<AgentToolPolicy>;
   readonly roles?: readonly string[];
   readonly permissions?: readonly Permission[];
@@ -82,6 +79,9 @@ export class AgentConfigService {
       });
     const stamp = this.clock.now();
     const name = requiredName(input.name, "Agent");
+    const model = await this.catalog.getModelConfig(input.modelConfigId);
+    if (!model || model.workspaceId !== workspace.id)
+      throw resourceNotFound("ModelConfig", input.modelConfigId);
     const actor: Actor = {
       id: this.ids.create("actor"),
       originId: workspace.id,
@@ -89,19 +89,6 @@ export class AgentConfigService {
       kind: "agent",
       name,
       ...(input.email === undefined ? {} : { email: input.email }),
-      createdAt: stamp,
-      updatedAt: stamp,
-    };
-    const model: ModelConfig = {
-      id: this.ids.create("model_config"),
-      workspaceId: workspace.id,
-      name: `${name} model`,
-      provider: requiredName(input.provider, "Provider"),
-      model: requiredName(input.model, "Model"),
-      ...(input.credentialRef === undefined
-        ? {}
-        : { credentialRef: requiredName(input.credentialRef, "Credential reference") }),
-      ...(input.settings === undefined ? {} : { settings: structuredClone(input.settings) }),
       createdAt: stamp,
       updatedAt: stamp,
     };
@@ -122,8 +109,10 @@ export class AgentConfigService {
       input.permissions ?? ["read"],
     );
     await this.catalog.transaction(async (transaction) => {
+      const selected = await transaction.getModelConfig(model.id);
+      if (!selected || selected.workspaceId !== workspace.id)
+        throw resourceNotFound("ModelConfig", model.id);
       await transaction.insertActor(actor);
-      await transaction.insertModelConfig(model);
       await transaction.insertAgentConfig(config);
       await transaction.insertMembership(agentMembership);
     });

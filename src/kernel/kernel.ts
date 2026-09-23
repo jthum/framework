@@ -60,7 +60,7 @@ import {
   type RuntimeActionExecutor,
 } from "./action-registry.ts";
 import { WorkspaceConfigService, type SettingInput } from "./workspace-config-service.ts";
-import type { ActorBinding, RuntimeAction, SecretStore } from "./workspace-config.ts";
+import type { ActorBinding, RuntimeAction, SecretCipher } from "./workspace-config.ts";
 import {
   collectInferenceRun,
   type InferenceInput,
@@ -115,7 +115,7 @@ export interface KernelOptions {
   readonly environment?: EnvironmentProfile;
   readonly actions?: readonly ActionDefinition[];
   readonly actionExecutors?: readonly RuntimeActionExecutor[];
-  readonly secrets?: SecretStore;
+  readonly secretCipher?: SecretCipher;
   readonly conditions?: readonly ConditionDefinition[];
   readonly inference?: InferenceRuntime;
   /** Trusted host extensions for tools whose availability depends on the current step. */
@@ -209,7 +209,7 @@ export class Kernel {
     readonly environment: EnvironmentProfile,
     actions: readonly ActionDefinition[],
     actionExecutors: readonly RuntimeActionExecutor[],
-    secrets: SecretStore | undefined,
+    secretCipher: SecretCipher | undefined,
     conditions: readonly ConditionDefinition[],
     private readonly inference: InferenceRuntime | undefined,
     inferenceTools: readonly InferenceToolProvider[],
@@ -294,7 +294,7 @@ export class Kernel {
     this.workspaceConfig = new WorkspaceConfigService(
       persistence.workspaceConfigs,
       this.actions,
-      secrets,
+      secretCipher,
       (context) => this.assertContext(context),
       (request) => this.assertAuthorized(request),
     );
@@ -673,6 +673,7 @@ export class Kernel {
     const actor = await this.requireInferenceRuntimeContext(context);
     const runtime = await this.assertInferenceRuntime();
     const configured = await this.agentExecution(actor);
+    const credentialRef = (configured?.model ?? input.model)?.credentialRef;
     return runtime.run({
       execution: { ...context },
       actor,
@@ -698,6 +699,12 @@ export class Kernel {
         context,
         configured?.tools ?? defaultAgentToolPolicy(),
       ),
+      resolveCredential: (settingKey) =>
+        settingKey === credentialRef
+          ? this.workspaceConfig.inferenceCredential(context.workspaceId, settingKey)
+          : Promise.resolve(null),
+      getSetting: (settingKey) =>
+        this.workspaceConfig.inferenceSetting(context.workspaceId, settingKey),
     });
   }
 
@@ -744,7 +751,7 @@ export class Kernel {
       options.environment ?? LOCAL_BROWSER_ENVIRONMENT,
       options.actions ?? [],
       options.actionExecutors ?? [],
-      options.secrets,
+      options.secretCipher,
       options.conditions ?? [],
       options.inference,
       options.inferenceTools ?? [],

@@ -16,6 +16,7 @@ export { evaluateCondition } from "../spec/conditions.ts";
 export * from "./record-policy.ts";
 export * from "./rule-compatibility.ts";
 export * from "./rules.ts";
+export * from "./secret-cipher.ts";
 export type {
   ActorRequest,
   ResumeRuleInput,

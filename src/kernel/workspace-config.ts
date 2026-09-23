@@ -7,9 +7,17 @@ export interface WorkspaceSetting {
   readonly label: string;
   readonly category?: string;
   readonly secret?: boolean;
-  /** Plain values are stored here. Secret values are stored only in SecretStore. */
+  /** Ordinary values are stored here. Secret values are sealed in `encrypted`. */
   readonly value?: JsonValue;
-  readonly secretRef?: string;
+  readonly encrypted?: EncryptedSecret;
+  readonly maskedValue?: string;
+}
+
+export interface EncryptedSecret {
+  readonly version: 1;
+  readonly algorithm: "AES-GCM";
+  readonly iv: string;
+  readonly ciphertext: string;
 }
 
 /** Instance mapping from one portable semantic Rule binding to a concrete Actor. */
@@ -46,9 +54,8 @@ export const EMPTY_WORKSPACE_CONFIG: WorkspaceConfig = {
   actorBindings: [],
 };
 
-/** The host decides how secret values are protected in its deployment. */
-export interface SecretStore {
-  get(ref: string): Promise<string | null>;
-  set(ref: string, value: string): Promise<void>;
-  delete(ref: string): Promise<void>;
+/** Framework stores sealed settings; the host supplies the environment's key. */
+export interface SecretCipher {
+  encrypt(value: string, workspaceId: string, settingKey: string): Promise<EncryptedSecret>;
+  decrypt(value: EncryptedSecret, workspaceId: string, settingKey: string): Promise<string>;
 }

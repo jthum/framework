@@ -250,11 +250,15 @@ describe("WorkspaceClient", () => {
         workspaceId: root.workspace.id,
         actorId: root.user.id,
       });
+      const primary = await client.createModelConfig({
+        name: "Primary",
+        provider: "example",
+        model: "model-1",
+      });
       const created = await client.createAgent({
         name: "Planner",
         instructions: "Plan work.",
-        provider: "example",
-        model: "model-1",
+        modelConfigId: primary.id,
       });
       const alternate = await client.createModelConfig({
         name: "Alternate",

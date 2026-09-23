@@ -10,7 +10,7 @@
   import FieldInputs from "../internal/field-inputs.svelte";
   import { layoutSettings, settingDraft, parseSettingDraft, type SettingsLayout } from "./settings-layout.ts";
 
-  let { client, layout, secretStorageNote = "The host controls how secret values are stored." }: {
+  let { client, layout, secretStorageNote = "Saved encrypted; the host manages the key." }: {
     client?: WorkspaceClient;
     layout: SettingsLayout;
     secretStorageNote?: string;
@@ -44,6 +44,10 @@
   }
 
   function configured(key: string) { return settings.find((setting) => setting.key === key)?.configured ?? false; }
+  function secretPlaceholder(key: string) {
+    const setting = settings.find((item) => item.key === key);
+    return setting?.configured ? `${setting.maskedValue ?? "••••"} — leave blank to keep` : "";
+  }
   function setDraft(key: string, value: string) { drafts = { ...drafts, [key]: value }; }
   function message(cause: unknown) { return cause instanceof Error ? cause.message : "Settings could not be saved."; }
 
@@ -90,7 +94,7 @@
                 {#if control.secret}
                   <Field.Field>
                     <Field.Label for={`setting-${field.id}`}>{field.label}</Field.Label>
-                    <Input id={`setting-${field.id}`} type="password" autocomplete="new-password" value={String(drafts[field.key] ?? "")} disabled={pending} placeholder={configured(field.key) ? "Configured — leave blank to keep" : ""} oninput={(event) => setDraft(field.key, event.currentTarget.value)} />
+                    <Input id={`setting-${field.id}`} type="password" autocomplete="new-password" value={String(drafts[field.key] ?? "")} disabled={pending} placeholder={secretPlaceholder(field.key)} oninput={(event) => setDraft(field.key, event.currentTarget.value)} />
                     <Field.Description>{field.description ? `${field.description} ` : ""}{secretStorageNote}</Field.Description>
                   </Field.Field>
                 {:else if field.type === "boolean"}

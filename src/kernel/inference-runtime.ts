@@ -167,6 +167,10 @@ export interface InferenceContext extends InferenceInput {
   readonly execution: ExecutionContext;
   readonly actor: Actor;
   readonly tools: InferenceToolGateway;
+  /** Resolve a secret Workspace setting inside the trusted runtime. */
+  readonly resolveCredential?: (settingKey: string) => Promise<string | null>;
+  /** Read non-secret Workspace settings needed to configure a trusted provider adapter. */
+  readonly getSetting?: (settingKey: string) => Promise<JsonValue | null>;
 }
 
 /** Framework's single integration boundary for a complete inference run. */

@@ -62,7 +62,7 @@ separate package. Framework never imports YAIR.
 
 The optional `@jthum/yair-openai` package supplies a zero-SDK-dependency provider for OpenAI and
 OpenAI-compatible Chat Completions endpoints. Its base URL, headers, credential resolver, and
-streaming mode are host-configurable; provider secrets never enter Framework configuration.
+streaming mode are host-configurable; plaintext provider secrets never enter Framework configuration.
 
 ## Actors and Agent configuration
 
@@ -75,17 +75,21 @@ streaming mode are host-configurable; provider secrets never enter Framework con
 
 An Agent Actor has a persisted `AgentConfig` containing instructions, a selected `ModelConfig`, and
 tool-selection policy. `ModelConfig` stores a provider key, model key, optional provider settings,
-and an opaque `credentialRef`; the referenced secret stays in trusted host infrastructure.
+and an opaque `credentialRef` naming a secret Workspace setting. Framework stores its encrypted value in Workspace configuration and gives only the selected credential to the trusted inference runtime. The host supplies the encryption key.
 
-The compact creation path remains atomic:
+Create a reusable model selection, then create Agents against it. Agent identity, membership, and configuration are created atomically:
 
 ```ts
+const model = await kernel.createModelConfig(context, {
+  name: "Team provider · reasoning-model",
+  provider: "provider",
+  model: "reasoning-model",
+  credentialRef: "provider_api_key",
+});
 const planner = await kernel.createAgent(context, {
   name: "Planner",
   instructions: "Plan and prioritize the team's work.",
-  provider: "provider",
-  model: "reasoning-model",
-  credentialRef: "secret/provider/team",
+  modelConfigId: model.id,
   permissions: ["read", "create", "update"],
 });
 ```
