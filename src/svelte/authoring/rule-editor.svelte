@@ -384,20 +384,19 @@
 						{/if}
 					</Field.Group>
 				</Card.Content>
-				<Card.Footer>
-					<Field.Group class={cn("grid w-full gap-4", kind === "manual" ? "sm:grid-cols-2" : "sm:grid-cols-1")}>
-						{#if kind === "manual"}
-							<Field.Field orientation="horizontal"><Switch bind:checked={exposeUi} /><div><Field.Label class="font-normal">Record button</Field.Label><Field.Description>Show when a record is open.</Field.Description></div></Field.Field>
-						{/if}
-						<Field.Field orientation="horizontal"><Switch bind:checked={exposeAgent} /><div><Field.Label class="font-normal">Agent tool</Field.Label><Field.Description>Allow agent invocation.</Field.Description></div></Field.Field>
-					</Field.Group>
+				<Card.Footer class="flex-col items-stretch gap-4">
+					<p class="text-xs font-medium text-muted-foreground">Where this workflow can be started</p>
+					{#if kind === "manual"}
+						<Field.Field orientation="horizontal" class="items-center justify-between gap-4"><div><Field.Label>From a record</Field.Label><Field.Description>Show an action when the related record is open.</Field.Description></div><Switch bind:checked={exposeUi} aria-label="Show workflow on records" /></Field.Field>
+					{/if}
+					<Field.Field orientation="horizontal" class="items-center justify-between gap-4"><div><Field.Label>By an agent</Field.Label><Field.Description>Let agents run this workflow as a tool.</Field.Description></div><Switch bind:checked={exposeAgent} aria-label="Let agents run this workflow" /></Field.Field>
 					{#if exposeAgent}
-						<details class="mt-4 w-full border-t pt-3" open={Boolean(workflow.tool)}>
-							<summary class="cursor-pointer text-sm text-muted-foreground">Customize agent tool</summary>
-							<div class="mt-4 grid gap-4 sm:grid-cols-2">
-								<Field.Field><Field.Label>Tool name</Field.Label><Input bind:value={toolName} placeholder={workflow.key} /><Field.Description>Defaults to the Rule key. Use letters, numbers, _ or -.</Field.Description></Field.Field>
-								<Field.Field><Field.Label>Tool description</Field.Label><Input bind:value={toolDescription} placeholder={description || `Run ${label || workflow.label}`} /><Field.Description>Explain to the agent when to use it.</Field.Description></Field.Field>
-							</div>
+						<details class="w-full pl-1" open={Boolean(workflow.tool)}>
+							<summary class="w-fit cursor-pointer text-xs text-muted-foreground hover:text-foreground">Advanced tool details</summary>
+							<Field.Group class="mt-3 gap-3">
+								<Field.Field><Field.Label>Tool name</Field.Label><Input bind:value={toolName} placeholder={workflow.key} /><Field.Description>Defaults to the workflow key.</Field.Description></Field.Field>
+								<Field.Field><Field.Label>Tool description</Field.Label><Input bind:value={toolDescription} placeholder={description || `Run ${label || workflow.label}`} /><Field.Description>Explain when an agent should use it.</Field.Description></Field.Field>
+							</Field.Group>
 						</details>
 					{/if}
 				</Card.Footer>

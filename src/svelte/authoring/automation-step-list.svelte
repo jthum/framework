@@ -204,6 +204,13 @@
 		onStepsChange(steps.map((item, itemIndex) => (itemIndex === index ? step : item)));
 	}
 
+	function nextBranchKey(branches: Extract<RuleStep, { parallel: unknown }>["parallel"]["branches"]): string {
+		const used = new Set(branches.map((branch) => branch.key ?? branch.id));
+		let index = 1;
+		while (used.has(`branch_${index}`)) index += 1;
+		return `branch_${index}`;
+	}
+
 	function remove(index: number) {
 		onStepsChange(steps.filter((_, itemIndex) => itemIndex !== index));
 	}
@@ -752,14 +759,18 @@
 					<Field.Field><Field.Label>Continue when</Field.Label><OptionSelect value={step.parallel.join ?? "all"} onValueChange={(join) => replace(index, { ...step, parallel: { ...step.parallel, join: join as "all" | "any" } })} options={[{ value: "all", label: "All branches succeed" }, { value: "any", label: "At least one succeeds (after all finish)" }]} /></Field.Field>
 					{#each step.parallel.branches as branch, branchIndex (branchIndex)}
 						<div class="flex min-w-0 flex-col gap-3 rounded-xl bg-chart-4/4 p-3 ring-1 ring-chart-4/12">
-							<div class="flex items-center gap-2">
-								<Input class="max-w-52" value={branch.key ?? `branch_${branchIndex + 1}`} oninput={(event) => replace(index, { ...step, parallel: { ...step.parallel, branches: step.parallel.branches.map((item, itemIndex) => itemIndex === branchIndex ? { ...item, key: event.currentTarget.value || undefined } : item) } })} aria-label="Branch name" />
+							<div class="flex items-center gap-2 text-sm font-medium">
+								<span>Branch {branchIndex + 1}</span>
 								<Button class="ml-auto" size="icon-xs" variant="ghost" aria-label="Remove branch" disabled={step.parallel.branches.length === 1} onclick={() => replace(index, { ...step, parallel: { ...step.parallel, branches: step.parallel.branches.filter((_, itemIndex) => itemIndex !== branchIndex) } })}><Trash2Icon /></Button>
 							</div>
 							<AutomationStepList {actorRequests} {actorOptions} {effects} steps={branch.steps} onStepsChange={(childSteps) => replace(index, { ...step, parallel: { ...step.parallel, branches: step.parallel.branches.map((item, itemIndex) => itemIndex === branchIndex ? { ...item, steps: childSteps } : item) } })} {inputName} {inputType} {inputFields} {inputLabel} {recordInput} {types} {workflows} {spec} references={referencesBefore(index)} depth={depth + 1} />
+							<details class="text-xs text-muted-foreground">
+								<summary class="w-fit cursor-pointer hover:text-foreground">Advanced output settings</summary>
+								<Field.Field class="mt-3 max-w-xs"><Field.Label>Result variable</Field.Label><Input value={branch.key ?? branch.id ?? `branch_${branchIndex + 1}`} onblur={(event) => replace(index, { ...step, parallel: { ...step.parallel, branches: step.parallel.branches.map((item, itemIndex) => itemIndex === branchIndex ? { ...item, key: event.currentTarget.value.trim() || `branch_${branchIndex + 1}` } : item) } })} aria-label={`Branch ${branchIndex + 1} result variable`} /><Field.Description>Use this name to reference this branch’s values after the join.</Field.Description></Field.Field>
+							</details>
 						</div>
 					{/each}
-					<Button variant="ghost" size="sm" class="w-fit" onclick={() => replace(index, { ...step, parallel: { ...step.parallel, branches: [...step.parallel.branches, { key: `branch_${step.parallel.branches.length + 1}`, steps: [] }] } })}><PlusIcon data-icon="inline-start" /> Add branch</Button>
+					<Button variant="ghost" size="sm" class="w-fit" onclick={() => replace(index, { ...step, parallel: { ...step.parallel, branches: [...step.parallel.branches, { key: nextBranchKey(step.parallel.branches), steps: [] }] } })}><PlusIcon data-icon="inline-start" /> Add branch</Button>
 				</div>
 			{:else if "wait" in step}
 				<div class="flex min-w-0 flex-col gap-4">
