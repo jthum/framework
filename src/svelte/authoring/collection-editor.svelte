@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { toastError } from "../internal/error-presentation.ts";
+	import { invalidInput } from "../../errors/error.ts";
 	import { fieldKindHint, fieldKindLabel } from "./editor-labels.js";
 	import type { CollectionActions, EditorContext } from "./authoring.js";
 	import {
@@ -207,7 +209,7 @@
 			toast.success("Technical key renamed");
 			await onOpen(key);
 		} catch (error) {
-			toast.error(error instanceof Error ? error.message : "Could not rename the collection key");
+			toastError(error, "Could not rename the collection key");
 		} finally {
 			typeKeyPending = false;
 		}
@@ -349,11 +351,11 @@
 				: uniqueKey(baseKey, type.fields.map((field) => field.key), "field");
 		if (!key) return;
 		if (fieldType === "reference" && !fieldTarget) {
-				toast.error("Pick a collection to link to");
+			toastError(invalidInput("Pick a collection to link to."), "The field is invalid.");
 			return;
 		}
 		if (fieldType === "enum" && fieldChoices.length === 0) {
-			toast.error("Add at least one choice");
+			toastError(invalidInput("Add at least one choice."), "The field is invalid.");
 			return;
 		}
 		fieldPending = true;
@@ -419,7 +421,7 @@
 			sheetOpen = false;
 			toast.success(editing ? "Field saved" : "Field added");
 		} catch (error) {
-			toast.error(error instanceof Error ? error.message : "Could not save field");
+			toastError(error, "Could not save field");
 		} finally {
 			fieldPending = false;
 		}
@@ -475,7 +477,7 @@
 			removeKey = null;
 			toast.success("Field removed");
 		} catch (error) {
-			toast.error(error instanceof Error ? error.message : "Could not remove field");
+			toastError(error, "Could not remove field");
 		}
 	}
 
@@ -485,7 +487,7 @@
 			toast.success("Collection removed");
 			await onDeleted();
 		} catch (error) {
-			toast.error(error instanceof Error ? error.message : "Could not remove collection");
+			toastError(error, "Could not remove collection");
 		}
 	}
 

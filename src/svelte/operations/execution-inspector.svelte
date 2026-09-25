@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { invalidInput } from "../../errors/error.ts";
+  import { presentError, type PresentedError } from "../internal/error-presentation.ts";
+  import ErrorMessage from "../internal/error-message.svelte";
   import type { ActorRequest, RuleExecutionDetails } from "@jthum/framework/kernel";
   import type { RuleExecutionClient } from "@jthum/framework/client";
   import * as Card from "../ui/card/index.js";
@@ -21,20 +24,22 @@
     referenceInput?: ReferenceInput;
   } = $props();
   let pending = $state(false);
-  let error = $state("");
+  let error = $state<PresentedError | null>(null);
   let payload = $state("{}");
   let confirming = $state(false);
   async function perform(work: () => Promise<unknown>) {
     if (pending) return;
-    pending = true; error = "";
+    pending = true; error = null;
     try { await work(); }
-    catch (cause) { error = cause instanceof Error ? cause.message : "Unable to update this run."; }
+    catch (cause) { error = presentError(cause, "Unable to update this run."); }
     finally { await onChange().catch(() => {}); pending = false; }
   }
   async function resume() {
     await perform(async () => {
-      const parsed = JSON.parse(payload);
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Signal payload must be a JSON object.");
+      let parsed: unknown;
+      try { parsed = JSON.parse(payload); }
+      catch { throw invalidInput("Signal payload must be valid JSON."); }
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw invalidInput("Signal payload must be a JSON object.");
       await client.resumeRule(execution.id, execution.waiting?.signal ? { signal: execution.waiting.signal, payload: parsed } : {});
     });
   }
@@ -57,7 +62,7 @@
     <Card.Footer class="justify-end"><Button variant="outline" disabled={pending} onclick={() => perform(onChange)}>{#if pending}<Spinner data-icon="inline-start" />{/if}Refresh</Button></Card.Footer>
   </Card.Root>
 
-  {#if error}<Alert.Root variant="destructive"><Alert.Title>Run could not be updated</Alert.Title><Alert.Description>{error}</Alert.Description></Alert.Root>{/if}
+  {#if error}<Alert.Root variant="destructive"><Alert.Title>Run could not be updated</Alert.Title><Alert.Description><ErrorMessage {error} /></Alert.Description></Alert.Root>{/if}
   {#if execution.failure}<Alert.Root variant="destructive"><Alert.Title>Why this run stopped</Alert.Title><Alert.Description>{execution.failure}</Alert.Description></Alert.Root>{/if}
   {#if execution.status === "completed" && execution.result !== undefined}
     <Card.Root>

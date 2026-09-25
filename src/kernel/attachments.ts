@@ -261,7 +261,7 @@ export class AttachmentService {
   ): Promise<RecordQueryResult> {
     if (!this.records.query)
       throw new FrameworkError({
-        code: "SOURCE.CAPABILITY_UNSUPPORTED",
+        code: ERROR_CODES.sourceCapabilityUnsupported,
         message: "This RecordStore does not execute queries.",
       });
     const { attachment, collection } = await this.resolve(context, key, "records.list");

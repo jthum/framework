@@ -13,6 +13,7 @@ export const ERROR_CODES = {
   resourceConflict: "RESOURCE.CONFLICT",
   resourceNotFound: "RESOURCE.NOT_FOUND",
   specInvalid: "SPEC.INVALID",
+  sourceCapabilityUnsupported: "SOURCE.CAPABILITY_UNSUPPORTED",
   validationInvalidInput: "VALIDATION.INVALID_INPUT",
 } as const;
 
@@ -72,4 +73,12 @@ export function resourceNotFound(kind: string, id: string): FrameworkError {
 
 export function resourceConflict(message: string): FrameworkError {
   return new FrameworkError({ code: ERROR_CODES.resourceConflict, message });
+}
+
+export function invalidInput(message: string, issues?: readonly ValidationIssue[]): FrameworkError {
+  return new FrameworkError({
+    code: ERROR_CODES.validationInvalidInput,
+    message,
+    ...(issues?.length ? { issues } : {}),
+  });
 }

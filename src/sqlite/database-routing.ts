@@ -351,7 +351,7 @@ export async function routeDatabases(
             const database = target.databaseHandle;
             if (!database.name)
               throw new FrameworkError({
-                code: "SOURCE.CAPABILITY_UNSUPPORTED",
+                code: ERROR_CODES.sourceCapabilityUnsupported,
                 message: "A routed SQLite database cannot be attached by name.",
               });
             let item = external.get(database);

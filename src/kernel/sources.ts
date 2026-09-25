@@ -199,7 +199,7 @@ export class SourceService implements SourceProvider {
       }
       if (this.records.queryMode !== "in-memory")
         throw new FrameworkError({
-          code: "SOURCE.CAPABILITY_UNSUPPORTED",
+          code: ERROR_CODES.sourceCapabilityUnsupported,
           message: "This RecordStore does not execute this Source query.",
         });
       const records = await this.policies.filter(
@@ -225,7 +225,7 @@ export class SourceService implements SourceProvider {
     }
     if (this.records.queryMode !== "in-memory")
       throw new FrameworkError({
-        code: "SOURCE.CAPABILITY_UNSUPPORTED",
+        code: ERROR_CODES.sourceCapabilityUnsupported,
         message: "This RecordStore does not execute attached Source queries.",
       });
     const records = await this.attachments.listRecords(context, key);
@@ -411,7 +411,7 @@ export class SourceService implements SourceProvider {
         const reference = parent?.fields.find((field) => field.id === prefix.at(-1));
         if (!reference || reference.type !== "reference")
           throw new FrameworkError({
-            code: "VALIDATION.INVALID_INPUT",
+            code: ERROR_CODES.validationInvalidInput,
             message: "Only declared reference Fields may be traversed.",
           });
         const local = workspace.spec.collections.find((item) => item.id === reference.sourceId);
@@ -495,7 +495,7 @@ function sourceRow(record: CollectionRecord): SourceRow {
 function rejectRelationPaths(query: SourceQueryDefinition): void {
   if (queryPaths(query).some((path) => path.length > 1)) {
     throw new FrameworkError({
-      code: "SOURCE.CAPABILITY_UNSUPPORTED",
+      code: ERROR_CODES.sourceCapabilityUnsupported,
       message: "Attached Sources do not expose related Collections implicitly.",
     });
   }

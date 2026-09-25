@@ -89,7 +89,7 @@ export function parseFieldInputs(
       else values[field.key] = raw;
     } catch {
       if (strict)
-        throw new Error(
+        throw invalidInput(
           `${field.label}: enter a valid ${field.type === "reference" ? "JSON array of record IDs" : field.type} value.`,
         );
     }
@@ -102,3 +102,4 @@ function localDateTime(value: string): string {
     ? value
     : new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 23);
 }
+import { invalidInput } from "../../errors/error.ts";

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { toastError } from "../internal/error-presentation.ts";
 	import OptionSelect from "../ui/option-select/option-select.svelte";
 	import { Badge } from "@jthum/framework/svelte/ui/badge";
 	import { Button } from "@jthum/framework/svelte/ui/button";
@@ -102,7 +103,7 @@
 			editing = false;
 			toast.success("Lifecycle saved");
 		} catch (error) {
-			toast.error(error instanceof Error ? error.message : String(error));
+			toastError(error, "Could not save the lifecycle.");
 		} finally {
 			pending = false;
 		}

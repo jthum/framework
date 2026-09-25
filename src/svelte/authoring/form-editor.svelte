@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { toastError } from "../internal/error-presentation.ts";
 	import {
 		reorderAtVerticalTarget,
 		startVerticalDrag,
@@ -242,7 +243,7 @@
 			await actions.save(cloneData(draft));
 			toast.success("Form saved");
 		} catch (error) {
-			toast.error(error instanceof Error ? error.message : "Could not save form");
+			toastError(error, "Could not save form");
 		}
 	}
 
@@ -251,7 +252,7 @@
 			if (dirty) await actions.save(cloneData(draft));
 			await onCreateRule(cloneData(draft));
 		} catch (error) {
-			toast.error(error instanceof Error ? error.message : "Could not add automation");
+			toastError(error, "Could not add automation");
 		}
 	}
 

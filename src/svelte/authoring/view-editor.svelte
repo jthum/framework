@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { presentError, type PresentedError } from "../internal/error-presentation.ts";
+	import ErrorMessage from "../internal/error-message.svelte";
 	import {
 		reorderAtVerticalTarget,
 		startVerticalDrag,
@@ -585,7 +587,7 @@
 	}
 
 	let preview = $state<Array<Record<string, unknown>> | null>(null);
-	let previewError = $state("");
+	let previewError = $state<PresentedError | null>(null);
 	const previewView = $derived(
 		({
 			...view,
@@ -617,14 +619,14 @@
 			Object.entries(previewExpose).filter(([, value]) => value !== ""),
 		);
 		preview = null;
-		previewError = "";
+		previewError = null;
 		let cancelled = false;
 		const timer = setTimeout(() => {
 			void actions.query(draft, extra)
 				.then((rows) => {
 					if (!cancelled) preview = rows;
 				}).catch((error: unknown) => {
-					if (!cancelled) previewError = error instanceof Error ? error.message : "Could not load preview";
+					if (!cancelled) previewError = presentError(error, "Could not load preview");
 				});
 		}, 150);
 		return () => {
@@ -1208,7 +1210,7 @@
 						</p>
 					{/if}
 					{#if previewError}
-						<p role="alert" class="text-sm text-destructive">{previewError}</p>
+						<ErrorMessage error={previewError} />
 					{:else}
 						{@render previewContent({ rows: preview, view: previewView, exposedFields: previewExposeFields, exposedValues: previewExpose, onFiltersChange: values => { previewExpose = values; } })}
 					{/if}

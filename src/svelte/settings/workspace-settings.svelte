@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { invalidInput } from "../../errors/error.ts";
+	import { presentError, type PresentedError } from "../internal/error-presentation.ts";
+	import ErrorMessage from "../internal/error-message.svelte";
 	import type { WorkspaceClient } from "../../client/workspace-client.ts";
 	import type { SettingSummary } from "../../kernel/workspace-config-service.ts";
 	import { Button } from "../ui/button/index.js";
@@ -16,7 +19,7 @@
 	let valueIsJson = $state(false);
 	let secret = $state(false);
 	let pending = $state(false);
-	let error = $state("");
+	let error = $state<PresentedError | null>(null);
 	let loadedClient: WorkspaceClient | undefined;
 
 	$effect(() => {
@@ -29,7 +32,7 @@
 
 	async function refresh(current: WorkspaceClient) {
 		try { settings = await current.listSettings(); }
-		catch (cause) { error = message(cause); }
+		catch (cause) { error = presentError(cause, "Settings could not be loaded."); }
 	}
 
 	function edit(setting?: SettingSummary) {
@@ -40,16 +43,20 @@
 		secret = setting?.secret ?? false;
 		valueIsJson = !setting?.secret && setting?.value !== undefined && setting.value !== null && typeof setting.value !== "string";
 		value = setting?.secret ? "" : typeof setting?.value === "string" ? setting.value : setting?.value === undefined || setting.value === null ? "" : JSON.stringify(setting.value);
-		error = "";
+		error = null;
 	}
 
 	async function save() {
 		if (!client || !key.trim() || !label.trim() || pending) return;
-		if (reservedKeys.includes(key.trim())) { error = "This setting is managed by the app."; return; }
+		if (reservedKeys.includes(key.trim())) { error = presentError(invalidInput("This setting is managed by the app."), "The setting could not be saved."); return; }
 		pending = true;
-		error = "";
+		error = null;
 		try {
-			const storedValue = valueIsJson && !secret ? JSON.parse(value) : value;
+			let storedValue: unknown = value;
+			if (valueIsJson && !secret) {
+				try { storedValue = JSON.parse(value); }
+				catch { throw invalidInput("Setting value must be valid JSON."); }
+			}
 			await client.putSetting({
 				key: key.trim(), label: label.trim(),
 				...(category.trim() ? { category: category.trim() } : {}),
@@ -57,24 +64,23 @@
 			});
 			await refresh(client);
 			selected = null;
-		} catch (cause) { error = message(cause); }
+		} catch (cause) { error = presentError(cause, "The setting could not be saved."); }
 		finally { pending = false; }
 	}
 
 	async function remove() {
 		if (!client || !selected || pending) return;
-		if (reservedKeys.includes(selected)) { error = "This setting is managed by the app."; return; }
+		if (reservedKeys.includes(selected)) { error = presentError(invalidInput("This setting is managed by the app."), "The setting could not be removed."); return; }
 		pending = true;
-		error = "";
+		error = null;
 		try {
 			await client.deleteSetting(selected);
 			await refresh(client);
 			selected = null;
-		} catch (cause) { error = message(cause); }
+		} catch (cause) { error = presentError(cause, "The setting could not be removed."); }
 		finally { pending = false; }
 	}
 
-	function message(cause: unknown) { return cause instanceof Error ? cause.message : "The setting could not be saved."; }
 	function displayValue(value: SettingSummary["value"]) {
 		if (value === undefined || value === null) return "Not set";
 		return typeof value === "string" ? value : JSON.stringify(value);
@@ -130,12 +136,12 @@
 					<Input id="workspace-setting-value" type={secret ? "password" : "text"} bind:value={value} disabled={pending} />
 					{#if valueIsJson && !secret}<Field.Description>This value is JSON; edits must remain valid JSON.</Field.Description>{/if}
 			</Field.Field>
-			{#if error}<Field.Error>{error}</Field.Error>{/if}
+			{#if error}<Field.Error><ErrorMessage {error} /></Field.Error>{/if}
 			<div class="flex justify-between gap-2">
 				{#if selected}<Button type="button" size="sm" variant="destructive" disabled={pending} onclick={remove}>Delete</Button>{:else}<span></span>{/if}
 				<div class="flex gap-2"><Button type="button" size="sm" variant="outline" onclick={() => selected = null}>Cancel</Button><Button type="button" size="sm" disabled={pending || !key.trim() || !label.trim()} onclick={save}>Save setting</Button></div>
 			</div>
 		</Field.Group>
 	{/if}
-	{#if error && selected === null}<p class="text-sm text-destructive">{error}</p>{/if}
+	{#if error && selected === null}<ErrorMessage {error} />{/if}
 </Field.Set>

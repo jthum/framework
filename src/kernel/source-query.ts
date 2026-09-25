@@ -1,4 +1,4 @@
-import { FrameworkError } from "../errors/error.ts";
+import { ERROR_CODES, FrameworkError } from "../errors/error.ts";
 import type { RecordQueryRelation, RecordValues } from "../persistence/records.ts";
 import type {
   CollectionDefinition,
@@ -555,9 +555,9 @@ function pathKey(path: readonly string[]): string {
 }
 
 function invalidQuery(message: string): FrameworkError {
-  return new FrameworkError({ code: "VALIDATION.INVALID_INPUT", message });
+  return new FrameworkError({ code: ERROR_CODES.validationInvalidInput, message });
 }
 
 function unsupported(message: string): FrameworkError {
-  return new FrameworkError({ code: "SOURCE.CAPABILITY_UNSUPPORTED", message });
+  return new FrameworkError({ code: ERROR_CODES.sourceCapabilityUnsupported, message });
 }

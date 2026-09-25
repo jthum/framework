@@ -1,3 +1,4 @@
+import { ERROR_CODES, FrameworkError } from "../errors/error.ts";
 import type { EncryptedSecret, SecretCipher } from "./workspace-config.ts";
 
 /** Seals Workspace secrets with an environment-supplied AES-GCM key. */
@@ -20,7 +21,10 @@ export function createAesGcmSecretCipher(loadKey: () => Promise<CryptoKey>): Sec
     },
     async decrypt(value, workspaceId, settingKey): Promise<string> {
       if (value.version !== 1 || value.algorithm !== "AES-GCM")
-        throw new Error("Unsupported secret encryption envelope.");
+        throw new FrameworkError({
+          code: ERROR_CODES.persistenceUnsupported,
+          message: "This secret uses an unsupported encryption format.",
+        });
       const plaintext = await crypto.subtle.decrypt(
         {
           name: "AES-GCM",

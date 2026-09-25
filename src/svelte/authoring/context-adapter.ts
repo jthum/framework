@@ -132,7 +132,7 @@ function sourceDraft(
 function lifecycleDraft(collection: CollectionDefinition, fieldId: string): LifecycleDraft {
   const lifecycle = collection.lifecycle!;
   const field = collection.fields.find((candidate) => candidate.id === fieldId);
-  if (!field) throw new Error(`Lifecycle Field ${fieldId} is unavailable.`);
+  if (!field) throw resourceNotFound("Lifecycle Field", fieldId);
   return {
     field: field.key,
     initial: lifecycle.initial,
@@ -146,3 +146,4 @@ function lifecycleDraft(collection: CollectionDefinition, fieldId: string): Life
     })),
   };
 }
+import { resourceNotFound } from "@jthum/framework/errors";

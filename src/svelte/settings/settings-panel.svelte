@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { invalidInput } from "../../errors/error.ts";
+  import { presentError, type PresentedError } from "../internal/error-presentation.ts";
+  import ErrorMessage from "../internal/error-message.svelte";
   import type { WorkspaceClient } from "../../client/workspace-client.ts";
   import type { SettingSummary } from "../../kernel/workspace-config-service.ts";
   import { Button } from "../ui/button/index.js";
@@ -20,7 +23,7 @@
   let drafts = $state<Record<string, string | string[]>>({});
   let activeTab = $state("");
   let pending = $state(false);
-  let error = $state("");
+  let error = $state<PresentedError | null>(null);
   $effect(() => {
     if (!client) return;
     const currentControls = controls;
@@ -39,8 +42,8 @@
         const stored = next.find((setting) => setting.key === field.key);
         return [field.key, secret ? "" : settingDraft(field, stored?.value)];
       }));
-      error = "";
-    } catch (cause) { error = message(cause); }
+      error = null;
+    } catch (cause) { error = presentError(cause, "Settings could not be loaded."); }
   }
 
   function configured(key: string) { return settings.find((setting) => setting.key === key)?.configured ?? false; }
@@ -49,18 +52,17 @@
     return setting?.configured ? `${setting.maskedValue ?? "••••"} — leave blank to keep` : "";
   }
   function setDraft(key: string, value: string) { drafts = { ...drafts, [key]: value }; }
-  function message(cause: unknown) { return cause instanceof Error ? cause.message : "Settings could not be saved."; }
 
   async function save() {
     if (!client || pending) return;
     pending = true;
-    error = "";
+    error = null;
     try {
       const updates = controls.map(({ field, secret }) => {
         const raw = drafts[field.key] ?? "";
         if (secret) {
-          if (typeof raw !== "string") throw new Error(`${field.label} must be text.`);
-          if (field.required && !raw && !configured(field.key)) throw new Error(`${field.label} is required.`);
+          if (typeof raw !== "string") throw invalidInput(`${field.label} must be text.`);
+          if (field.required && !raw && !configured(field.key)) throw invalidInput(`${field.label} is required.`);
           if (raw) parseSettingDraft(field, raw);
           return { key: field.key, label: field.label, secret: true as const, ...(raw ? { value: raw } : {}) };
         }
@@ -68,7 +70,7 @@
       });
       for (const update of updates) await client.putSetting(update);
       await refresh(client);
-    } catch (cause) { error = message(cause); }
+    } catch (cause) { error = presentError(cause, "Settings could not be saved."); }
     finally { pending = false; }
   }
 </script>
@@ -114,7 +116,7 @@
         {/each}
       </Tabs.Content>
     {/each}
-    {#if error}<Field.Error>{error}</Field.Error>{/if}
+    {#if error}<Field.Error><ErrorMessage {error} /></Field.Error>{/if}
     <div class="flex justify-end"><Button type="button" disabled={pending || !client} onclick={save}>{#if pending}<Spinner data-icon="inline-start" />{/if}Save settings</Button></div>
   </Tabs.Root>
 {/if}

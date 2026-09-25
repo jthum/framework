@@ -1,4 +1,5 @@
 import { nanoid } from "nanoid";
+import { resourceNotFound } from "@jthum/framework/errors";
 import type { FormDefinition, Spec } from "@jthum/framework/spec";
 import type { CollectionDraft, FieldDraft, FormDraft } from "./authoring.js";
 import { labelFromKey } from "./editor-data.js";
@@ -27,14 +28,14 @@ export function formDraftFromDefinition(
       inputs: form.fields.map((field) => fieldDraftFromDefinition(field, form.fields, sources)),
     };
   const collection = spec.collections.find((candidate) => candidate.id === form.collectionId);
-  if (!collection) throw new Error(`Form Collection ${form.collectionId} is unavailable.`);
+  if (!collection) throw resourceNotFound("Form Collection", form.collectionId);
   return {
     ...identity,
     mode: form.mode,
     type: collection.key,
     fields: form.fieldIds.map((id) => {
       const field = collection.fields.find((candidate) => candidate.id === id);
-      if (!field) throw new Error(`Form Field ${id} is unavailable.`);
+      if (!field) throw resourceNotFound("Form Field", id);
       return field.key;
     }),
   };
@@ -74,14 +75,14 @@ export function formDefinitionFromDraft(
     };
   }
   const collection = spec.collections.find((candidate) => candidate.key === draft.type);
-  if (!collection) throw new Error(`Form Collection ${draft.type ?? ""} is unavailable.`);
+  if (!collection) throw resourceNotFound("Form Collection", draft.type ?? "");
   return {
     ...identity,
     mode: draft.mode,
     collectionId: collection.id,
     fieldIds: (draft.fields ?? []).map((key) => {
       const field = collection.fields.find((candidate) => candidate.key === key);
-      if (!field) throw new Error(`Form Field ${key} is unavailable.`);
+      if (!field) throw resourceNotFound("Form Field", key);
       return field.id;
     }),
   };

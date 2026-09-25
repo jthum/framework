@@ -224,9 +224,12 @@ function terminalWithUsage(
 
 function errorEnvelope(error: unknown): ErrorEnvelope {
   if (error instanceof FrameworkError) return error.toEnvelope();
+  const errorId = crypto.randomUUID();
+  console.error(`Unexpected inference error ${errorId}`, error);
   return {
     code: ERROR_CODES.internalUnexpected,
-    message: error instanceof Error ? error.message : "Tool execution failed.",
+    message: "An unexpected inference error occurred.",
+    errorId,
   };
 }
 

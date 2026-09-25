@@ -1,4 +1,4 @@
-import { FrameworkError } from "../errors/error.ts";
+import { ERROR_CODES, FrameworkError } from "../errors/error.ts";
 import type { RecordQueryRelation, RecordQueryResult } from "../persistence/records.ts";
 import type {
   CollectionDefinition,
@@ -233,7 +233,7 @@ function quote(value: string): string {
 
 function invalidPath(): FrameworkError {
   return new FrameworkError({
-    code: "VALIDATION.INVALID_INPUT",
+    code: ERROR_CODES.validationInvalidInput,
     message: "Relationship path contains an unknown Field or Source.",
   });
 }

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { toastError } from "../internal/error-presentation.ts";
 	import { startVerticalDrag, type VerticalDragSession } from "./vertical-drag.ts";
 	import NameDialog from "../ui/name-dialog/name-dialog.svelte";
 	import PageHeader from "../ui/page-header/page-header.svelte";
@@ -145,7 +146,7 @@
 			toast.success("Page added");
 			await openPage(created, true);
 		} catch (cause) {
-			toast.error(cause instanceof Error ? cause.message : "Couldn't save the page");
+			toastError(cause, "Couldn't save the page");
 		} finally {
 			pending = false;
 		}
@@ -235,7 +236,7 @@
 				try { await replacePages(next); }
 				catch (cause) {
 					orderedPages = dragOrigin;
-					toast.error(cause instanceof Error ? cause.message : "Couldn't reorder pages");
+					toastError(cause, "Couldn't reorder pages");
 				}
 			},
 			onCancel: () => {

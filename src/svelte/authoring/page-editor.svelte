@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { toastError } from "../internal/error-presentation.ts";
+	import { invalidInput, resourceConflict, resourceNotFound } from "../../errors/error.ts";
 	import type { Snippet } from "svelte";
 	import PageHeader from "../ui/page-header/page-header.svelte";
 	import BlockPicker from "./block-picker.svelte";
@@ -107,7 +109,7 @@
 		}
 	});
 
-	async function persist(next: readonly PageLayoutNode[]): Promise<boolean> {
+	async function persist(next: readonly PageLayoutNode[], reportError = true): Promise<boolean> {
 		if (pending) return false;
 		const previous = draft;
 		const pageId = current.id;
@@ -120,7 +122,8 @@
 			return true;
 		} catch (err) {
 			if (current.id === pageId) draft = previous;
-			toast.error(err instanceof Error ? err.message : "Couldn't save the page");
+			if (!reportError) throw err;
+			toastError(err, "Couldn't save the page");
 			return false;
 		} finally {
 			pending = false;
@@ -183,11 +186,11 @@
 	}
 
 	async function saveBlock(config: SpecMeta) {
-		if (!editingPath) throw new Error("This block is no longer on the page.");
+		if (!editingPath) throw resourceNotFound("Block", editingId ?? "");
 		const currentBlock = blockAt(live, editingPath);
-		if (currentBlock?.kind !== "block") throw new Error("Select a Block to configure.");
-		if (!await persist(setBlock(live, editingPath, { ...currentBlock, config }))) {
-			throw new Error("The block could not be saved. Please try again.");
+		if (currentBlock?.kind !== "block") throw invalidInput("Select a Block to configure.");
+		if (!await persist(setBlock(live, editingPath, { ...currentBlock, config }), false)) {
+			throw resourceConflict("Another page change is being saved. Please try again.");
 		}
 		editingId = null;
 	}

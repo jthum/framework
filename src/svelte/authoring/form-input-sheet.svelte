@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { toastError } from "../internal/error-presentation.ts";
 	import OptionSelect from "../ui/option-select/option-select.svelte";
 	import FieldConditionControl from "./field-condition-control.svelte";
 	import StatusPill from "./status-pill.svelte";
@@ -166,7 +167,7 @@
 	function remove() {
 		if (!input) return;
 		try { onRemove(input); open = false; }
-		catch (error) { toast.error(error instanceof Error ? error.message : "Unable to remove field."); }
+		catch (error) { toastError(error, "Unable to remove field."); }
 	}
 	function save() {
 		if (!canSave) return;
@@ -222,7 +223,7 @@
 			open = false;
 			initialized = "";
 		} catch (error) {
-			toast.error(error instanceof Error ? error.message : "Could not save input");
+			toastError(error, "Could not save input");
 		}
 	}
 </script>

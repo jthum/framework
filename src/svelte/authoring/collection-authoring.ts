@@ -1,4 +1,5 @@
 import { nanoid } from "nanoid";
+import { invalidInput, resourceConflict, resourceNotFound } from "@jthum/framework/errors";
 import type { WorkspaceClient } from "@jthum/framework/client";
 import type {
   CollectionDefinition,
@@ -34,7 +35,7 @@ export async function createCollection(
 ): Promise<CollectionDefinition> {
   const workspace = await client.getWorkspace();
   if (workspace.spec.collections.some((collection) => collection.key === input.key))
-    throw new Error(`Collection key ${input.key} is already in use.`);
+    throw resourceConflict(`Collection key ${input.key} is already in use.`);
   const identity: CollectionDraft = {
     ...input,
     id: input.id ?? nanoid(),
@@ -111,7 +112,7 @@ export function createCollectionActions(
     rename: (key, next) =>
       change((spec) => {
         if (spec.collections.some((collection) => collection.key === next))
-          throw new Error(`Collection key ${next} is already in use.`);
+          throw resourceConflict(`Collection key ${next} is already in use.`);
         return {
           ...spec,
           collections: spec.collections.map((collection) =>
@@ -126,7 +127,7 @@ export function createCollectionActions(
         collections: spec.collections.map((collection) => {
           if (collection.key !== collectionKey) return collection;
           if (collection.fields.some((field) => field.key === next))
-            throw new Error(`Field key ${next} is already in use.`);
+            throw resourceConflict(`Field key ${next} is already in use.`);
           return {
             ...collection,
             fields: collection.fields.map((field) =>
@@ -170,7 +171,7 @@ export function createCollectionActions(
         const collection = requireCollection(spec, collectionKey);
         const byKey = new Map(collection.fields.map((field) => [field.key, field]));
         if (keys.length !== collection.fields.length || keys.some((key) => !byKey.has(key)))
-          throw new Error("Field order must contain every Collection Field exactly once.");
+          throw invalidInput("Field order must contain every Collection Field exactly once.");
         return replaceCollection(spec, collectionKey, {
           ...collection,
           fields: keys.map((key) => byKey.get(key)!),
@@ -180,7 +181,7 @@ export function createCollectionActions(
       change((spec) => {
         const collection = requireCollection(spec, collectionKey);
         const field = collection.fields.find((candidate) => candidate.key === key);
-        if (!field) throw new Error(`Field ${key} is unavailable.`);
+        if (!field) throw resourceNotFound("Field", key);
         return replaceCollection(spec, collectionKey, {
           ...collection,
           fields: removeFieldDefinition(collection.fields, field.id),
@@ -196,7 +197,7 @@ export function createCollectionActions(
 
 function requireCollection(spec: Spec, key: string): CollectionDefinition {
   const collection = spec.collections.find((candidate) => candidate.key === key);
-  if (!collection) throw new Error(`Collection ${key} is unavailable.`);
+  if (!collection) throw resourceNotFound("Collection", key);
   return collection;
 }
 
@@ -214,7 +215,7 @@ function lifecycleDefinition(
   collection: CollectionDefinition,
 ): CollectionLifecycleDefinition {
   const field = collection.fields.find((candidate) => candidate.key === draft.field);
-  if (!field) throw new Error(`Lifecycle Field ${draft.field} is unavailable.`);
+  if (!field) throw resourceNotFound("Lifecycle Field", draft.field);
   return {
     fieldId: field.id,
     initial: draft.initial,

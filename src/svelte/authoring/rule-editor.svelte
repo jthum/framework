@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { toastError } from "../internal/error-presentation.ts";
 	import AutomationPredicateEditor from "./automation-predicate-editor.svelte";
 	import AutomationStepList from "./automation-step-list.svelte";
 	import AutomationValueMapEditor from "./automation-value-map-editor.svelte";
@@ -263,7 +264,7 @@
 			await actions.save(cloneData(draft));
 			toast.success("Saved");
 		} catch (error) {
-			toast.error(error instanceof Error ? error.message : "Could not save workflow");
+			toastError(error, "Could not save workflow");
 		} finally {
 			saving = false;
 		}

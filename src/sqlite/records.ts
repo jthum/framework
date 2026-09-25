@@ -1,4 +1,9 @@
-import { FrameworkError, resourceConflict, resourceNotFound } from "../errors/error.ts";
+import {
+  ERROR_CODES,
+  FrameworkError,
+  resourceConflict,
+  resourceNotFound,
+} from "../errors/error.ts";
 import type { CollectionRecord, RecordQueryRelation, RecordStore } from "../persistence/records.ts";
 import type {
   CollectionDefinition,
@@ -244,7 +249,7 @@ export class SqliteRecordStore implements RecordStore {
           ]);
         } catch {
           throw new FrameworkError({
-            code: "SOURCE.CAPABILITY_UNSUPPORTED",
+            code: ERROR_CODES.sourceCapabilityUnsupported,
             message: "This SQLite connection cannot attach a related record database.",
           });
         }

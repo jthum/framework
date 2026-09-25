@@ -1,4 +1,5 @@
 import { nanoid } from "nanoid";
+import { invalidInput, resourceConflict, resourceNotFound } from "@jthum/framework/errors";
 import type { FieldCondition, FieldDefinition, JsonValue } from "@jthum/framework/spec";
 import {
   VALUE_SEMANTICS,
@@ -28,7 +29,9 @@ export function removeFieldDefinition(
       field.behavior?.requiredWhen,
     ];
     if (checks.some((check) => check && uses(check)))
-      throw new Error(`Update ${field.label}'s conditional checks before removing this field.`);
+      throw resourceConflict(
+        `Update ${field.label}'s conditional checks before removing this field.`,
+      );
   }
   return remaining;
 }
@@ -40,13 +43,13 @@ export function fieldDraftFromDefinition(
   sources: readonly CollectionDraft[],
 ): FieldDraft {
   if (field.type === "json")
-    throw new Error("The shared field sheet does not yet edit JSON fields.");
+    throw invalidInput("The shared field sheet does not yet edit JSON fields.");
   const condition = (value: FieldCondition): DraftCondition => {
     if ("all" in value) return { all: value.all.map(condition) };
     if ("any" in value) return { any: value.any.map(condition) };
     if ("not" in value) return { not: condition(value.not) };
     const sibling = siblings.find((item) => item.id === value.fieldId);
-    if (!sibling) throw new Error(`Conditional Field ${value.fieldId} is unavailable.`);
+    if (!sibling) throw resourceNotFound("Conditional Field", value.fieldId);
     return {
       field: sibling.key,
       op: value.operator === "notEmpty" ? "not_empty" : value.operator,
@@ -134,9 +137,9 @@ export function fieldDefinitionFromDraft(
     if ("any" in value) return { any: value.any.map(condition) };
     if ("not" in value) return { not: condition(value.not) };
     const sibling = siblings.find((item) => item.key === value.field);
-    if (!sibling) throw new Error(`Conditional Field ${value.field} is unavailable.`);
+    if (!sibling) throw resourceNotFound("Conditional Field", value.field);
     if (value.op === "in") {
-      if (!Array.isArray(value.value)) throw new Error("The in condition requires a list.");
+      if (!Array.isArray(value.value)) throw invalidInput("The in condition requires a list.");
       return {
         any: value.value.map((item) => ({
           fieldId: sibling.id,
@@ -213,7 +216,7 @@ export function fieldDefinitionFromDraft(
     const sourceId =
       sources.find((source) => source.key === draft.target)?.id ??
       (sameType && previous.type === "reference" && !draft.target ? previous.sourceId : undefined);
-    if (!sourceId) throw new Error(`Reference Source ${draft.target ?? ""} is unavailable.`);
+    if (!sourceId) throw resourceNotFound("Reference Source", draft.target ?? "");
     return {
       ...base,
       type,

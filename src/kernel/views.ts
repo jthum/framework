@@ -6,7 +6,7 @@ import type {
   ViewPresentationDefinition,
   ViewQueryInput,
 } from "../spec/model.ts";
-import { FrameworkError } from "../errors/error.ts";
+import { ERROR_CODES, FrameworkError } from "../errors/error.ts";
 import type { AuthorizationRequest } from "./authorization.ts";
 import type { ExecutionContext, Workspace } from "./model.ts";
 import type { SourceResult, SourceService } from "./sources.ts";
@@ -123,5 +123,5 @@ function parameterizedQuery(view: ViewDefinition, values: Readonly<Record<string
 }
 
 function invalidParameters(message: string): FrameworkError {
-  return new FrameworkError({ code: "VALIDATION.INVALID_INPUT", message });
+  return new FrameworkError({ code: ERROR_CODES.validationInvalidInput, message });
 }

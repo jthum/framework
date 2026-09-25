@@ -1,4 +1,4 @@
-import { FrameworkError } from "../errors/error.ts";
+import { ERROR_CODES, FrameworkError } from "../errors/error.ts";
 import type { RecordQueryResult } from "../persistence/records.ts";
 import type {
   CollectionDefinition,
@@ -321,13 +321,13 @@ function page(
 function field(collection: CollectionDefinition, path: readonly string[]): FieldDefinition {
   if (path.length !== 1)
     throw new FrameworkError({
-      code: "SOURCE.CAPABILITY_UNSUPPORTED",
+      code: ERROR_CODES.sourceCapabilityUnsupported,
       message: "SQLite query pushdown for relationship paths is not available.",
     });
   const definition = collection.fields.find((item) => item.id === path[0]);
   if (!definition)
     throw new FrameworkError({
-      code: "VALIDATION.INVALID_INPUT",
+      code: ERROR_CODES.validationInvalidInput,
       message: "Field path contains an unknown Field.",
     });
   return definition;

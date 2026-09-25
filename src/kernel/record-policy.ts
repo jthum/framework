@@ -52,7 +52,7 @@ export class RecordPolicyService {
     if (!policy) return undefined;
     if (!policy.readFilter)
       throw new FrameworkError({
-        code: "SOURCE.CAPABILITY_UNSUPPORTED",
+        code: ERROR_CODES.sourceCapabilityUnsupported,
         message: `Record policy for ${collection.key} has no queryable read restriction.`,
       });
     return structuredClone(await policy.readFilter(context));

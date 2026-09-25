@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { presentError, type PresentedError } from "../internal/error-presentation.ts";
+  import ErrorMessage from "../internal/error-message.svelte";
   import type { RuleDefinition, FieldDefinition } from "@jthum/framework/spec";
   import type { RuleExecutionDetails } from "@jthum/framework/kernel";
   import type { RuleExecutionClient } from "@jthum/framework/client";
@@ -20,13 +22,13 @@
   }));
   let values = $state(untrack(() => fieldInputDefaults(fields)));
   let pending = $state(false);
-  let error = $state("");
+  let error = $state<PresentedError | null>(null);
   async function submit(event: SubmitEvent) {
     event.preventDefault();
     if (pending) return;
-    pending = true; error = "";
+    pending = true; error = null;
     try { await onStarted(await client.startRule(rule.key, { input: parseFieldInputs(fields, values) })); }
-    catch (cause) { error = cause instanceof Error ? cause.message : "Unable to start this run."; }
+    catch (cause) { error = presentError(cause, "Unable to start this run."); }
     finally { pending = false; }
   }
 </script>
@@ -37,7 +39,7 @@
     <form onsubmit={submit} class="flex flex-col gap-5">
       <FieldInputs {fields} bind:values disabled={pending} {referenceInput} />
       {#if !fields.length}<p class="text-sm text-muted-foreground">This workflow does not require input.</p>{/if}
-      {#if error}<Alert.Root variant="destructive"><Alert.Title>Run could not be started</Alert.Title><Alert.Description>{error}</Alert.Description></Alert.Root>{/if}
+      {#if error}<Alert.Root variant="destructive"><Alert.Title>Run could not be started</Alert.Title><Alert.Description><ErrorMessage {error} /></Alert.Description></Alert.Root>{/if}
       <div class="flex justify-end"><Button type="submit" disabled={pending || rule.enabled === false}>{#if pending}<Spinner data-icon="inline-start" />{/if}Start run</Button></div>
     </form>
   </Card.Content>

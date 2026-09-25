@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
+import { ERROR_CODES } from "@jthum/framework/errors";
 import type { FieldDefinition } from "@jthum/framework/spec";
 import {
   fieldDraftFromDefinition,
@@ -91,7 +92,9 @@ describe("Shared canonical field authoring", () => {
     }
   });
   it("rejects dangling conditional references and resolves source keys to IDs", () => {
-    expect(() => fieldDraftFromDefinition(fields[1]!, [fields[1]!], [])).toThrow("unavailable");
+    expect(() => fieldDraftFromDefinition(fields[1]!, [fields[1]!], [])).toThrowError(
+      expect.objectContaining({ code: ERROR_CODES.resourceNotFound }),
+    );
     const source = { id: "contacts", key: "contacts", label: "Contacts", fields: [] };
     const field: FieldDefinition = {
       id: "ref",

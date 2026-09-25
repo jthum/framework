@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { ERROR_CODES, resourceNotFound } from "@jthum/framework/errors";
 import {
   collectInferenceRun,
@@ -170,6 +170,45 @@ describe("YairRuntime", () => {
         expect.objectContaining({ type: "completed", output: { recovered: true } }),
       ]),
     );
+  });
+
+  it("does not expose unexpected tool failures to the model", async () => {
+    const provider = new ScriptedProvider((request, step) =>
+      step === 1
+        ? [
+            { type: "tool_call", id: "broken", toolId: "broken_tool", input: {} },
+            { type: "finished", reason: "tool_calls" },
+          ]
+        : (expect(request.messages.at(-1)).toMatchObject({
+            role: "tool",
+            error: { code: ERROR_CODES.internalUnexpected, errorId: expect.any(String) },
+          }),
+          expect(JSON.stringify(request.messages)).not.toContain("private database path"),
+          [{ type: "finished", reason: "stop" }]),
+    );
+    const gateway: InferenceToolGateway = {
+      resolve: async () =>
+        toolSet([tool("broken_tool")], () => {
+          throw new Error("private database path");
+        }),
+    };
+
+    const diagnostic = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const events = await collect(new YairRuntime(provider).run(runtimeContext(gateway)));
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ type: "tool_error", toolId: "broken_tool" }),
+        ]),
+      );
+      const error = events.find((event) => event.type === "tool_error");
+      expect(diagnostic).toHaveBeenCalledWith(
+        `Unexpected inference error ${error?.error.errorId}`,
+        expect.any(Error),
+      );
+    } finally {
+      diagnostic.mockRestore();
+    }
   });
 
   it("executes calls from one model step sequentially in emitted order", async () => {

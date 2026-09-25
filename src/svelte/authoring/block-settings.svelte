@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { presentError, type PresentedError } from "../internal/error-presentation.ts";
+	import ErrorMessage from "../internal/error-message.svelte";
 	import OptionSelect from "../ui/option-select/option-select.svelte";
 	import { Button } from "../ui/button/index.ts";
 	import * as Field from "../ui/field/index.ts";
@@ -29,7 +31,7 @@
 	const def = $derived(definition);
 	let config = $state<SpecMeta>({});
 	let pending = $state(false);
-	let error = $state("");
+	let error = $state<PresentedError | null>(null);
 	let initializedNode = "";
 
 	$effect(() => {
@@ -39,7 +41,7 @@
 		initializedNode = identity;
 		untrack(() => {
 			config = node ? JSON.parse(JSON.stringify(node.config ?? {})) as SpecMeta : {};
-			error = "";
+			error = null;
 		});
 	});
 
@@ -47,12 +49,12 @@
 		event.preventDefault();
 		if (pending) return;
 		pending = true;
-		error = "";
+		error = null;
 		try {
 			await onSave(JSON.parse(JSON.stringify(config)) as SpecMeta);
 			open = false;
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : "Couldn't save the block";
+			error = presentError(cause, "Couldn't save the block");
 		} finally {
 			pending = false;
 		}
@@ -133,7 +135,7 @@
 						{/if}
 					{/each}
 				</Field.Group>
-				{#if error}<p role="alert" class="text-sm text-destructive">{error}</p>{/if}
+				{#if error}<ErrorMessage {error} />{/if}
 			</div>
 			<Sheet.Footer class="flex-row justify-end">
 				<Button type="button" variant="outline" onclick={() => (open = false)}>Cancel</Button>
