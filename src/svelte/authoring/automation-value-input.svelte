@@ -10,8 +10,10 @@
 	import * as Command from "@jthum/framework/svelte/ui/command";
 	import * as InputGroup from "@jthum/framework/svelte/ui/input-group";
 	import * as Popover from "@jthum/framework/svelte/ui/popover";
-	import type { AutomationValue } from "./rule-model.js";
+	import AutomationSelectionEditor from "./automation-selection-editor.svelte";
+	import type { AutomationSelection, AutomationValue } from "./rule-model.js";
 	import BracesIcon from "@lucide/svelte/icons/braces";
+	import ListFilterIcon from "@lucide/svelte/icons/list-filter";
 
 	let {
 		value,
@@ -19,15 +21,19 @@
 		references = [],
 		type,
 		placeholder = "Value or reference",
+		enableSelection = true,
 	}: {
 		value: AutomationValue;
 		onValueChange: (value: AutomationValue) => void;
 		references?: AutomationReferenceOption[];
 		type?: string;
 		placeholder?: string;
+		enableSelection?: boolean;
 	} = $props();
 
 	let open = $state(false);
+	let selectionOpen = $state(false);
+	const canSelect = $derived(enableSelection && (!type || type === "array" || isSelection(value)));
 	let search = $state("");
 	const needle = $derived(search.trim().toLowerCase());
 	const filtered = $derived(
@@ -39,6 +45,10 @@
 
 	function display(value: AutomationValue): string {
 		if (isBinding(value)) return `=${value.$ref}`;
+		if (isSelection(value) && canSelect) {
+			const { from, where } = value.$select;
+			return `Select from ${display(from)} where ${where.path || "item"} ${where.op === "ne" ? "≠" : "="} ${display(where.value)}`;
+		}
 		if (value !== null && typeof value === "object") return JSON.stringify(value);
 		return String(value ?? "");
 	}
@@ -65,10 +75,30 @@
 	function isBinding(value: AutomationValue): value is { $ref: string } {
 		return value !== null && typeof value === "object" && !Array.isArray(value) && "$ref" in value;
 	}
+
+	function isSelection(value: AutomationValue): value is AutomationSelection {
+		return value !== null && typeof value === "object" && !Array.isArray(value) && "$select" in value;
+	}
 </script>
 
 <InputGroup.Root>
-	<InputGroup.Input value={display(value)} oninput={(event) => onValueChange(parse(event.currentTarget.value))} {placeholder} />
+	<InputGroup.Input value={display(value)} readonly={canSelect && isSelection(value)} oninput={(event) => onValueChange(parse(event.currentTarget.value))} {placeholder} />
+	{#if canSelect}
+		<InputGroup.Addon align="inline-end">
+			<Popover.Root bind:open={selectionOpen}>
+				<Popover.Trigger>
+					{#snippet child({ props })}
+						<InputGroup.Button {...props} size="icon-xs" aria-label={isSelection(value) ? "Edit list selection" : "Select items from a list"}><ListFilterIcon /></InputGroup.Button>
+					{/snippet}
+				</Popover.Trigger>
+				<Popover.Content align="end" class="w-auto p-0">
+					{#if selectionOpen}
+						<AutomationSelectionEditor selection={isSelection(value) ? value : undefined} {references} onApply={(selection) => { onValueChange(selection); selectionOpen = false; }} onClear={() => { onValueChange(""); selectionOpen = false; }} onCancel={() => (selectionOpen = false)} />
+					{/if}
+				</Popover.Content>
+			</Popover.Root>
+		</InputGroup.Addon>
+	{/if}
 	{#if references.length}
 		<InputGroup.Addon align="inline-end">
 			<Popover.Root bind:open>

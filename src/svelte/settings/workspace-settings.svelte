@@ -3,6 +3,7 @@
 	import { presentError, type PresentedError } from "../internal/error-presentation.ts";
 	import ErrorMessage from "../internal/error-message.svelte";
 	import type { WorkspaceClient } from "../../client/workspace-client.ts";
+	import type { JsonValue } from "../../spec/model.ts";
 	import type { SettingSummary } from "../../kernel/workspace-config-service.ts";
 	import { Button } from "../ui/button/index.js";
 	import * as Field from "../ui/field/index.js";
@@ -52,9 +53,9 @@
 		pending = true;
 		error = null;
 		try {
-			let storedValue: unknown = value;
+			let storedValue: JsonValue = value;
 			if (valueIsJson && !secret) {
-				try { storedValue = JSON.parse(value); }
+				try { storedValue = JSON.parse(value) as JsonValue; }
 				catch { throw invalidInput("Setting value must be valid JSON."); }
 			}
 			await client.putSetting({

@@ -26,7 +26,7 @@ const execution: RuleExecutionDetails = {
   createdAt: "2026-09-17T00:00:00.000Z",
   updatedAt: "2026-09-17T00:00:00.000Z",
   trace: [{ stepId: "prepare", kind: "compute", status: "completed" }],
-  waiting: { kind: "request", stepId: "approve", requestId: "request-one" },
+  waiting: { id: "wait-request", kind: "request", stepId: "approve", requestId: "request-one" },
 };
 const request: ActorRequest = {
   id: "request-one",
@@ -62,7 +62,10 @@ describe("Operations rendering", () => {
   it("separates signal input and deadline actions", () => {
     const signal = render(ExecutionInspector, {
       props: {
-        execution: { ...execution, waiting: { kind: "signal", stepId: "wait", signal: "ready" } },
+        execution: {
+          ...execution,
+          waiting: { id: "wait-signal", kind: "signal", stepId: "wait", signal: "ready" },
+        },
         client,
         onChange: untouched,
       },
@@ -73,7 +76,7 @@ describe("Operations rendering", () => {
       props: {
         execution: {
           ...execution,
-          waiting: { kind: "delay", stepId: "wait", dueAt: execution.createdAt },
+          waiting: { id: "wait-delay", kind: "delay", stepId: "wait", dueAt: execution.createdAt },
         },
         client,
         onChange: untouched,

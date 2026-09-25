@@ -116,6 +116,11 @@
 				options.push({ value: `vars.${step.wait.as}`, label: labelFromKey(step.wait.as), group: "Previous steps" });
 				for (const field of step.wait.request?.fields ?? []) options.push({ value: `vars.${step.wait.as}.${field.key}`, label: field.label, group: "Response fields" });
 			}
+			if ("foreach" in step && step.foreach.collect) options.push({ value: `vars.${step.foreach.collect.as}`, label: labelFromKey(step.foreach.collect.as), group: "Collected results" });
+			if ("parallel" in step) for (const branch of step.parallel.branches) {
+				const name = branch.key ?? branch.id;
+				if (name) options.push({ value: `vars.${name}`, label: labelFromKey(name), group: "Parallel results" });
+			}
 		}
 		return uniqueReferences(options);
 	}

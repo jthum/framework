@@ -3,6 +3,7 @@
   import { presentError, type PresentedError } from "../internal/error-presentation.ts";
   import ErrorMessage from "../internal/error-message.svelte";
   import type { ActorRequest, RuleExecutionDetails } from "@jthum/framework/kernel";
+  import type { JsonValue } from "@jthum/framework/spec";
   import type { RuleExecutionClient } from "@jthum/framework/client";
   import * as Card from "../ui/card/index.js";
   import * as Alert from "../ui/alert/index.js";
@@ -40,7 +41,7 @@
       try { parsed = JSON.parse(payloads[wait.id] ?? "{}"); }
       catch { throw invalidInput("Signal payload must be valid JSON."); }
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw invalidInput("Signal payload must be a JSON object.");
-      await client.resumeRule(execution.id, { waitId: wait.id, ...(wait.signal ? { signal: wait.signal, payload: parsed } : {}) });
+      await client.resumeRule(execution.id, { waitId: wait.id, ...(wait.signal ? { signal: wait.signal, payload: parsed as Record<string, JsonValue> } : {}) });
     });
   }
 </script>
@@ -81,7 +82,7 @@
     }} />
   {/each}
 
-  {#each execution.waits ?? (execution.waiting ? [execution.waiting] : []) as wait (wait.id)}
+  {#each (execution.waits ?? (execution.waiting ? [execution.waiting] : [])) as wait (wait.id)}
     <Card.Root>
       <Card.Header class="gap-0"><Card.Title>{wait.kind === "request" ? "Waiting for a response" : wait.kind === "signal" ? "Waiting for a signal" : "Waiting until the deadline"}</Card.Title><Card.Description>{wait.dueAt ? `Deadline: ${wait.dueAt}` : "This wait has no deadline."}</Card.Description></Card.Header>
       <Card.Content>
