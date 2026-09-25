@@ -354,7 +354,7 @@ function requireRuleStepsShape(
           issue(issues, `${at}.request`, "SPEC.TYPE_INVALID", "ActorRequest must be an object.");
         else {
           requireString(config.request, "label", `${at}.request`, issues);
-          optionalString(config.request, "actor", `${at}.request`, issues);
+          requireRuleActorBinding(config.request.actor, `${at}.request.actor`, issues);
           if (!Array.isArray(config.request.fields))
             issue(
               issues,
@@ -390,6 +390,32 @@ function requireRuleStepsShape(
     } else if (kind === "foreach") {
       requireRuleBindingShape(config.source, `${at}.source`, issues);
       requireLoopShape(config, at, issues);
+      optionalEnum(config, "mode", ["sequential", "parallel"], at, issues);
+      if (
+        config.concurrency !== undefined &&
+        (!Number.isInteger(config.concurrency) || Number(config.concurrency) < 1)
+      )
+        issue(
+          issues,
+          `${at}.concurrency`,
+          "SPEC.TYPE_INVALID",
+          "Concurrency must be a positive integer.",
+        );
+      if (config.concurrency !== undefined && config.mode !== "parallel")
+        issue(
+          issues,
+          `${at}.concurrency`,
+          "SPEC.PROPERTY_CONFLICT",
+          "Concurrency requires parallel mode.",
+        );
+      if (config.collect !== undefined) {
+        if (!isRecord(config.collect))
+          issue(issues, `${at}.collect`, "SPEC.TYPE_INVALID", "Collect must be an object.");
+        else {
+          requireString(config.collect, "as", `${at}.collect`, issues);
+          requireRuleValueShape(config.collect.value, `${at}.collect.value`, issues);
+        }
+      }
       if (!Array.isArray(config.steps))
         issue(issues, `${at}.steps`, "SPEC.TYPE_INVALID", "Loop steps must be an array.");
       else requireRuleStepsShape(config.steps, `${at}.steps`, issues, ids);
@@ -403,6 +429,8 @@ function requireRuleStepsShape(
       )
         requireRuleBindingShape(config.times, `${at}.times`, issues);
       requireLoopShape(config, at, issues);
+      if (config.until !== undefined)
+        requireRulePredicateShape(config.until, `${at}.until`, issues);
       if (!Array.isArray(config.steps))
         issue(issues, `${at}.steps`, "SPEC.TYPE_INVALID", "Loop steps must be an array.");
       else requireRuleStepsShape(config.steps, `${at}.steps`, issues, ids);
@@ -464,7 +492,7 @@ function requireRuleActionShape(
 ): void {
   requireString(input, "key", path, issues);
   optionalString(input, "as", path, issues);
-  optionalString(input, "runAs", path, issues);
+  requireRuleActorBinding(input.runAs, `${path}.runAs`, issues);
   if (input.input !== undefined) requireRuleValueMap(input.input, `${path}.input`, issues);
   if (input.retry !== undefined) {
     if (!isRecord(input.retry))
@@ -502,7 +530,7 @@ function requireRuleActionShape(
       );
     else {
       requireString(input.compensate, "key", `${path}.compensate`, issues);
-      optionalString(input.compensate, "runAs", `${path}.compensate`, issues);
+      requireRuleActorBinding(input.compensate.runAs, `${path}.compensate.runAs`, issues);
       if (input.compensate.input !== undefined)
         requireRuleValueMap(input.compensate.input, `${path}.compensate.input`, issues);
     }
@@ -557,6 +585,15 @@ function requireRuleValueShape(input: unknown, path: string, issues: ValidationI
   if (!isRecord(input))
     return issue(issues, path, "SPEC.TYPE_INVALID", "Rule value must be JSON-compatible.");
   if ("$ref" in input) return requireRuleBindingShape(input, path, issues);
+  if ("$select" in input) {
+    if (!isRecord(input.$select) || !isRecord(input.$select.where))
+      return issue(issues, path, "SPEC.TYPE_INVALID", "Selection needs a source and condition.");
+    requireRuleValueShape(input.$select.from, `${path}.$select.from`, issues);
+    optionalString(input.$select.where, "path", `${path}.$select.where`, issues);
+    optionalEnum(input.$select.where, "op", ["eq", "ne"], `${path}.$select.where`, issues);
+    requireRuleValueShape(input.$select.where.value, `${path}.$select.where.value`, issues);
+    return;
+  }
   for (const [key, value] of Object.entries(input))
     requireRuleValueShape(value, `${path}.${key}`, issues);
 }
@@ -578,6 +615,16 @@ function requireRuleBindingShape(input: unknown, path: string, issues: Validatio
       "SPEC.TYPE_INVALID",
       "Rule binding requires a non-empty $ref and may contain one stable fieldId.",
     );
+}
+
+function requireRuleActorBinding(input: unknown, path: string, issues: ValidationIssue[]): void {
+  if (input === undefined) return;
+  if (typeof input === "string") {
+    if (input.length === 0)
+      issue(issues, path, "SPEC.TYPE_INVALID", "Actor binding cannot be empty.");
+    return;
+  }
+  requireRuleBindingShape(input, path, issues);
 }
 
 function requireLoopShape(
@@ -1573,7 +1620,11 @@ function validateRuleRequests(
     const at = `${path}.${index}`;
     if ("wait" in step && step.wait.request) {
       const request = step.wait.request;
-      if (request.actor && request.actor !== "trigger" && !semanticKeyPattern.test(request.actor))
+      if (
+        typeof request.actor === "string" &&
+        request.actor !== "trigger" &&
+        !semanticKeyPattern.test(request.actor)
+      )
         issue(
           issues,
           `${at}.wait.request.actor`,
@@ -1624,7 +1675,12 @@ function validateRuleStepReferences(
         [step.action.runAs, `${stepPath}.action.runAs`],
         [step.action.compensate?.runAs, `${stepPath}.action.compensate.runAs`],
       ] as const)
-        if (runAs && runAs !== "trigger" && runAs !== "system" && !semanticKeyPattern.test(runAs))
+        if (
+          typeof runAs === "string" &&
+          runAs !== "trigger" &&
+          runAs !== "system" &&
+          !semanticKeyPattern.test(runAs)
+        )
           issue(issues, runAsPath, "SPEC.KEY_INVALID", "Run-as binding must be semantic.");
     }
     if ("gate" in step) {

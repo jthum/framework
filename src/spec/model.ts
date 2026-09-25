@@ -302,9 +302,17 @@ export interface RuleBinding {
   readonly fieldId?: string;
 }
 
+export interface RuleSelection {
+  readonly $select: {
+    readonly from: RuleValue;
+    readonly where: { readonly path?: string; readonly op: "eq" | "ne"; readonly value: RuleValue };
+  };
+}
+
 export type RuleValue =
   | JsonPrimitive
   | RuleBinding
+  | RuleSelection
   | readonly RuleValue[]
   | { readonly [key: string]: RuleValue };
 
@@ -343,7 +351,7 @@ export interface RuleActionCall {
   readonly key: string;
   readonly input?: Readonly<Record<string, RuleValue>>;
   /** Defaults to the execution Actor; `system` or a semantic Actor binding may override it. */
-  readonly runAs?: string;
+  readonly runAs?: string | RuleBinding;
 }
 
 export interface RuleAction extends RuleActionCall {
@@ -382,7 +390,7 @@ export type RuleStep =
       readonly wait: {
         /** Host-rendered User intake; concrete Actor IDs remain instance data. */
         readonly request?: {
-          readonly actor?: string;
+          readonly actor?: string | RuleBinding;
           readonly label: string;
           readonly fields: readonly FieldDefinition[];
         };
@@ -397,6 +405,9 @@ export type RuleStep =
       readonly foreach: {
         readonly source: RuleBinding;
         readonly as?: string;
+        readonly mode?: "sequential" | "parallel";
+        readonly concurrency?: number;
+        readonly collect?: { readonly as: string; readonly value: RuleValue };
         readonly max?: number;
         readonly onItemFailure?: "stop" | "continue";
         readonly steps: readonly RuleStep[];
@@ -405,6 +416,8 @@ export type RuleStep =
   | (RuleStepIdentity & {
       readonly repeat: {
         readonly times: number | RuleBinding;
+        /** Checked after each iteration; `times` remains the hard upper bound. */
+        readonly until?: RulePredicate;
         readonly as?: string;
         readonly max?: number;
         readonly onItemFailure?: "stop" | "continue";

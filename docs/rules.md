@@ -35,6 +35,9 @@ The primitives are gate, compute, action, nested Rule invocation, delay, wait, f
 and parallel branches. Predicates compose with `all`, `any`, and `not`. Values are JSON plus a
 `{ $ref }` binding rooted at `trigger`, `actor`, `vars`, or `meta`. A record binding may add one
 stable `fieldId`; authoring projects that to an ordinary friendly field selector.
+`{ $select: { from, where: { path?, op: "eq" | "ne", value } } }` filters a bound array without
+embedding code. `path` reads a property from each item; omitting it compares whole items. This is
+deliberately a small selection operation, not a general expression language.
 `meta.now` is the scope's initial ISO timestamp; `meta.today` is its UTC `YYYY-MM-DD` date.
 Both use the injected runtime clock and remain checkpointed across a durable wait, rather
 than changing when a saved run resumes. Use the date binding for date-only Fields.
@@ -46,7 +49,9 @@ owned by the immutable semantic contract registered under its Action key; custom
 portable opaque data rather than expanding the Kernel schema.
 
 Actions inherit the execution Actor. `runAs` is optional and defaults to `trigger`; `system` and a
-semantic Actor-binding key are explicit overrides. A concrete User ID does not belong in portable
+semantic Actor-binding key are explicit overrides. It may also be a `{ $ref }` whose runtime value
+is one of those binding keys, allowing a `foreach` item to choose its own Actor. The resolver checks
+current Membership and authorization separately for every invocation. A concrete User ID does not belong in portable
 Spec. Workspace clients manage the instance mapping through `listActorBindings`, `putActorBinding`,
 and `deleteActorBinding`; the default Kernel resolver rechecks that the bound Actor remains a member
 when the step runs.
@@ -67,6 +72,13 @@ Actions deliberately call the same Kernel CRUD methods as direct consumers; vali
 authorization therefore cannot drift. Custom Actions and Conditions are installed when the Kernel
 opens, and every Action receives a coarse `actions.execute` policy check before its own
 resource-level checks.
+
+`rules.list` and `rules.save` expose the canonical Rule document through the same Action/tool seam.
+The save Action creates one Rule or replaces an existing Rule by stable ID, fills only missing Rule,
+step, and branch IDs, validates the complete resulting Spec, and requires ordinary `spec.update`
+authority. Agents can inspect a Rule, make a structural change, and save it without a separate
+orchestration API. A host should still review permissions and surface validation issues to the
+author; this is a canonical document-editing tool, not an intent interpreter.
 
 Workspace-owned runtime Actions use the same execution path and may be called directly, from a
 Rule, or exposed directly as an Agent tool. See [Workspace settings and runtime Actions](workspace-actions.md).
@@ -115,8 +127,13 @@ independent identity. Agent Actors use their persisted instructions and ModelCon
 inference can supply a model selection or use a runtime default. Conversation storage remains host
 state. See [Inference and Agents](agents.md).
 
-The short runner bounds nesting, cascaded steps, loops, and repeats. Retries are process-local, parallel
-branches use deterministic in-process emulation, and successful compensations capture their
+The short runner bounds nesting, cascaded steps, loops, and repeats. `foreach` can run one item at a
+time or concurrently with a positive concurrency limit (default four), with isolated item scopes.
+`collect` evaluates one value per successful item and produces an array in source order; continued
+failed items contribute `null`. `repeat.until` is checked after each iteration, while `times` is
+always the hard upper bound. Parallel branches actually overlap asynchronous work, but all branches
+settle before the join: `all` requires every branch to succeed, and `any` requires at least one.
+No losing branch is abandoned in the background. Retries are process-local, and successful compensations capture their
 resolved input before later work can mutate the scope. Delay and signal waits fail preflight as
 unsupported in this short path; durable execution uses the explicit API below rather than hidden
 in-process approximations.
@@ -194,6 +211,8 @@ status before retrying it.
 
 `getDurableRuleRuntimeProfile` reports the environment opt-in and installed contracts. Gates,
 bounded loops, nested Rules, process-local retries, compensation, and Action overrides are supported.
-Durable parallel joins and per-item failure continuation are deliberately rejected, not emulated
-incorrectly; they remain Spec capabilities and are still available in the short runner. The durable
+The durable runner can execute concurrent work before a later wait, including a parallel `foreach`
+or static branches. A wait **inside** concurrent work is rejected during preflight, since one
+execution currently has one pending wait. Per-item failure continuation is supported when the
+loop body does not itself wait; a wait inside such a loop is rejected during preflight. The durable
 runner is a cooperative reference implementation, not a distributed workflow engine.

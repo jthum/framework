@@ -4,6 +4,64 @@ import { ruleSpec } from "../../testing/rule-fixture.js";
 import { ruleDefinitionFromDraft, ruleDraftFromDefinition } from "./rule-adapter.js";
 
 describe("Rule authoring adapter", () => {
+  it("round-trips dynamic Actors, collected parallel iteration, selection, and bounded exit", () => {
+    const spec = ruleSpec();
+    const rule: RuleDefinition = {
+      id: "rule-roundtable",
+      key: "roundtable",
+      label: "Roundtable",
+      steps: [
+        {
+          id: "gather",
+          foreach: {
+            source: { $ref: "vars.participants" },
+            mode: "parallel",
+            concurrency: 3,
+            collect: {
+              as: "responses",
+              value: { actor: { $ref: "vars.item.actor" }, response: { $ref: "vars.answer" } },
+            },
+            steps: [
+              {
+                id: "ask",
+                action: {
+                  key: "inference.run",
+                  runAs: { $ref: "vars.item.actor" },
+                  as: "answer",
+                  input: {
+                    messages: [{ role: "user", content: { $ref: "vars.question" } }],
+                  },
+                },
+              },
+            ],
+          },
+        },
+        {
+          id: "revise",
+          repeat: {
+            times: 3,
+            until: { op: "context.equals", left: { $ref: "vars.approved" }, value: true },
+            steps: [
+              {
+                id: "select",
+                compute: {
+                  assign: {
+                    others: {
+                      $select: {
+                        from: { $ref: "vars.responses" },
+                        where: { path: "actor", op: "ne", value: { $ref: "vars.currentActor" } },
+                      },
+                    },
+                  },
+                },
+              },
+            ],
+          },
+        },
+      ],
+    };
+    expect(ruleDefinitionFromDraft(ruleDraftFromDefinition(rule, spec), spec)).toEqual(rule);
+  });
   it("projects attached Rule Fields through stable identities after their keys change", () => {
     const base = ruleSpec();
     const spec = {

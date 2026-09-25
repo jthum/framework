@@ -23,12 +23,20 @@ export interface AutomationBinding {
   $ref: string;
 }
 
+export interface AutomationSelection {
+  $select: {
+    from: AutomationValue;
+    where: { path?: string; op: "eq" | "ne"; value: AutomationValue };
+  };
+}
+
 export type AutomationValue =
   | null
   | boolean
   | number
   | string
   | AutomationBinding
+  | AutomationSelection
   | AutomationValue[]
   | { [key: string]: AutomationValue };
 
@@ -65,7 +73,7 @@ export interface AutomationEffectCall {
   key: string;
   params?: Record<string, AutomationValue>;
   /** Retained by authoring; execution and Actor binding are runtime concerns. */
-  runAs?: string;
+  runAs?: string | AutomationBinding;
 }
 
 export interface AutomationEffect extends AutomationEffectCall {
@@ -100,7 +108,11 @@ export type RuleStep =
   | (StepIdentity & { delay: { duration: number | string } })
   | (StepIdentity & {
       wait: {
-        request?: { actor?: string; label: string; fields: readonly FieldDefinition[] };
+        request?: {
+          actor?: string | AutomationBinding;
+          label: string;
+          fields: readonly FieldDefinition[];
+        };
         signal?: string;
         timeout?: number | string;
         as?: string;
@@ -112,6 +124,9 @@ export type RuleStep =
       foreach: {
         source: AutomationBinding;
         as?: string;
+        mode?: "sequential" | "parallel";
+        concurrency?: number;
+        collect?: { as: string; value: AutomationValue };
         max?: number;
         on_item_failure?: "stop" | "continue";
         steps: RuleStep[];
@@ -120,6 +135,7 @@ export type RuleStep =
   | (StepIdentity & {
       repeat: {
         times: number | AutomationBinding;
+        until?: AutomationPredicate;
         as?: string;
         max?: number;
         on_item_failure?: "stop" | "continue";

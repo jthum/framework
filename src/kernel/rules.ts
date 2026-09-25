@@ -6,6 +6,7 @@ import type {
   RuleDefinition,
   RulePredicate,
   RuleStep,
+  RuleSelection,
   RuleValue,
 } from "../spec/model.ts";
 import type { ActionRegistry, ActionRuntime, RuntimeActionExecutor } from "./action-registry.ts";
@@ -95,6 +96,41 @@ interface RunState {
   depth: number;
   readonly trace: RuleStepTrace[];
   readonly compensations: Compensation[];
+  /** Shared step budget, while concurrent branches keep their own depth and trace. */
+  budget?: { remaining: number };
+  ownsBudget?: boolean;
+}
+
+function spend(state: RunState, limit: number): void {
+  const current = state.budget ?? state;
+  if (--current.remaining < 0) throw executionLimit("Rule and Action steps", limit);
+  state.remaining = current.remaining;
+}
+
+function forkState(parent: RunState): RunState {
+  if (!parent.budget) {
+    parent.budget = { remaining: parent.remaining };
+    parent.ownsBudget = true;
+  }
+  return {
+    remaining: parent.budget.remaining,
+    depth: parent.depth,
+    trace: [],
+    compensations: [],
+    budget: parent.budget,
+  };
+}
+
+function mergeState(parent: RunState, child: RunState): void {
+  parent.trace.push(...child.trace);
+  parent.compensations.push(...child.compensations);
+}
+
+function closeForks(state: RunState): void {
+  if (!state.ownsBudget) return;
+  state.remaining = state.budget!.remaining;
+  delete state.budget;
+  delete state.ownsBudget;
 }
 
 interface Compensation {
@@ -194,6 +230,8 @@ export class RuleService {
         }),
         leaf: (context, rule, step, scope, state) =>
           this.runSteps(context, rule, [step], scope, state),
+        compound: (context, rule, step, scope, state) =>
+          this.runSteps(context, rule, [step], scope, state),
         test: (predicate, scope) => this.test(predicate, scope),
         read: resolveReference,
         values: resolveObject,
@@ -222,14 +260,15 @@ export class RuleService {
         compensation: "supported",
         loops: "supported",
         nested_rules: "supported",
-        parallel: "emulated",
+        parallel: "supported",
         retries: "emulated",
         run_as: "supported",
         durable_waits: "unsupported",
         signals: "unsupported",
       },
       notes: {
-        parallel: "Branches execute deterministically in-process.",
+        parallel:
+          "Asynchronous branch work overlaps; all branches settle before a deterministic join.",
         retries: "Retries end when this process stops.",
       },
     };
@@ -377,7 +416,7 @@ export class RuleService {
     state: RunState,
   ): Promise<void> {
     for (const step of steps) {
-      if (--state.remaining < 0) throw executionLimit("Rule steps", this.maxSteps);
+      spend(state, this.maxSteps);
       const kind = stepKind(step);
       if ("gate" in step) {
         const passed = await this.test(step.gate.predicate, scope);
@@ -448,14 +487,44 @@ export class RuleService {
         const maximum = step.foreach.max ?? 100;
         if (items.length > maximum) throw executionLimit("foreach items", maximum);
         const name = step.foreach.as ?? "item";
-        for (const item of items) {
-          scope.vars[name] = item;
+        const values: JsonValue[] = Array.from({ length: items.length }, () => null);
+        const itemStates: RunState[] = Array.from({ length: items.length }, () => forkState(state));
+        const runItem = async (item: JsonValue, index: number): Promise<void> => {
+          const itemScope = structuredClone(scope);
+          const itemState = itemStates[index]!;
+          itemScope.vars[name] = item;
           try {
-            await this.runSteps(context, rule, step.foreach.steps, scope, state);
+            await this.runSteps(context, rule, step.foreach.steps, itemScope, itemState);
+            if (step.foreach.collect)
+              values[index] = resolveValue(step.foreach.collect.value, itemScope);
           } catch (error) {
+            await this.compensate(itemState, 0);
             if (step.foreach.onItemFailure !== "continue") throw error;
           }
+        };
+        try {
+          if (step.foreach.mode === "parallel") {
+            let next = 0;
+            const workers = Array.from(
+              { length: Math.min(items.length, step.foreach.concurrency ?? 4) },
+              async () => {
+                while (next < items.length) {
+                  const index = next++;
+                  await runItem(items[index]!, index);
+                }
+              },
+            );
+            const settled = await Promise.allSettled(workers);
+            const failed = settled.find((result) => result.status === "rejected");
+            if (failed?.status === "rejected") throw failed.reason;
+          } else {
+            for (let index = 0; index < items.length; index++) await runItem(items[index]!, index);
+          }
+        } finally {
+          for (const itemState of itemStates) mergeState(state, itemState);
+          closeForks(state);
         }
+        if (step.foreach.collect) scope.vars[step.foreach.collect.as] = values;
         state.trace.push({ stepId: step.id, kind, status: "completed" });
       } else if ("repeat" in step) {
         const resolved =
@@ -476,6 +545,7 @@ export class RuleService {
           } catch (error) {
             if (step.repeat.onItemFailure !== "continue") throw error;
           }
+          if (step.repeat.until && (await this.test(step.repeat.until, scope))) break;
         }
         state.trace.push({ stepId: step.id, kind, status: "completed" });
       } else if ("parallel" in step) {
@@ -498,19 +568,32 @@ export class RuleService {
     scope: RuleScope,
     state: RunState,
   ): Promise<void> {
-    let firstError: unknown;
-    for (const branch of step.parallel.branches) {
-      const branchScope: RuleScope = structuredClone(scope);
-      try {
-        await this.runSteps(context, rule, branch.steps, branchScope, state);
-        scope.vars[branch.key ?? branch.id] = branchScope.vars;
-        if (step.parallel.join === "any") return;
-      } catch (error) {
-        firstError ??= error;
-        if (step.parallel.join !== "any") throw error;
-      }
+    const branchStates = step.parallel.branches.map(() => forkState(state));
+    const settled = await Promise.allSettled(
+      step.parallel.branches.map(async (branch, index) => {
+        const branchScope: RuleScope = structuredClone(scope);
+        try {
+          await this.runSteps(context, rule, branch.steps, branchScope, branchStates[index]!);
+        } catch (error) {
+          await this.compensate(branchStates[index]!, 0);
+          throw error;
+        }
+        return branchScope.vars;
+      }),
+    );
+    for (const branchState of branchStates) mergeState(state, branchState);
+    closeForks(state);
+    const success = settled.find((result) => result.status === "fulfilled");
+    const failure = settled.find((result) => result.status === "rejected");
+    if (step.parallel.join === "any" ? !success : failure) {
+      if (failure?.status === "rejected") throw failure.reason;
     }
-    if (step.parallel.join === "any" && firstError) throw firstError;
+    settled.forEach((result, index) => {
+      if (result.status === "fulfilled") {
+        const branch = step.parallel.branches[index]!;
+        scope.vars[branch.key ?? branch.id] = result.value;
+      }
+    });
   }
 
   private async test(predicate: RulePredicate, scope: RuleScope): Promise<boolean> {
@@ -575,12 +658,16 @@ export class RuleService {
     context: ExecutionContext,
     rule: RuleDefinition,
     stepId: string,
-    binding: string | undefined,
+    binding: string | import("../spec/model.ts").RuleBinding | undefined,
     scope: RuleScope,
   ): Promise<ExecutionContext> {
     if (!binding || binding === "trigger") return context;
+    const resolvedBinding = typeof binding === "string" ? binding : resolveValue(binding, scope);
+    if (typeof resolvedBinding !== "string")
+      throw invalidExecution("Actor binding must resolve to a semantic key.", { stepId });
+    if (resolvedBinding === "trigger") return context;
     const actorId = await this.resolveActor({
-      binding,
+      binding: resolvedBinding,
       context,
       rule,
       stepId,
@@ -704,8 +791,7 @@ export class RuleService {
     const state = knownState ?? this.createState();
     if (state.depth >= this.maxDepth)
       throw executionLimit("Action delegation depth", this.maxDepth);
-    if (state.remaining <= 0) throw executionLimit("Rule and Action steps", this.maxSteps);
-    state.remaining -= 1;
+    spend(state, this.maxSteps);
     state.depth += 1;
     const execution = {
       context,
@@ -784,6 +870,27 @@ function resolveObject(
 function resolveValue(value: RuleValue, scope: RuleScope): JsonValue {
   if (Array.isArray(value)) return value.map((item) => resolveValue(item, scope));
   if (value && typeof value === "object") {
+    if ("$select" in value) {
+      const selection = (value as RuleSelection).$select;
+      const source = resolveValue(selection.from, scope);
+      if (!Array.isArray(source)) throw invalidExecution("Selection source must be an array.", {});
+      const expected = resolveValue(selection.where.value, scope);
+      return source.filter((item) => {
+        const selected = selection.where.path
+          ? selection.where.path
+              .split(".")
+              .reduce<JsonValue | undefined>(
+                (current, part) =>
+                  current && typeof current === "object" && !Array.isArray(current)
+                    ? current[part]
+                    : undefined,
+                item,
+              )
+          : item;
+        const equal = JSON.stringify(selected) === JSON.stringify(expected);
+        return selection.where.op === "eq" ? equal : !equal;
+      });
+    }
     if ("$ref" in value && typeof value.$ref === "string") {
       const resolved = resolveReference(value.$ref, scope);
       if (resolved === undefined)

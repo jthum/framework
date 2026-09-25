@@ -7,6 +7,131 @@ import type { Clock, IdGenerator, IdKind } from "./defaults.ts";
 import { Kernel } from "./kernel.ts";
 
 describe("Kernel Rules", () => {
+  it("lets an authorized Actor author a Rule through the Action boundary", async () => {
+    const { kernel, context } = await bootstrap();
+    const saved = await kernel.executeAction(context, "rules.save", {
+      rule: {
+        key: "quick_review",
+        label: "Quick review",
+        steps: [{ compute: { assign: { verdict: "ready" } } }],
+        result: { $ref: "vars.verdict" },
+      },
+    });
+    expect(saved).toMatchObject({ key: "quick_review", id: expect.any(String) });
+    if (!saved || typeof saved !== "object" || Array.isArray(saved) || typeof saved.id !== "string")
+      throw new Error("Rule Action did not return its identity.");
+    const listed = await kernel.executeAction(context, "rules.list");
+    expect(listed).toEqual([
+      expect.objectContaining({
+        id: saved.id,
+        steps: [expect.objectContaining({ id: expect.any(String) })],
+      }),
+    ]);
+    expect((await kernel.runRule(context, "quick_review")).result).toBe("ready");
+    await kernel.close();
+  });
+  it("gathers and critiques dynamic participants concurrently with isolated item values", async () => {
+    let active = 0;
+    let peak = 0;
+    let release!: () => void;
+    const together = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { kernel, context, system, spec } = await bootstrap(undefined, [
+      {
+        key: "test.answer",
+        async run({ context: actor }) {
+          active += 1;
+          peak = Math.max(peak, active);
+          if (active === 2) release();
+          await together;
+          active -= 1;
+          return `answer:${actor.actorId}`;
+        },
+      },
+      {
+        key: "test.critique",
+        run({ input }) {
+          return input.others;
+        },
+      },
+    ]);
+    const participant = { $ref: "vars.participant.binding" } as const;
+    const rule: RuleDefinition = {
+      id: "roundtable",
+      key: "roundtable",
+      label: "Roundtable",
+      input: { participants: { value: "array", required: true } },
+      steps: [
+        {
+          id: "gather",
+          foreach: {
+            source: { $ref: "vars.participants" },
+            as: "participant",
+            mode: "parallel",
+            concurrency: 3,
+            steps: [
+              { id: "answer", action: { key: "test.answer", runAs: participant, as: "answer" } },
+            ],
+            collect: {
+              as: "responses",
+              value: { actor: participant, response: { $ref: "vars.answer" } },
+            },
+          },
+        },
+        {
+          id: "critique-each",
+          foreach: {
+            source: { $ref: "vars.participants" },
+            as: "participant",
+            mode: "parallel",
+            steps: [
+              {
+                id: "critique",
+                action: {
+                  key: "test.critique",
+                  runAs: participant,
+                  as: "critique",
+                  input: {
+                    others: {
+                      $select: {
+                        from: { $ref: "vars.responses" },
+                        where: { path: "actor", op: "ne", value: participant },
+                      },
+                    },
+                  },
+                },
+              },
+            ],
+            collect: {
+              as: "critiques",
+              value: { actor: participant, critique: { $ref: "vars.critique" } },
+            },
+          },
+        },
+      ],
+      result: { responses: { $ref: "vars.responses" }, critiques: { $ref: "vars.critiques" } },
+    };
+    await kernel.applySpec(context, specWithRules(spec, [rule]));
+    const run = await kernel.runRule(context, rule.key, {
+      input: { participants: [{ binding: "trigger" }, { binding: "system" }] },
+    });
+    expect(peak).toBe(2);
+    expect(run.result).toEqual({
+      responses: [
+        { actor: "trigger", response: `answer:${context.actorId}` },
+        { actor: "system", response: `answer:${system.id}` },
+      ],
+      critiques: [
+        { actor: "trigger", critique: [{ actor: "system", response: `answer:${system.id}` }] },
+        {
+          actor: "system",
+          critique: [{ actor: "trigger", response: `answer:${context.actorId}` }],
+        },
+      ],
+    });
+    await kernel.close();
+  });
   it("provides the injected clock to current-time bindings in short runs", async () => {
     const { kernel, context, spec } = await bootstrap();
     await kernel.applySpec(

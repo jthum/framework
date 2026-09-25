@@ -21,6 +21,14 @@ ownership rather than duplicating every prop signature.
 
 `RuleEditor` owns the complete structured workflow authoring UI. `RuleSteps`, `RuleConditions`, `RuleValueInput` and `RuleValueMap` can be composed independently. Hosts supply save/delete actions, optional effect metadata, semantic `actorOptions`, and optional compatibility diagnostics. Actor options expose friendly instance choices while persisting only portable binding keys in `runAs`. Custom effect metadata and Actor options propagate through every nested branch; they contain no implementation functions or concrete Actor IDs. No supplied diagnostics means Authoring makes no claim about runtime support. The executor, authorization and durable scheduling/wait implementation are outside Authoring.
 
+The step editor also preserves and authors parallel `foreach` mode, bounded concurrency, collected
+per-item values, `repeat.until`, and dynamic Actor bindings from prior values. A collection value
+can be a direct reference or a declarative `$select` expression; the generic value input accepts
+the latter as structured JSON. This keeps the editor top-to-bottom, while one authored iteration
+block may create many runtime tasks. Hosts should pass compatibility diagnostics because the
+current durable runner rejects waits _inside_ concurrent work, even though it supports concurrent
+work followed by a wait.
+
 The separate `@jthum/framework/svelte/settings` surface contains `WorkspaceSettings`, which edits
 user-defined Workspace settings through a `WorkspaceClient`.
 `SettingsPanel` renders a host-defined `SettingsLayout` with tabs, sections, and typed Field controls.

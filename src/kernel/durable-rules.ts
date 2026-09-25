@@ -12,7 +12,11 @@ import type {
   RuleDefinition,
   RuleStep,
 } from "../spec/model.ts";
-import { checkRuleCompatibility, type RuleRuntimeProfile } from "./rule-compatibility.ts";
+import {
+  checkRuleCompatibility,
+  requiresDurableExecution,
+  type RuleRuntimeProfile,
+} from "./rule-compatibility.ts";
 import type { Clock, IdGenerator } from "./defaults.ts";
 import type { ExecutionContext } from "./model.ts";
 import type { RunRuleInput, RuleStepTrace } from "./rules.ts";
@@ -91,6 +95,8 @@ type Frame =
       index: number;
       items: readonly JsonValue[];
       scope: number;
+      itemScope?: number;
+      collected?: JsonValue[];
     }
   | {
       kind: "return";
@@ -134,6 +140,13 @@ interface ExecutionHooks {
     scope: Scope,
     state: State,
   ): Promise<void>;
+  compound(
+    context: ExecutionContext,
+    rule: RuleDefinition,
+    step: RuleStep,
+    scope: Scope,
+    state: State,
+  ): Promise<void>;
   test(
     predicate: Extract<RuleStep, { gate: unknown }>["gate"]["predicate"],
     scope: Scope,
@@ -148,7 +161,7 @@ interface ExecutionHooks {
     context: ExecutionContext,
     rule: RuleDefinition,
     stepId: string,
-    binding: string | undefined,
+    binding: string | import("../spec/model.ts").RuleBinding | undefined,
     scope: Scope,
   ): Promise<ExecutionContext>;
   compensate(state: State): Promise<void>;
@@ -187,12 +200,12 @@ export class DurableRuleService {
         durable_waits: enabled ? "supported" : "unsupported",
         signals: enabled ? "supported" : "unsupported",
         actor_requests: enabled ? "supported" : "unsupported",
-        parallel: "unsupported",
+        parallel: enabled ? "supported" : "unsupported",
       },
       notes: {
         ...base.notes,
         parallel:
-          "Durable parallel joins are not implemented; the short runner supports deterministic branches.",
+          "Parallel work can precede durable waits, but cannot contain a wait inside a branch.",
       },
     };
   }
@@ -265,10 +278,29 @@ export class DurableRuleService {
         if ("wait" in step && step.wait.timeout !== undefined)
           deadline(this.clock.now(), step.wait.timeout);
         if (
-          ("foreach" in step && step.foreach.onItemFailure === "continue") ||
-          ("repeat" in step && step.repeat.onItemFailure === "continue")
+          ("foreach" in step || "repeat" in step) &&
+          ("foreach" in step ? step.foreach.onItemFailure : step.repeat.onItemFailure) ===
+            "continue" &&
+          requiresDurableExecution(
+            { ...definition, steps: "foreach" in step ? step.foreach.steps : step.repeat.steps },
+            definitions,
+          )
         )
-          throw unsupported("Durable per-item failure continuation is not implemented.");
+          throw unsupported("A wait cannot occur inside a loop that continues after item failure.");
+        if (
+          ("parallel" in step || ("foreach" in step && step.foreach.mode === "parallel")) &&
+          requiresDurableExecution(
+            {
+              ...definition,
+              steps:
+                "parallel" in step
+                  ? step.parallel.branches.flatMap((branch) => branch.steps)
+                  : step.foreach.steps,
+            },
+            definitions,
+          )
+        )
+          throw unsupported("A durable wait cannot occur inside parallel work.");
         if ("invoke" in step) {
           const nested = byId.get(step.invoke.ruleId);
           if (!nested) throw resourceNotFound("Rule", step.invoke.ruleId);
@@ -501,7 +533,21 @@ export class DurableRuleService {
           });
           checkpoint.frames.pop();
         } else if (frame.kind === "loop") {
+          if (frame.itemScope !== undefined) {
+            const itemScope = checkpoint.scopes[frame.itemScope]!;
+            if ("foreach" in frame.step && frame.step.foreach.collect)
+              frame.collected!.push(this.hooks.value(frame.step.foreach.collect.value, itemScope));
+            if (
+              "repeat" in frame.step &&
+              frame.step.repeat.until &&
+              (await this.hooks.test(frame.step.repeat.until, itemScope))
+            )
+              frame.index = frame.items.length;
+            delete frame.itemScope;
+          }
           if (frame.index >= frame.items.length) {
+            if ("foreach" in frame.step && frame.step.foreach.collect)
+              scope.vars[frame.step.foreach.collect.as] = frame.collected ?? [];
             checkpoint.state.trace.push({
               stepId: frame.step.id,
               kind: "foreach" in frame.step ? "foreach" : "repeat",
@@ -510,14 +556,17 @@ export class DurableRuleService {
             checkpoint.frames.pop();
           } else {
             const config = "foreach" in frame.step ? frame.step.foreach : frame.step.repeat;
-            scope.vars[config.as ?? ("foreach" in frame.step ? "item" : "index")] =
+            const itemScope = "foreach" in frame.step ? structuredClone(scope) : scope;
+            itemScope.vars[config.as ?? ("foreach" in frame.step ? "item" : "index")] =
               frame.items[frame.index++]!;
+            frame.itemScope =
+              "foreach" in frame.step ? checkpoint.scopes.push(itemScope) - 1 : frame.scope;
             checkpoint.frames.push({
               kind: "steps",
               ruleId: rule.id,
               steps: config.steps,
               index: 0,
-              scope: frame.scope,
+              scope: frame.itemScope,
             });
           }
         } else if (frame.index >= frame.steps.length) checkpoint.frames.pop();
@@ -539,6 +588,12 @@ export class DurableRuleService {
                 index: 0,
                 scope: frame.scope,
               });
+            } else if (
+              ("foreach" in step &&
+                (step.foreach.mode === "parallel" || step.foreach.onItemFailure === "continue")) ||
+              ("repeat" in step && step.repeat.onItemFailure === "continue")
+            ) {
+              await this.hooks.compound(execution.context, rule, step, scope, checkpoint.state);
             } else if ("foreach" in step || "repeat" in step) {
               const config = "foreach" in step ? step.foreach : step.repeat;
               const raw =
@@ -565,6 +620,7 @@ export class DurableRuleService {
                 items: structuredClone(items),
                 index: 0,
                 scope: frame.scope,
+                ...("foreach" in step && step.foreach.collect ? { collected: [] } : {}),
               });
             } else if ("invoke" in step) {
               const nested = checkpoint.rules[step.invoke.ruleId]!;
@@ -626,7 +682,9 @@ export class DurableRuleService {
                 ...(requestId ? { requestId } : {}),
               };
               return this.save(execution, checkpoint, "waiting");
-            } else throw unsupported("Durable parallel joins are not implemented.");
+            } else if ("parallel" in step) {
+              await this.hooks.compound(execution.context, rule, step, scope, checkpoint.state);
+            } else throw unsupported("Unknown durable Rule step.");
           }
         }
         saving = true;

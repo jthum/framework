@@ -135,6 +135,44 @@ describe("portable Collection Spec", () => {
     );
   });
 
+  it("validates bounded parallel collection and declarative selection", () => {
+    const spec = projectSpec();
+    const rule = {
+      id: "rule-gather",
+      key: "gather",
+      label: "Gather",
+      steps: [
+        {
+          id: "each",
+          foreach: {
+            source: { $ref: "vars.participants" },
+            mode: "parallel",
+            concurrency: 0,
+            collect: {
+              as: "responses",
+              value: {
+                $select: { from: { $ref: "vars.replies" }, where: { op: "unknown", value: "x" } },
+              },
+            },
+            steps: [],
+          },
+        },
+      ],
+    };
+    expect(validateSpec({ ...spec, rules: [rule] })).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "rules.0.steps.0.foreach.concurrency",
+          code: "SPEC.TYPE_INVALID",
+        }),
+        expect.objectContaining({
+          path: "rules.0.steps.0.foreach.collect.value.$select.where.op",
+          code: "SPEC.VALUE_INVALID",
+        }),
+      ]),
+    );
+  });
+
   it("validates Views against one root Source and declared relationship paths", () => {
     expect.hasAssertions();
     const spec = projectSpec();

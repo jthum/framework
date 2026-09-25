@@ -173,6 +173,13 @@ function draftStep(
       foreach: {
         source: structuredClone(step.foreach.source),
         ...(step.foreach.as ? { as: step.foreach.as } : {}),
+        ...(step.foreach.mode ? { mode: step.foreach.mode } : {}),
+        ...(step.foreach.concurrency !== undefined
+          ? { concurrency: step.foreach.concurrency }
+          : {}),
+        ...(step.foreach.collect
+          ? { collect: draftClone<{ as: string; value: AutomationValue }>(step.foreach.collect) }
+          : {}),
         ...(step.foreach.max !== undefined ? { max: step.foreach.max } : {}),
         ...(step.foreach.onItemFailure ? { on_item_failure: step.foreach.onItemFailure } : {}),
         steps: step.foreach.steps.map((item) => draftStep(item, spec, schemas, inputs)),
@@ -183,6 +190,7 @@ function draftStep(
       id,
       repeat: {
         times: structuredClone(step.repeat.times),
+        ...(step.repeat.until ? { until: draftPredicate(step.repeat.until, schemas) } : {}),
         ...(step.repeat.as ? { as: step.repeat.as } : {}),
         ...(step.repeat.max !== undefined ? { max: step.repeat.max } : {}),
         ...(step.repeat.onItemFailure ? { on_item_failure: step.repeat.onItemFailure } : {}),
@@ -264,6 +272,11 @@ function canonicalStep(
       foreach: {
         source: structuredClone(step.foreach.source),
         ...(step.foreach.as ? { as: step.foreach.as } : {}),
+        ...(step.foreach.mode ? { mode: step.foreach.mode } : {}),
+        ...(step.foreach.concurrency !== undefined
+          ? { concurrency: step.foreach.concurrency }
+          : {}),
+        ...(step.foreach.collect ? { collect: structuredClone(step.foreach.collect) } : {}),
         ...(step.foreach.max !== undefined ? { max: step.foreach.max } : {}),
         ...(step.foreach.on_item_failure ? { onItemFailure: step.foreach.on_item_failure } : {}),
         steps: step.foreach.steps.map((item) => canonicalStep(item, spec, schemas, inputs)),
@@ -274,6 +287,9 @@ function canonicalStep(
       id,
       repeat: {
         times: structuredClone(step.repeat.times),
+        ...(step.repeat.until
+          ? { until: canonicalPredicate(step.repeat.until, schemas, inputs) }
+          : {}),
         ...(step.repeat.as ? { as: step.repeat.as } : {}),
         ...(step.repeat.max !== undefined ? { max: step.repeat.max } : {}),
         ...(step.repeat.on_item_failure ? { onItemFailure: step.repeat.on_item_failure } : {}),

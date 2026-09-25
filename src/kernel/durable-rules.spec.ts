@@ -68,6 +68,65 @@ async function setup(
 }
 
 describe("Durable Rules", () => {
+  it("joins parallel reviews before a bounded approval and revision loop", async () => {
+    const app = await setup();
+    await app.install([
+      rule([
+        {
+          id: "revision",
+          repeat: {
+            times: 3,
+            until: { op: "context.equals", left: { $ref: "vars.approval.approved" }, value: true },
+            steps: [
+              {
+                id: "reviews",
+                parallel: {
+                  branches: [
+                    { id: "seo", steps: [{ id: "seo-review", action: { key: "test.capture" } }] },
+                    {
+                      id: "brand",
+                      steps: [{ id: "brand-review", action: { key: "test.capture" } }],
+                    },
+                  ],
+                },
+              },
+              {
+                id: "approval",
+                wait: {
+                  request: {
+                    label: "Approve draft",
+                    fields: [
+                      {
+                        id: "approved",
+                        key: "approved",
+                        label: "Approved",
+                        type: "boolean",
+                        required: true,
+                      },
+                    ],
+                  },
+                  as: "approval",
+                },
+              },
+            ],
+          },
+        },
+      ]),
+    ]);
+    let execution = await app.kernel.startRule(app.context, "test");
+    expect(execution.status).toBe("waiting");
+    expect(app.observed).toHaveLength(2);
+    for (const approved of [false, true]) {
+      const requests = await app.kernel.listActorRequests(app.context, execution.id);
+      const pending = requests.find((request) => request.status === "pending");
+      expect(pending).toBeDefined();
+      await app.kernel.respondToActorRequest(app.context, execution.id, pending!.id, { approved });
+      execution = (await app.kernel.getRuleExecution(app.context, execution.id))!;
+    }
+    expect(execution.status).toBe("completed");
+    expect(app.observed).toHaveLength(4);
+    await app.kernel.close();
+  });
   it("automatically starts a durable subscription when an Action publishes its Event", async () => {
     const app = await setup();
     await app.install([
@@ -298,12 +357,17 @@ describe("Durable Rules", () => {
     expect((await app.kernel.getRuleExecution(app.context, paused.id))?.status).toBe("waiting");
   });
 
-  it("fails closed for unsupported durable branches before performing Actions", async () => {
+  it("fails closed for waits nested inside parallel branches before performing Actions", async () => {
     const app = await setup();
     await app.install([
-      rule([capture, { id: "parallel", parallel: { branches: [{ id: "branch", steps: [] }] } }]),
+      rule([
+        capture,
+        { id: "parallel", parallel: { branches: [{ id: "branch", steps: [delay] }] } },
+      ]),
     ]);
-    await expect(app.kernel.startRule(app.context, "test")).rejects.toThrow("not compatible");
+    await expect(app.kernel.startRule(app.context, "test")).rejects.toThrow(
+      "cannot occur inside parallel",
+    );
     expect(app.observed).toHaveLength(0);
     const disabled = await Kernel.open({ ...app.options, environment: LOCAL_BROWSER_ENVIRONMENT });
     expect(() => disabled.startRule(app.context, "test")).toThrow("does not enable");

@@ -695,9 +695,13 @@
 					<Field.Group class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
 						<Field.Field><Field.Label>List reference</Field.Label><AutomationValueInput value={step.foreach.source} onValueChange={(next) => replace(index, { ...step, foreach: { ...step.foreach, source: isBinding(next) ? next : binding(String(next)) } })} references={referencesBefore(index)} placeholder="=vars.records" /></Field.Field>
 						<Field.Field><Field.Label>Item name</Field.Label><Input value={step.foreach.as ?? "item"} oninput={(event) => replace(index, { ...step, foreach: { ...step.foreach, as: event.currentTarget.value || undefined } })} /></Field.Field>
+						<Field.Field><Field.Label>Execution</Field.Label><OptionSelect value={step.foreach.mode ?? "sequential"} onValueChange={(mode) => replace(index, { ...step, foreach: { ...step.foreach, mode: mode as "sequential" | "parallel", concurrency: mode === "parallel" ? step.foreach.concurrency : undefined } })} options={[{ value: "sequential", label: "One at a time" }, { value: "parallel", label: "In parallel" }]} /></Field.Field>
+						{#if step.foreach.mode === "parallel"}<Field.Field><Field.Label>At once</Field.Label><Input type="number" min="1" value={step.foreach.concurrency ?? 4} oninput={(event) => replace(index, { ...step, foreach: { ...step.foreach, concurrency: Math.max(1, Math.trunc(event.currentTarget.valueAsNumber || 1)) } })} /></Field.Field>{/if}
 						<Field.Field><Field.Label>Maximum items</Field.Label><Input type="number" min="1" value={step.foreach.max ?? ""} oninput={(event) => replace(index, { ...step, foreach: { ...step.foreach, max: event.currentTarget.value ? Math.max(1, Math.trunc(event.currentTarget.valueAsNumber || 1)) : undefined } })} placeholder="1000" /></Field.Field>
 						<Field.Field><Field.Label>On failure</Field.Label><OptionSelect value={step.foreach.on_item_failure ?? "stop"} onValueChange={(next) => replace(index, { ...step, foreach: { ...step.foreach, on_item_failure: next as "stop" | "continue" } })} options={[{ value: "stop", label: "Stop workflow" }, { value: "continue", label: "Continue" }]} /></Field.Field>
 					</Field.Group>
+					<Field.Field><Field.Label>Collect each result as</Field.Label><Input value={step.foreach.collect?.as ?? ""} oninput={(event) => replace(index, { ...step, foreach: { ...step.foreach, collect: event.currentTarget.value.trim() ? { as: event.currentTarget.value.trim(), value: step.foreach.collect?.value ?? { $ref: `vars.${step.foreach.as ?? "item"}` } } : undefined } })} placeholder="Optional array name" /></Field.Field>
+					{#if step.foreach.collect}<Field.Field><Field.Label>Value from each item</Field.Label><AutomationValueInput value={step.foreach.collect.value} onValueChange={(value) => replace(index, { ...step, foreach: { ...step.foreach, collect: { ...step.foreach.collect!, value } } })} references={[...referencesBefore(index), { value: `vars.${step.foreach.as ?? "item"}`, label: "Current item", group: "Loop" }]} /><Field.Description>Collected values preserve source order. A failed item continued past contributes null.</Field.Description></Field.Field>{/if}
 					<div class="flex min-w-0 flex-col gap-3 rounded-xl bg-chart-2/5 p-3 ring-1 ring-chart-2/12">
 						<p class="text-xs font-semibold">For each item, run</p>
 						<AutomationStepList {actorRequests} {actorOptions} {effects} steps={step.foreach.steps} onStepsChange={(childSteps) => replace(index, { ...step, foreach: { ...step.foreach, steps: childSteps } })} {inputName} {inputType} {inputFields} {inputLabel} {recordInput} {types} {workflows} {spec} references={[...referencesBefore(index), { value: `vars.${step.foreach.as ?? "item"}`, label: labelFromKey(step.foreach.as ?? "item"), group: "Loop" }]} depth={depth + 1} />
@@ -711,6 +715,8 @@
 						<Field.Field><Field.Label>Maximum repeats</Field.Label><Input type="number" min="1" value={step.repeat.max ?? ""} oninput={(event) => replace(index, { ...step, repeat: { ...step.repeat, max: event.currentTarget.value ? Math.max(1, Math.trunc(event.currentTarget.valueAsNumber || 1)) : undefined } })} placeholder="1000" /></Field.Field>
 						<Field.Field><Field.Label>On failure</Field.Label><OptionSelect value={step.repeat.on_item_failure ?? "stop"} onValueChange={(next) => replace(index, { ...step, repeat: { ...step.repeat, on_item_failure: next as "stop" | "continue" } })} options={[{ value: "stop", label: "Stop workflow" }, { value: "continue", label: "Continue" }]} /></Field.Field>
 					</Field.Group>
+					<Field.Field><Field.Label>Stop early when</Field.Label><OptionSelect value={step.repeat.until ? "condition" : "never"} onValueChange={(value) => replace(index, { ...step, repeat: { ...step.repeat, until: value === "condition" ? step.repeat.until ?? { op: "context.equals", left: { $ref: "vars.approved" }, right: true } : undefined } })} options={[{ value: "never", label: "After the maximum repetitions" }, { value: "condition", label: "A condition passes" }]} /></Field.Field>
+					{#if step.repeat.until}<AutomationPredicateEditor predicate={step.repeat.until} onPredicateChange={(until) => replace(index, { ...step, repeat: { ...step.repeat, until } })} {inputName} type={inputTypeDef} fields={contextFields} references={referencesBefore(index)} />{/if}
 					<div class="flex min-w-0 flex-col gap-3 rounded-xl bg-chart-2/5 p-3 ring-1 ring-chart-2/12">
 						<p class="text-xs font-semibold">On every repetition, run</p>
 						<AutomationStepList {actorRequests} {actorOptions} {effects} steps={step.repeat.steps} onStepsChange={(childSteps) => replace(index, { ...step, repeat: { ...step.repeat, steps: childSteps } })} {inputName} {inputType} {inputFields} {inputLabel} {recordInput} {types} {workflows} {spec} references={[...referencesBefore(index), { value: `vars.${step.repeat.as ?? "index"}`, label: labelFromKey(step.repeat.as ?? "index"), group: "Loop" }]} depth={depth + 1} />
@@ -718,7 +724,7 @@
 				</div>
 			{:else if "parallel" in step}
 				<div class="flex min-w-0 flex-col gap-4">
-					<Field.Field><Field.Label>Continue when</Field.Label><OptionSelect value={step.parallel.join ?? "all"} onValueChange={(join) => replace(index, { ...step, parallel: { ...step.parallel, join: join as "all" | "any" } })} options={[{ value: "all", label: "All branches finish" }, { value: "any", label: "Any branch finishes" }]} /></Field.Field>
+					<Field.Field><Field.Label>Continue when</Field.Label><OptionSelect value={step.parallel.join ?? "all"} onValueChange={(join) => replace(index, { ...step, parallel: { ...step.parallel, join: join as "all" | "any" } })} options={[{ value: "all", label: "All branches succeed" }, { value: "any", label: "At least one succeeds (after all finish)" }]} /></Field.Field>
 					{#each step.parallel.branches as branch, branchIndex (branchIndex)}
 						<div class="flex min-w-0 flex-col gap-3 rounded-xl bg-chart-4/4 p-3 ring-1 ring-chart-4/12">
 							<div class="flex items-center gap-2">
@@ -741,7 +747,7 @@
 						{@const request = step.wait.request}
 						<Field.Group>
 							<Field.Field><Field.Label>Request title</Field.Label><Input value={request.label} oninput={(event) => replace(index, { ...step, wait: { ...step.wait, request: { ...request, label: event.currentTarget.value } } })} /></Field.Field>
-							<Field.Field><Field.Label>Assigned actor binding</Field.Label><Input value={request.actor ?? ""} oninput={(event) => replace(index, { ...step, wait: { ...step.wait, request: { ...request, actor: event.currentTarget.value.trim() || undefined } } })} placeholder="Current actor" /><Field.Description>Leave empty for the actor who started the workflow. An override names a runtime actor binding; the assignee must be a User.</Field.Description></Field.Field>
+							<Field.Field><Field.Label>Assigned actor binding</Field.Label><AutomationValueInput value={request.actor ?? ""} onValueChange={(actor) => replace(index, { ...step, wait: { ...step.wait, request: { ...request, actor: isBinding(actor) ? actor : String(actor).trim() || undefined } } })} references={referencesBefore(index)} placeholder="Current actor or =vars.reviewer" /><Field.Description>The assignee must resolve to a User binding.</Field.Description></Field.Field>
 						</Field.Group>
 						<RequestFields fields={request.fields} {types} onChange={(fields) => replace(index, { ...step, wait: { ...step.wait, request: { ...request, fields } } })} />
 						{#if step.wait.as}<p class="text-xs text-muted-foreground">Use vars.{step.wait.as}.&lt;field key&gt; in later conditions or actions.</p>{/if}
@@ -778,14 +784,16 @@
 					<Field.Field class="mt-3 border-t pt-3">
 						<Field.Label>Run as</Field.Label>
 						<OptionSelect
-							value={step.effect.runAs ?? ""}
-							onValueChange={(runAs) => replace(index, setRunAs(step, runAs))}
+							value={isBinding(step.effect.runAs) ? "$dynamic" : step.effect.runAs ?? ""}
+							onValueChange={(runAs) => replace(index, { ...step, effect: { ...step.effect, runAs: runAs === "$dynamic" ? { $ref: `vars.${inputName}` } : runAs || undefined } })}
 							options={[
 								{ value: "", label: "Person or Agent who started it" },
 								{ value: "system", label: "System" },
+								{ value: "$dynamic", label: "From a workflow value" },
 								...actorOptions.map((actor) => ({ value: actor.key, label: actor.label })),
 							]}
 						/>
+						{#if isBinding(step.effect.runAs)}<AutomationValueInput value={step.effect.runAs} onValueChange={(runAs) => replace(index, { ...step, effect: { ...step.effect, runAs: isBinding(runAs) ? runAs : binding(String(runAs)) } })} references={referencesBefore(index)} placeholder="=vars.participant" />{/if}
 						<Field.Description>Choose an Agent only when this step should use that teammate’s instructions and access.</Field.Description>
 					</Field.Field>
 				{/if}
