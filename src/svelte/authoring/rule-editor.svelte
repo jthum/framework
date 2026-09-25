@@ -383,23 +383,23 @@
 							{/if}
 						{/if}
 					</Field.Group>
+					<div class="mt-5 flex flex-col gap-4 border-t border-border/70 pt-5">
+						<p class="text-xs font-medium text-muted-foreground">Where this workflow can be started</p>
+						{#if kind === "manual"}
+							<Field.Field orientation="horizontal" class="items-center justify-between gap-4"><div><Field.Label>From a record</Field.Label><Field.Description>Show an action when the related record is open.</Field.Description></div><Switch bind:checked={exposeUi} aria-label="Show workflow on records" /></Field.Field>
+						{/if}
+						<Field.Field orientation="horizontal" class="items-center justify-between gap-4"><div><Field.Label>By an agent</Field.Label><Field.Description>Let agents run this workflow as a tool.</Field.Description></div><Switch bind:checked={exposeAgent} aria-label="Let agents run this workflow" /></Field.Field>
+						{#if exposeAgent}
+							<details class="w-full pl-1" open={Boolean(workflow.tool)}>
+								<summary class="w-fit cursor-pointer text-xs text-muted-foreground hover:text-foreground">Advanced tool details</summary>
+								<Field.Group class="mt-3 gap-3">
+									<Field.Field><Field.Label>Tool name</Field.Label><Input bind:value={toolName} placeholder={workflow.key} /><Field.Description>Defaults to the workflow key.</Field.Description></Field.Field>
+									<Field.Field><Field.Label>Tool description</Field.Label><Input bind:value={toolDescription} placeholder={description || `Run ${label || workflow.label}`} /><Field.Description>Explain when an agent should use it.</Field.Description></Field.Field>
+								</Field.Group>
+							</details>
+						{/if}
+					</div>
 				</Card.Content>
-				<Card.Footer class="flex-col items-stretch gap-4">
-					<p class="text-xs font-medium text-muted-foreground">Where this workflow can be started</p>
-					{#if kind === "manual"}
-						<Field.Field orientation="horizontal" class="items-center justify-between gap-4"><div><Field.Label>From a record</Field.Label><Field.Description>Show an action when the related record is open.</Field.Description></div><Switch bind:checked={exposeUi} aria-label="Show workflow on records" /></Field.Field>
-					{/if}
-					<Field.Field orientation="horizontal" class="items-center justify-between gap-4"><div><Field.Label>By an agent</Field.Label><Field.Description>Let agents run this workflow as a tool.</Field.Description></div><Switch bind:checked={exposeAgent} aria-label="Let agents run this workflow" /></Field.Field>
-					{#if exposeAgent}
-						<details class="w-full pl-1" open={Boolean(workflow.tool)}>
-							<summary class="w-fit cursor-pointer text-xs text-muted-foreground hover:text-foreground">Advanced tool details</summary>
-							<Field.Group class="mt-3 gap-3">
-								<Field.Field><Field.Label>Tool name</Field.Label><Input bind:value={toolName} placeholder={workflow.key} /><Field.Description>Defaults to the workflow key.</Field.Description></Field.Field>
-								<Field.Field><Field.Label>Tool description</Field.Label><Input bind:value={toolDescription} placeholder={description || `Run ${label || workflow.label}`} /><Field.Description>Explain when an agent should use it.</Field.Description></Field.Field>
-							</Field.Group>
-						</details>
-					{/if}
-				</Card.Footer>
 			</Card.Root>
 			</section>
 
@@ -428,16 +428,18 @@
 				<div class="relative hidden size-10 items-center justify-center rounded-full border border-primary bg-primary text-sm font-semibold text-primary-foreground sm:flex">3</div>
 			<Card.Root>
 				<Card.Header class="gap-0"><Card.Title>Then</Card.Title><Card.Description>Actions run from top to bottom. Conditions can branch into more steps.</Card.Description></Card.Header>
-				<Card.Content><AutomationStepList {actorRequests} {actorOptions} {effects} {steps} onStepsChange={(next) => (steps = next)} inputName={contextInputName} {inputType} inputFields={contextFields} inputLabel={submittedForm?.label} recordInput={!formTrigger && Boolean(inputTypeDef)} {types} workflows={workflows.filter((item) => item.key !== workflow.key)} {spec} /></Card.Content>
-				<Card.Footer class="flex-col items-stretch gap-3">
-					<label class="flex items-center gap-2 text-sm"><Switch bind:checked={resultEnabled} />Return a result</label>
-					{#if resultEnabled}
-						<Field.Group class="w-full gap-3">
-							<Field.Field><Field.Label>Result value</Field.Label><AutomationValueInput value={resultValue} onValueChange={(value) => (resultValue = value)} references={resultReferences} placeholder="=vars.result" /><Field.Description>Choose a value produced by the workflow, such as =vars.summary.</Field.Description></Field.Field>
-							<Field.Field><Field.Label>Expected result (optional)</Field.Label><AutomationOutputContract value={resultOutput} onValueChange={(value) => (resultOutput = value)} /></Field.Field>
-						</Field.Group>
-					{/if}
-				</Card.Footer>
+				<Card.Content>
+					<AutomationStepList {actorRequests} {actorOptions} {effects} {steps} onStepsChange={(next) => (steps = next)} inputName={contextInputName} {inputType} inputFields={contextFields} inputLabel={submittedForm?.label} recordInput={!formTrigger && Boolean(inputTypeDef)} {types} workflows={workflows.filter((item) => item.key !== workflow.key)} {spec} />
+					<div class="mt-5 flex flex-col gap-3 border-t border-border/70 pt-5">
+						<label class="flex items-center gap-2 text-sm"><Switch bind:checked={resultEnabled} />Return a result</label>
+						{#if resultEnabled}
+							<Field.Group class="w-full gap-3">
+								<Field.Field><Field.Label>Result value</Field.Label><AutomationValueInput value={resultValue} onValueChange={(value) => (resultValue = value)} references={resultReferences} placeholder="=vars.result" /><Field.Description>Choose a value produced by the workflow, such as =vars.summary.</Field.Description></Field.Field>
+								<Field.Field><Field.Label>Expected result (optional)</Field.Label><AutomationOutputContract value={resultOutput} onValueChange={(value) => (resultOutput = value)} /></Field.Field>
+							</Field.Group>
+						{/if}
+					</div>
+				</Card.Content>
 				</Card.Root>
 			</section>
 		</div>
