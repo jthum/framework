@@ -25,9 +25,8 @@ The step editor also preserves and authors parallel `foreach` mode, bounded conc
 per-item values, `repeat.until`, and dynamic Actor bindings from prior values. A collection value
 can be a direct reference or a declarative `$select` expression; the generic value input accepts
 the latter as structured JSON. This keeps the editor top-to-bottom, while one authored iteration
-block may create many runtime tasks. Hosts should pass compatibility diagnostics because the
-current durable runner rejects waits _inside_ concurrent work, even though it supports concurrent
-work followed by a wait.
+block may create many runtime tasks. Hosts should pass compatibility diagnostics because support
+for wait-bearing branches still depends on the host enabling durable Rule execution.
 
 The separate `@jthum/framework/svelte/settings` surface contains `WorkspaceSettings`, which edits
 user-defined Workspace settings through a `WorkspaceClient`.

@@ -38,8 +38,8 @@
 <Card.Root>
   <Card.Header class="gap-0">
     <Card.Title>{request.label}</Card.Title>
-    <Card.Description>{request.status === "pending" ? "Your response will continue this workflow." : request.status === "responded" ? "Your response has been recorded." : "This request has expired."}</Card.Description>
-    <Card.Action><Badge variant={request.status === "pending" ? "default" : "outline"}>{request.status === "pending" ? "Needs your response" : request.status === "responded" ? "Responded" : "Expired"}</Badge></Card.Action>
+    <Card.Description>{request.status === "pending" ? "Your response will continue this workflow." : request.status === "responded" ? "Your response has been recorded." : request.status === "cancelled" ? "This request was cancelled when the workflow stopped." : "This request has expired."}</Card.Description>
+    <Card.Action><Badge variant={request.status === "pending" ? "default" : "outline"}>{request.status === "pending" ? "Needs your response" : request.status === "responded" ? "Responded" : request.status === "cancelled" ? "Cancelled" : "Expired"}</Badge></Card.Action>
   </Card.Header>
   <Card.Content>
     {#if request.status === "pending"}

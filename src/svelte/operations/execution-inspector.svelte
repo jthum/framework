@@ -25,7 +25,7 @@
   } = $props();
   let pending = $state(false);
   let error = $state<PresentedError | null>(null);
-  let payload = $state("{}");
+  let payloads = $state<Record<string, string>>({});
   let confirming = $state(false);
   async function perform(work: () => Promise<unknown>) {
     if (pending) return;
@@ -34,13 +34,13 @@
     catch (cause) { error = presentError(cause, "Unable to update this run."); }
     finally { await onChange().catch(() => {}); pending = false; }
   }
-  async function resume() {
+  async function resume(wait: NonNullable<RuleExecutionDetails["waiting"]>) {
     await perform(async () => {
       let parsed: unknown;
-      try { parsed = JSON.parse(payload); }
+      try { parsed = JSON.parse(payloads[wait.id] ?? "{}"); }
       catch { throw invalidInput("Signal payload must be valid JSON."); }
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw invalidInput("Signal payload must be a JSON object.");
-      await client.resumeRule(execution.id, execution.waiting?.signal ? { signal: execution.waiting.signal, payload: parsed } : {});
+      await client.resumeRule(execution.id, { waitId: wait.id, ...(wait.signal ? { signal: wait.signal, payload: parsed } : {}) });
     });
   }
 </script>
@@ -81,21 +81,28 @@
     }} />
   {/each}
 
-  {#if execution.waiting}
+  {#each execution.waits ?? (execution.waiting ? [execution.waiting] : []) as wait (wait.id)}
     <Card.Root>
-      <Card.Header class="gap-0"><Card.Title>{execution.waiting.kind === "request" ? "Waiting for a response" : execution.waiting.kind === "signal" ? "Waiting for a signal" : "Waiting until the deadline"}</Card.Title><Card.Description>{execution.waiting.dueAt ? `Deadline: ${execution.waiting.dueAt}` : "This wait has no deadline."}</Card.Description></Card.Header>
+      <Card.Header class="gap-0"><Card.Title>{wait.kind === "request" ? "Waiting for a response" : wait.kind === "signal" ? "Waiting for a signal" : "Waiting until the deadline"}</Card.Title><Card.Description>{wait.dueAt ? `Deadline: ${wait.dueAt}` : "This wait has no deadline."}</Card.Description></Card.Header>
       <Card.Content>
-        {#if execution.waiting.kind === "signal"}
-          <Field.Group><Field.Field><Field.Label for="signal-{execution.id}">Payload for “{execution.waiting.signal}”</Field.Label><Textarea id="signal-{execution.id}" bind:value={payload} disabled={pending} /><Field.Description>Sending this signal will continue the workflow with this JSON object.</Field.Description></Field.Field></Field.Group>
-        {:else if execution.waiting.kind === "request" && !requests.some(request => request.status === "pending")}
+        {#if wait.kind === "signal"}
+          <Field.Group><Field.Field><Field.Label for="signal-{wait.id}">Payload for “{wait.signal}”</Field.Label><Textarea id="signal-{wait.id}" value={payloads[wait.id] ?? "{}"} oninput={(event) => payloads[wait.id] = event.currentTarget.value} disabled={pending} /><Field.Description>Sending this signal will continue this branch.</Field.Description></Field.Field></Field.Group>
+        {:else if wait.kind === "request" && !requests.some(request => request.id === wait.requestId && request.status === "pending")}
           <p class="text-sm text-muted-foreground">The assigned user must respond. Responding does not change the execution actor.</p>
-        {:else if execution.waiting.kind !== "request"}
+        {:else if wait.kind !== "request"}
           <p class="text-sm text-muted-foreground">Continue after the deadline. The runtime checks whether this wait is due.</p>
         {/if}
       </Card.Content>
-      {#if execution.waiting.kind !== "request" || execution.waiting.dueAt}
-        <Card.Footer class="justify-end"><Button disabled={pending} onclick={resume}>{execution.waiting.kind === "signal" ? "Send signal" : execution.waiting.kind === "request" ? "Continue after timeout" : "Continue when due"}</Button></Card.Footer>
+      {#if wait.kind !== "request" || wait.dueAt}
+        <Card.Footer class="justify-end"><Button disabled={pending} onclick={() => resume(wait)}>{wait.kind === "signal" ? "Send signal" : wait.kind === "request" ? "Continue after timeout" : "Continue when due"}</Button></Card.Footer>
       {/if}
+    </Card.Root>
+  {/each}
+
+  {#if execution.branches?.length}
+    <Card.Root>
+      <Card.Header class="gap-0"><Card.Title>Parallel work</Card.Title><Card.Description>Each branch keeps its own progress while the workflow waits for the join.</Card.Description></Card.Header>
+      <Card.Content><ol class="divide-y divide-border/50">{#each execution.branches as branch (`${branch.stepId}:${branch.branchId}`)}<li class="flex items-center justify-between gap-3 py-2 text-sm"><span class="min-w-0 truncate">{branch.branchId}</span><Badge variant={branch.status === "failed" ? "destructive" : "outline"}>{branch.status}</Badge></li>{/each}</ol></Card.Content>
     </Card.Root>
   {/if}
 

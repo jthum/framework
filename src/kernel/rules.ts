@@ -99,6 +99,7 @@ interface RunState {
   /** Shared step budget, while concurrent branches keep their own depth and trace. */
   budget?: { remaining: number };
   ownsBudget?: boolean;
+  activeBranch?: string;
 }
 
 function spend(state: RunState, limit: number): void {
@@ -139,6 +140,7 @@ interface Compensation {
   readonly context: ExecutionContext;
   readonly ruleId: string;
   readonly stepId: string;
+  readonly branchId?: string;
 }
 
 type RuleStepKind =
@@ -239,6 +241,7 @@ export class RuleService {
         actor: (context, rule, stepId, binding, scope) =>
           this.actionContext(context, rule, stepId, binding, scope),
         compensate: (state) => this.compensate(state, 0),
+        compensateBranch: (state, branchId) => this.compensateBranch(state, branchId),
         validateResponse,
       },
       this.assertContext,
@@ -463,6 +466,7 @@ export class RuleService {
             ),
             ruleId: rule.id,
             stepId: step.id,
+            ...(state.activeBranch ? { branchId: state.activeBranch } : {}),
           });
         state.trace.push({ stepId: step.id, kind, status: "completed" });
       } else if ("invoke" in step) {
@@ -707,6 +711,25 @@ export class RuleService {
   private async compensate(state: RunState, start: number): Promise<void> {
     const pending = state.compensations.splice(start);
     for (const item of pending.reverse())
+      await this.invokeAction(
+        item.action.key,
+        item.input,
+        item.context,
+        { kind: "rule", ruleId: item.ruleId, stepId: item.stepId },
+        state,
+      );
+  }
+
+  private async compensateBranch(state: RunState, branchId: string): Promise<void> {
+    const belongs = (item: Compensation) =>
+      item.branchId === branchId || item.branchId?.startsWith(`${branchId}/`);
+    const selected = state.compensations.filter(belongs);
+    state.compensations.splice(
+      0,
+      state.compensations.length,
+      ...state.compensations.filter((item) => !belongs(item)),
+    );
+    for (const item of selected.reverse())
       await this.invokeAction(
         item.action.key,
         item.input,

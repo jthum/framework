@@ -9,6 +9,7 @@ export type IdKind =
   | "model_config"
   | "record"
   | "execution"
+  | "wait"
   | "spec"
   | "workspace";
 

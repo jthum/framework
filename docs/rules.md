@@ -149,7 +149,9 @@ do not synchronize unless an explicit Rule does so.
 
 Hosts opt in with `EnvironmentProfile.durableRuleExecution`. `startRule(context, key, input)`
 stores a `RuleExecution` and runs until a wait or completion. `resumeRule(context, executionId,
-{ signal?, payload? })` continues a matching signal wait or an elapsed delay/timeout. Numeric
+{ waitId?, signal?, payload? })` continues a matching signal wait or an elapsed delay/timeout. When
+several waits are pending, pass the `waitId` from `getRuleExecutionDetails().waits` (or a unique
+signal). Numeric
 durations are seconds; strings use `ms`, `s`, `m`, `h`, or `d` (for example `"30m"`). Unsupported
 durations and executable semantics are rejected before the first Action. An elapsed deadline wins
 over a late signal. Hosts arrange delivery/polling; the Kernel does not start timers, a scheduler,
@@ -211,8 +213,13 @@ status before retrying it.
 
 `getDurableRuleRuntimeProfile` reports the environment opt-in and installed contracts. Gates,
 bounded loops, nested Rules, process-local retries, compensation, and Action overrides are supported.
-The durable runner can execute concurrent work before a later wait, including a parallel `foreach`
-or static branches. A wait **inside** concurrent work is rejected during preflight, since one
-execution currently has one pending wait. Per-item failure continuation is supported when the
-loop body does not itself wait; a wait inside such a loop is rejected during preflight. The durable
-runner is a cooperative reference implementation, not a distributed workflow engine.
+The durable runner supports independent waits and ActorRequests inside static parallel branches
+or a bounded parallel `foreach`. Branches are launched cooperatively up to the authored concurrency
+limit (default four for `foreach`), then remain pending at the same time; responses may arrive in
+any order, and fan-in preserves branch/item order. `join: any`
+waits for every branch to settle and succeeds if at least one succeeded; it does not abandon
+in-flight work. A failed branch in that mode attempts its own captured compensations. A failure
+under `join: all` fails the execution and cancels outstanding requests. Per-item failure
+continuation is supported only when the loop body does not wait; a wait inside such a loop is
+rejected during preflight. The durable runner is a cooperative reference implementation, not a
+distributed workflow engine.

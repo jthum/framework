@@ -44,6 +44,12 @@ async function setup(
           await publish({ event: "test.happened", payload: { source: "action" } });
         },
       },
+      {
+        key: "test.fail",
+        run: () => {
+          throw new Error("Review failed");
+        },
+      },
     ],
   };
   const kernel = await Kernel.open(options);
@@ -68,6 +74,176 @@ async function setup(
 }
 
 describe("Durable Rules", () => {
+  it("joins any after one branch fails and another succeeds", async () => {
+    const app = await setup();
+    await app.install([
+      rule([
+        {
+          id: "review",
+          parallel: {
+            join: "any",
+            branches: [
+              {
+                id: "first",
+                steps: [
+                  { id: "first-wait", wait: { request: { label: "First", fields: [] } } },
+                  { id: "fail", action: { key: "test.fail" } },
+                ],
+              },
+              {
+                id: "second",
+                steps: [
+                  { id: "second-wait", wait: { request: { label: "Second", fields: [] } } },
+                  { id: "success", compute: { assign: { verdict: "approved" } } },
+                ],
+              },
+            ],
+          },
+        },
+      ]),
+    ]);
+    const paused = await app.kernel.startRule(app.context, "test");
+    const requests = await app.kernel.listActorRequests(app.context, paused.id);
+    await app.kernel.respondToActorRequest(app.context, paused.id, requests[0]!.id, {});
+    const partial = await app.kernel.getRuleExecutionDetails(app.context, paused.id);
+    expect(partial?.status).toBe("waiting");
+    expect(partial?.branches).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ branchId: "first", status: "failed" }),
+        expect.objectContaining({ branchId: "second", status: "waiting" }),
+      ]),
+    );
+    await app.kernel.respondToActorRequest(app.context, paused.id, requests[1]!.id, {});
+    expect((await app.kernel.getRuleExecutionDetails(app.context, paused.id))?.vars).toMatchObject({
+      second: { verdict: "approved" },
+    });
+    await app.kernel.close();
+  });
+
+  it("fails join-all and cancels requests still pending in other branches", async () => {
+    const app = await setup();
+    await app.install([
+      rule([
+        {
+          id: "reviews",
+          parallel: {
+            branches: [
+              {
+                id: "first",
+                steps: [
+                  { id: "first-wait", wait: { request: { label: "First", fields: [] } } },
+                  { id: "fail", action: { key: "test.fail" } },
+                ],
+              },
+              {
+                id: "second",
+                steps: [{ id: "second-wait", wait: { request: { label: "Second", fields: [] } } }],
+              },
+            ],
+          },
+        },
+      ]),
+    ]);
+    const paused = await app.kernel.startRule(app.context, "test");
+    const requests = await app.kernel.listActorRequests(app.context, paused.id);
+    await expect(
+      app.kernel.respondToActorRequest(app.context, paused.id, requests[0]!.id, {}),
+    ).rejects.toThrow("Review failed");
+    expect((await app.kernel.getRuleExecution(app.context, paused.id))?.status).toBe("failed");
+    expect(
+      (await app.kernel.getActorRequest(app.context, paused.id, requests[1]!.id))?.status,
+    ).toBe("cancelled");
+    await app.kernel.close();
+  });
+  it("fans out dynamic parallel requests and gathers responses in input order", async () => {
+    const app = await setup();
+    await app.install([
+      {
+        ...rule([
+          {
+            id: "each",
+            foreach: {
+              source: { $ref: "vars.reviewers" },
+              mode: "parallel",
+              concurrency: 2,
+              as: "reviewer",
+              collect: {
+                as: "reviews",
+                value: { actor: { $ref: "vars.reviewer" }, answer: { $ref: "vars.answer" } },
+              },
+              steps: [
+                { id: "ask", wait: { request: { label: "Review", fields: [] }, as: "answer" } },
+              ],
+            },
+          },
+        ]),
+        input: { reviewers: { value: "array", required: true } },
+        result: { $ref: "vars.reviews" },
+      },
+    ]);
+    const paused = await app.kernel.startRule(app.context, "test", {
+      input: { reviewers: ["one", "two", "three"] },
+    });
+    expect((await app.kernel.getRuleExecutionDetails(app.context, paused.id))?.waits).toHaveLength(
+      2,
+    );
+    const requests = await app.kernel.listActorRequests(app.context, paused.id);
+    expect(requests).toHaveLength(2);
+    await app.kernel.respondToActorRequest(app.context, paused.id, requests[1]!.id, {});
+    const expanded = await app.kernel.listActorRequests(app.context, paused.id);
+    expect(expanded).toHaveLength(3);
+    await app.kernel.respondToActorRequest(app.context, paused.id, expanded[2]!.id, {});
+    await app.kernel.respondToActorRequest(app.context, paused.id, requests[0]!.id, {});
+    const result = await app.kernel.getRuleExecutionDetails(app.context, paused.id);
+    expect(result?.status).toBe("completed");
+    expect(result?.result).toEqual([
+      { actor: "one", answer: {} },
+      { actor: "two", answer: {} },
+      { actor: "three", answer: {} },
+    ]);
+    await app.kernel.close();
+  });
+
+  it("targets one of several pending signals by wait ID", async () => {
+    const app = await setup();
+    await app.install([
+      rule([
+        {
+          id: "parallel",
+          parallel: {
+            branches: [
+              { id: "left", steps: [{ id: "left-wait", wait: { signal: "ready", as: "reply" } }] },
+              {
+                id: "right",
+                steps: [{ id: "right-wait", wait: { signal: "ready", as: "reply" } }],
+              },
+            ],
+          },
+        },
+      ]),
+    ]);
+    const paused = await app.kernel.startRule(app.context, "test");
+    const waits = (await app.kernel.getRuleExecutionDetails(app.context, paused.id))!.waits!;
+    await expect(
+      app.kernel.resumeRule(app.context, paused.id, { signal: "ready" }),
+    ).rejects.toThrow("exactly one");
+    await app.kernel.resumeRule(app.context, paused.id, {
+      waitId: waits[1]!.id,
+      signal: "ready",
+      payload: { side: "right" },
+    });
+    expect((await app.kernel.getRuleExecution(app.context, paused.id))?.status).toBe("waiting");
+    await app.kernel.resumeRule(app.context, paused.id, {
+      waitId: waits[0]!.id,
+      signal: "ready",
+      payload: { side: "left" },
+    });
+    expect((await app.kernel.getRuleExecutionDetails(app.context, paused.id))?.vars).toMatchObject({
+      left: { reply: { side: "left" } },
+      right: { reply: { side: "right" } },
+    });
+    await app.kernel.close();
+  });
   it("joins parallel reviews before a bounded approval and revision loop", async () => {
     const app = await setup();
     await app.install([
@@ -357,18 +533,58 @@ describe("Durable Rules", () => {
     expect((await app.kernel.getRuleExecution(app.context, paused.id))?.status).toBe("waiting");
   });
 
-  it("fails closed for waits nested inside parallel branches before performing Actions", async () => {
+  it("keeps independent parallel requests and joins only after both replies", async () => {
     const app = await setup();
     await app.install([
       rule([
+        {
+          id: "parallel",
+          parallel: {
+            branches: [
+              {
+                id: "first",
+                steps: [
+                  {
+                    id: "first-ask",
+                    wait: { request: { label: "First review", fields: [] }, as: "answer" },
+                  },
+                  { id: "first-done", compute: { assign: { verdict: "first" } } },
+                ],
+              },
+              {
+                id: "second",
+                steps: [
+                  {
+                    id: "second-ask",
+                    wait: { request: { label: "Second review", fields: [] }, as: "answer" },
+                  },
+                  { id: "second-done", compute: { assign: { verdict: "second" } } },
+                ],
+              },
+            ],
+          },
+        },
         capture,
-        { id: "parallel", parallel: { branches: [{ id: "branch", steps: [delay] }] } },
       ]),
     ]);
-    await expect(app.kernel.startRule(app.context, "test")).rejects.toThrow(
-      "cannot occur inside parallel",
-    );
+    const paused = await app.kernel.startRule(app.context, "test");
+    expect(paused.status).toBe("waiting");
+    const details = await app.kernel.getRuleExecutionDetails(app.context, paused.id);
+    expect(details?.waits).toHaveLength(2);
+    const requests = await app.kernel.listActorRequests(app.context, paused.id);
+    expect(requests).toHaveLength(2);
     expect(app.observed).toHaveLength(0);
+    await app.kernel.respondToActorRequest(app.context, paused.id, requests[1]!.id, {});
+    expect((await app.kernel.getRuleExecution(app.context, paused.id))?.status).toBe("waiting");
+    expect(app.observed).toHaveLength(0);
+    await app.kernel.respondToActorRequest(app.context, paused.id, requests[0]!.id, {});
+    const completed = await app.kernel.getRuleExecutionDetails(app.context, paused.id);
+    expect(completed?.status).toBe("completed");
+    expect(completed?.vars).toMatchObject({
+      first: { verdict: "first" },
+      second: { verdict: "second" },
+    });
+    expect(app.observed).toHaveLength(1);
     const disabled = await Kernel.open({ ...app.options, environment: LOCAL_BROWSER_ENVIRONMENT });
     expect(() => disabled.startRule(app.context, "test")).toThrow("does not enable");
   });
@@ -382,7 +598,25 @@ describe("Durable Rules", () => {
       await app.install([
         rule([
           capture,
-          { id: "approval", wait: { request: { label: "Approve", fields: [] } } },
+          {
+            id: "reviews",
+            parallel: {
+              branches: [
+                {
+                  id: "first",
+                  steps: [
+                    { id: "first-request", wait: { request: { label: "First", fields: [] } } },
+                  ],
+                },
+                {
+                  id: "second",
+                  steps: [
+                    { id: "second-request", wait: { request: { label: "Second", fields: [] } } },
+                  ],
+                },
+              ],
+            },
+          },
           { ...capture, id: "after" },
         ]),
       ]);
@@ -391,8 +625,11 @@ describe("Durable Rules", () => {
       app.advance();
       const reopened = await Kernel.open(app.options);
       try {
-        const [request] = await reopened.listActorRequests(app.context, paused.id);
-        await reopened.respondToActorRequest(app.context, paused.id, request!.id, {});
+        const requests = await reopened.listActorRequests(app.context, paused.id);
+        expect(requests).toHaveLength(2);
+        await reopened.respondToActorRequest(app.context, paused.id, requests[1]!.id, {});
+        expect((await reopened.getRuleExecution(app.context, paused.id))?.status).toBe("waiting");
+        await reopened.respondToActorRequest(app.context, paused.id, requests[0]!.id, {});
         const result = await reopened.getRuleExecution(app.context, paused.id);
         expect(result?.status).toBe("completed");
         expect(result?.context).toEqual(app.context);
@@ -437,21 +674,10 @@ describe("Durable Rules", () => {
         { id: "fail", action: { key: "test.fail" } },
       ]),
     ]);
-    const kernel = await Kernel.open({
-      ...app.options,
-      actions: [
-        ...app.options.actions!,
-        {
-          key: "test.fail",
-          run: () => {
-            throw new Error("known failure");
-          },
-        },
-      ],
-    });
+    const kernel = await Kernel.open(app.options);
     const paused = await kernel.startRule(app.context, "test");
     app.advance();
-    await expect(kernel.resumeRule(app.context, paused.id)).rejects.toThrow("known failure");
+    await expect(kernel.resumeRule(app.context, paused.id)).rejects.toThrow("Review failed");
     expect((await kernel.getRuleExecution(app.context, paused.id))?.status).toBe("failed");
     expect(app.observed).toHaveLength(2);
     await expect(kernel.resumeRule(app.context, paused.id)).rejects.toThrow("not waiting");

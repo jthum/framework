@@ -27,13 +27,14 @@ export interface ActorRequest {
   readonly actorId: string;
   readonly label: string;
   readonly fields: readonly FieldDefinition[];
-  status: "pending" | "responded" | "expired";
+  status: "pending" | "responded" | "expired" | "cancelled";
   readonly createdAt: string;
   respondedAt?: string;
   values?: Record<string, JsonValue>;
 }
 
 export interface ResumeRuleInput {
+  readonly waitId?: string;
   readonly signal?: string;
   readonly payload?: Readonly<Record<string, JsonValue>>;
 }
@@ -52,12 +53,21 @@ export interface RuleExecutionDetails {
   readonly result?: JsonValue;
   readonly failure?: string;
   readonly waiting?: {
+    readonly id: string;
     readonly stepId: string;
     readonly kind: "delay" | "signal" | "request" | "timeout";
     readonly dueAt?: string;
     readonly signal?: string;
     readonly requestId?: string;
   };
+  /** Every pending branch wait, including concurrent ActorRequests. */
+  readonly waits?: readonly NonNullable<RuleExecutionDetails["waiting"]>[];
+  readonly branches?: readonly {
+    readonly stepId: string;
+    readonly branchId: string;
+    readonly status: ForkBranch["status"];
+    readonly failure?: string;
+  }[];
 }
 
 export type RuleExecutionSummary = Pick<
@@ -76,12 +86,14 @@ interface State {
   remaining: number;
   depth: number;
   trace: RuleStepTrace[];
+  activeBranch?: string;
   compensations: Array<{
     action: RuleActionCall;
     input: Readonly<Record<string, JsonValue>>;
     context: ExecutionContext;
     ruleId: string;
     stepId: string;
+    branchId?: string;
   }>;
 }
 
@@ -106,14 +118,36 @@ type Frame =
       from: number;
       to: number;
       as?: string;
-    };
+    }
+  | { kind: "join"; fork: number; ruleId: string; scope: number };
 
 interface Pending {
+  readonly id: string;
   readonly step: Extract<RuleStep, { wait: unknown } | { delay: unknown }>;
   readonly ruleId: string;
   readonly scope: number;
   readonly dueAt?: string;
   readonly requestId?: string;
+}
+
+interface Lane {
+  frames: Frame[];
+  pending?: Pending;
+}
+
+interface ForkBranch extends Lane {
+  readonly id: string;
+  readonly laneId: string;
+  readonly key: string;
+  readonly scope: number;
+  status: "queued" | "running" | "waiting" | "completed" | "failed" | "cancelled";
+  failure?: string;
+}
+
+interface Fork {
+  readonly step: Extract<RuleStep, { parallel: unknown } | { foreach: unknown }>;
+  readonly parentScope: number;
+  readonly branches: ForkBranch[];
 }
 
 interface Checkpoint {
@@ -122,6 +156,7 @@ interface Checkpoint {
   readonly frames: Frame[];
   readonly state: State;
   readonly requests: ActorRequest[];
+  readonly forks: Fork[];
   pending?: Pending;
   failure?: string;
   result?: JsonValue;
@@ -165,6 +200,7 @@ interface ExecutionHooks {
     scope: Scope,
   ): Promise<ExecutionContext>;
   compensate(state: State): Promise<void>;
+  compensateBranch(state: State, branchId: string): Promise<void>;
   validateResponse(
     context: ExecutionContext,
     fields: readonly FieldDefinition[],
@@ -205,7 +241,7 @@ export class DurableRuleService {
       notes: {
         ...base.notes,
         parallel:
-          "Parallel work can precede durable waits, but cannot contain a wait inside a branch.",
+          "Durable branches can hold independent waits and join after all branches settle. Pending waits are resumed individually.",
       },
     };
   }
@@ -237,6 +273,7 @@ export class DurableRuleService {
       frames: [{ kind: "steps", ruleId: rule.id, steps: rule.steps, index: 0, scope: 0 }],
       state: { remaining: this.hooks.maxSteps, depth: 0, trace: [], compensations: [] },
       requests: [],
+      forks: [],
     };
     const stamp = this.clock.now();
     const execution: RuleExecution = {
@@ -287,20 +324,6 @@ export class DurableRuleService {
           )
         )
           throw unsupported("A wait cannot occur inside a loop that continues after item failure.");
-        if (
-          ("parallel" in step || ("foreach" in step && step.foreach.mode === "parallel")) &&
-          requiresDurableExecution(
-            {
-              ...definition,
-              steps:
-                "parallel" in step
-                  ? step.parallel.branches.flatMap((branch) => branch.steps)
-                  : step.foreach.steps,
-            },
-            definitions,
-          )
-        )
-          throw unsupported("A durable wait cannot occur inside parallel work.");
         if ("invoke" in step) {
           const nested = byId.get(step.invoke.ruleId);
           if (!nested) throw resourceNotFound("Rule", step.invoke.ruleId);
@@ -390,7 +413,19 @@ export class DurableRuleService {
   ): Promise<RuleExecution> {
     const execution = await this.requireWaiting(context, id);
     const checkpoint = decode(execution);
-    const pending = checkpoint.pending!;
+    const all = pendingLanes(checkpoint);
+    const matches =
+      all.length === 1 && !input.waitId
+        ? all
+        : all.filter(({ pending }) =>
+            input.waitId
+              ? pending.id === input.waitId
+              : input.signal
+                ? "wait" in pending.step && pending.step.wait.signal === input.signal
+                : true,
+          );
+    if (matches.length !== 1) throw resourceConflict("Specify exactly one pending wait to resume.");
+    const { lane, pending } = matches[0]!;
     const due =
       pending.dueAt !== undefined && Date.parse(this.clock.now()) >= Date.parse(pending.dueAt);
     if (!due) {
@@ -403,7 +438,7 @@ export class DurableRuleService {
       )
         throw resourceConflict("The wait is not due and its signal does not match.");
     }
-    this.finishWait(checkpoint, due, input.payload ?? {});
+    this.finishWait(checkpoint, lane, due, input.payload ?? {});
     return this.claimAndDrive(execution, checkpoint);
   }
 
@@ -419,7 +454,8 @@ export class DurableRuleService {
     if (!execution || execution.status !== "waiting")
       throw resourceConflict("The execution is not waiting.");
     const checkpoint = decode(execution);
-    const pending = checkpoint.pending;
+    const entry = pendingLanes(checkpoint).find(({ pending }) => pending.requestId === requestId);
+    const pending = entry?.pending;
     const request = checkpoint.requests.find((item) => item.id === requestId);
     if (!request || pending?.requestId !== requestId || request.status !== "pending")
       throw resourceConflict("The ActorRequest is no longer pending.");
@@ -436,7 +472,7 @@ export class DurableRuleService {
     request.status = "responded";
     request.respondedAt = this.clock.now();
     request.values = prepared;
-    this.finishWait(checkpoint, false, prepared);
+    this.finishWait(checkpoint, entry!.lane, false, prepared);
     await this.claimAndDrive(execution, checkpoint);
     return structuredClone(request);
   }
@@ -451,6 +487,16 @@ export class DurableRuleService {
     const checkpoint = decode(execution);
     checkpoint.failure =
       "Interrupted execution terminated explicitly; Action outcome may be uncertain.";
+    for (const request of checkpoint.requests)
+      if (request.status === "pending") request.status = "cancelled";
+    for (const fork of checkpoint.forks)
+      for (const branch of fork.branches)
+        if (
+          branch.status === "queued" ||
+          branch.status === "waiting" ||
+          branch.status === "running"
+        )
+          branch.status = "cancelled";
     return this.save(execution, checkpoint, "failed");
   }
 
@@ -477,16 +523,17 @@ export class DurableRuleService {
 
   private finishWait(
     checkpoint: Checkpoint,
+    lane: Lane,
     timeout: boolean,
     payload: Readonly<Record<string, JsonValue>>,
   ): void {
-    const pending = checkpoint.pending!;
+    const pending = lane.pending!;
     const scope = checkpoint.scopes[pending.scope]!;
     if ("wait" in pending.step) {
       const wait = pending.step.wait;
       if (wait.as) scope.vars[wait.as] = { ...payload };
       const steps = timeout ? (wait.onTimeout ?? []) : (wait.onSignal ?? []);
-      checkpoint.frames.push({
+      lane.frames.push({
         kind: "steps",
         ruleId: pending.ruleId,
         steps,
@@ -503,212 +550,385 @@ export class DurableRuleService {
       kind: "wait" in pending.step ? "wait" : "delay",
       status: "completed",
     });
-    delete checkpoint.pending;
+    delete lane.pending;
   }
 
   private async drive(initial: RuleExecution, checkpoint: Checkpoint): Promise<RuleExecution> {
-    let execution = initial;
-    let saving = false;
+    const run = { execution: initial, saving: false };
+    delete checkpoint.state.activeBranch;
     try {
-      while (checkpoint.frames.length) {
-        if (checkpoint.frames.length > this.hooks.maxDepth * 3)
-          throw resourceConflict("Durable Rule nesting limit exceeded.");
-        const frame = checkpoint.frames.at(-1)!;
-        const scope =
-          "scope" in frame ? checkpoint.scopes[frame.scope]! : checkpoint.scopes[frame.to]!;
-        const rule = checkpoint.rules[frame.ruleId]!;
-        if (frame.kind === "return") {
-          if (frame.as) {
-            const nested = checkpoint.rules[frame.nestedRuleId]!;
-            const nestedScope = checkpoint.scopes[frame.from]!;
-            scope.vars[frame.as] =
-              nested.result === undefined
-                ? { ...nestedScope.vars }
-                : this.hooks.value(nested.result, nestedScope);
-          }
-          checkpoint.state.trace.push({
-            stepId: frame.stepId,
-            kind: "invoke",
-            status: "completed",
-          });
-          checkpoint.frames.pop();
-        } else if (frame.kind === "loop") {
-          if (frame.itemScope !== undefined) {
-            const itemScope = checkpoint.scopes[frame.itemScope]!;
-            if ("foreach" in frame.step && frame.step.foreach.collect)
-              frame.collected!.push(this.hooks.value(frame.step.foreach.collect.value, itemScope));
-            if (
-              "repeat" in frame.step &&
-              frame.step.repeat.until &&
-              (await this.hooks.test(frame.step.repeat.until, itemScope))
-            )
-              frame.index = frame.items.length;
-            delete frame.itemScope;
-          }
-          if (frame.index >= frame.items.length) {
-            if ("foreach" in frame.step && frame.step.foreach.collect)
-              scope.vars[frame.step.foreach.collect.as] = frame.collected ?? [];
-            checkpoint.state.trace.push({
-              stepId: frame.step.id,
-              kind: "foreach" in frame.step ? "foreach" : "repeat",
-              status: "completed",
-            });
-            checkpoint.frames.pop();
-          } else {
-            const config = "foreach" in frame.step ? frame.step.foreach : frame.step.repeat;
-            const itemScope = "foreach" in frame.step ? structuredClone(scope) : scope;
-            itemScope.vars[config.as ?? ("foreach" in frame.step ? "item" : "index")] =
-              frame.items[frame.index++]!;
-            frame.itemScope =
-              "foreach" in frame.step ? checkpoint.scopes.push(itemScope) - 1 : frame.scope;
-            checkpoint.frames.push({
-              kind: "steps",
-              ruleId: rule.id,
-              steps: config.steps,
-              index: 0,
-              scope: frame.itemScope,
-            });
-          }
-        } else if (frame.index >= frame.steps.length) checkpoint.frames.pop();
-        else {
-          const step = frame.steps[frame.index++]!;
-          if ("action" in step || "compute" in step) {
-            checkpoint.state.depth = checkpoint.frames.length;
-            await this.hooks.leaf(execution.context, rule, step, scope, checkpoint.state);
-          } else {
-            if (--checkpoint.state.remaining < 0)
-              throw resourceConflict("Durable Rule step limit exceeded.");
-            if ("gate" in step) {
-              const passed = await this.hooks.test(step.gate.predicate, scope);
-              checkpoint.state.trace.push({ stepId: step.id, kind: "gate", status: "completed" });
-              checkpoint.frames.push({
-                kind: "steps",
-                ruleId: rule.id,
-                steps: passed ? (step.gate.pass ?? []) : (step.gate.fail ?? []),
-                index: 0,
-                scope: frame.scope,
-              });
-            } else if (
-              ("foreach" in step &&
-                (step.foreach.mode === "parallel" || step.foreach.onItemFailure === "continue")) ||
-              ("repeat" in step && step.repeat.onItemFailure === "continue")
-            ) {
-              await this.hooks.compound(execution.context, rule, step, scope, checkpoint.state);
-            } else if ("foreach" in step || "repeat" in step) {
-              const config = "foreach" in step ? step.foreach : step.repeat;
-              const raw =
-                "foreach" in step
-                  ? this.hooks.read(step.foreach.source.$ref, scope)
-                  : typeof step.repeat.times === "number"
-                    ? step.repeat.times
-                    : this.hooks.read(step.repeat.times.$ref, scope);
-              if (
-                !("foreach" in step) &&
-                (typeof raw !== "number" || !Number.isInteger(raw) || raw < 0)
-              )
-                throw resourceConflict("Repeat count must be a non-negative integer.");
-              const count = Array.isArray(raw) ? raw.length : typeof raw === "number" ? raw : -1;
-              if (count < 0 || count > (config.max ?? 100))
-                throw resourceConflict("Durable loop exceeds its bound or has an invalid source.");
-              const items =
-                "foreach" in step ? raw : Array.from({ length: count }, (_, index) => index);
-              if (!Array.isArray(items)) throw resourceConflict("Foreach source must be an array.");
-              checkpoint.frames.push({
-                kind: "loop",
-                ruleId: rule.id,
-                step,
-                items: structuredClone(items),
-                index: 0,
-                scope: frame.scope,
-                ...("foreach" in step && step.foreach.collect ? { collected: [] } : {}),
-              });
-            } else if ("invoke" in step) {
-              const nested = checkpoint.rules[step.invoke.ruleId]!;
-              await this.checkAuthority(execution.context, "rules.run", "rule", nested.id);
-              if (nested.enabled === false) throw resourceConflict("Nested Rule is disabled.");
-              const nestedScope = await this.hooks.scope(execution.context, nested, {
-                input: this.hooks.values(step.invoke.input ?? {}, scope),
-              });
-              const from = checkpoint.scopes.push(nestedScope) - 1;
-              checkpoint.frames.push({
-                kind: "return",
-                ruleId: rule.id,
-                nestedRuleId: nested.id,
-                stepId: step.id,
-                from,
-                to: frame.scope,
-                ...(step.invoke.as ? { as: step.invoke.as } : {}),
-              });
-              checkpoint.frames.push({
-                kind: "steps",
-                ruleId: nested.id,
-                steps: nested.steps,
-                index: 0,
-                scope: from,
-              });
-            } else if ("wait" in step || "delay" in step) {
-              const duration = "delay" in step ? step.delay.duration : step.wait.timeout;
-              const dueAt =
-                duration === undefined ? undefined : deadline(this.clock.now(), duration);
-              let requestId: string | undefined;
-              if ("wait" in step && step.wait.request) {
-                const definition = step.wait.request;
-                const assigned = await this.hooks.actor(
-                  execution.context,
-                  rule,
-                  step.id,
-                  definition.actor,
-                  scope,
-                );
-                const actor = await this.catalog.getActor(assigned.actorId);
-                if (actor?.kind !== "user")
-                  throw denied("ActorRequests must be assigned to a User.");
-                requestId = this.ids.create("actor_request");
-                checkpoint.requests.push({
-                  id: requestId,
-                  executionId: execution.id,
-                  actorId: actor.id,
-                  label: definition.label,
-                  fields: structuredClone(definition.fields),
-                  status: "pending",
-                  createdAt: this.clock.now(),
-                });
-              }
-              checkpoint.pending = {
-                step,
-                ruleId: rule.id,
-                scope: frame.scope,
-                ...(dueAt ? { dueAt } : {}),
-                ...(requestId ? { requestId } : {}),
-              };
-              return this.save(execution, checkpoint, "waiting");
-            } else if ("parallel" in step) {
-              await this.hooks.compound(execution.context, rule, step, scope, checkpoint.state);
-            } else throw unsupported("Unknown durable Rule step.");
-          }
-        }
-        saving = true;
-        execution = await this.save(execution, checkpoint, "running");
-        saving = false;
-      }
-      const root = checkpoint.rules[execution.rule.id]!;
+      const status = await this.driveLane(checkpoint, checkpoint, run);
+      if (status === "waiting") return this.save(run.execution, checkpoint, "waiting");
+      const root = checkpoint.rules[run.execution.rule.id]!;
       if (root.result !== undefined)
         checkpoint.result = this.hooks.value(root.result, checkpoint.scopes[0]!);
-      return this.save(execution, checkpoint, "completed");
+      return this.save(run.execution, checkpoint, "completed");
     } catch (error) {
-      if (saving) throw error;
+      if (run.saving) throw error;
       checkpoint.failure = error instanceof Error ? error.message : String(error);
+      for (const request of checkpoint.requests)
+        if (request.status === "pending") request.status = "cancelled";
+      for (const fork of checkpoint.forks)
+        for (const branch of fork.branches)
+          if (
+            branch.status === "queued" ||
+            branch.status === "waiting" ||
+            branch.status === "running"
+          )
+            branch.status = "cancelled";
       // A failed save or revoked claim cannot safely trigger further side effects.
-      const latest = await this.store.get(execution.context.workspaceId, execution.id);
-      if (latest?.revision !== execution.revision || latest.status !== "running") throw error;
+      const latest = await this.store.get(run.execution.context.workspaceId, run.execution.id);
+      if (latest?.revision !== run.execution.revision || latest.status !== "running") throw error;
       try {
         await this.hooks.compensate(checkpoint.state);
       } catch (compensationError) {
         checkpoint.failure += `; compensation failed: ${String(compensationError)}`;
       }
-      await this.save(execution, checkpoint, "failed");
+      await this.save(run.execution, checkpoint, "failed");
       throw error;
     }
+  }
+
+  private async driveLane(
+    checkpoint: Checkpoint,
+    lane: Lane,
+    run: { execution: RuleExecution; saving: boolean },
+  ): Promise<"waiting" | "done"> {
+    while (lane.frames.length) {
+      if (lane.frames.length > this.hooks.maxDepth * 3)
+        throw resourceConflict("Durable Rule nesting limit exceeded.");
+      const frame = lane.frames.at(-1)!;
+      const scope =
+        "scope" in frame ? checkpoint.scopes[frame.scope]! : checkpoint.scopes[frame.to]!;
+      const rule = checkpoint.rules[frame.ruleId]!;
+      if (frame.kind === "return") {
+        if (frame.as) {
+          const nested = checkpoint.rules[frame.nestedRuleId]!;
+          const nestedScope = checkpoint.scopes[frame.from]!;
+          scope.vars[frame.as] =
+            nested.result === undefined
+              ? { ...nestedScope.vars }
+              : this.hooks.value(nested.result, nestedScope);
+        }
+        checkpoint.state.trace.push({
+          stepId: frame.stepId,
+          kind: "invoke",
+          status: "completed",
+        });
+        lane.frames.pop();
+      } else if (frame.kind === "loop") {
+        if (frame.itemScope !== undefined) {
+          const itemScope = checkpoint.scopes[frame.itemScope]!;
+          if ("foreach" in frame.step && frame.step.foreach.collect)
+            frame.collected!.push(this.hooks.value(frame.step.foreach.collect.value, itemScope));
+          if (
+            "repeat" in frame.step &&
+            frame.step.repeat.until &&
+            (await this.hooks.test(frame.step.repeat.until, itemScope))
+          )
+            frame.index = frame.items.length;
+          delete frame.itemScope;
+        }
+        if (frame.index >= frame.items.length) {
+          if ("foreach" in frame.step && frame.step.foreach.collect)
+            scope.vars[frame.step.foreach.collect.as] = frame.collected ?? [];
+          checkpoint.state.trace.push({
+            stepId: frame.step.id,
+            kind: "foreach" in frame.step ? "foreach" : "repeat",
+            status: "completed",
+          });
+          lane.frames.pop();
+        } else {
+          const config = "foreach" in frame.step ? frame.step.foreach : frame.step.repeat;
+          const itemScope = "foreach" in frame.step ? structuredClone(scope) : scope;
+          itemScope.vars[config.as ?? ("foreach" in frame.step ? "item" : "index")] =
+            frame.items[frame.index++]!;
+          frame.itemScope =
+            "foreach" in frame.step ? checkpoint.scopes.push(itemScope) - 1 : frame.scope;
+          lane.frames.push({
+            kind: "steps",
+            ruleId: rule.id,
+            steps: config.steps,
+            index: 0,
+            scope: frame.itemScope,
+          });
+        }
+      } else if (frame.kind === "join") {
+        const status = await this.driveFork(checkpoint, checkpoint.forks[frame.fork]!, run);
+        if (status === "waiting") return "waiting";
+        lane.frames.pop();
+      } else if (frame.index >= frame.steps.length) lane.frames.pop();
+      else {
+        const step = frame.steps[frame.index++]!;
+        if ("action" in step || "compute" in step) {
+          checkpoint.state.depth = lane.frames.length;
+          await this.hooks.leaf(run.execution.context, rule, step, scope, checkpoint.state);
+        } else {
+          if (--checkpoint.state.remaining < 0)
+            throw resourceConflict("Durable Rule step limit exceeded.");
+          if ("gate" in step) {
+            const passed = await this.hooks.test(step.gate.predicate, scope);
+            checkpoint.state.trace.push({ stepId: step.id, kind: "gate", status: "completed" });
+            lane.frames.push({
+              kind: "steps",
+              ruleId: rule.id,
+              steps: passed ? (step.gate.pass ?? []) : (step.gate.fail ?? []),
+              index: 0,
+              scope: frame.scope,
+            });
+          } else if (
+            ("foreach" in step &&
+              step.foreach.mode === "parallel" &&
+              requiresDurableExecution(
+                { ...rule, steps: step.foreach.steps },
+                Object.values(checkpoint.rules),
+              )) ||
+            ("foreach" in step && step.foreach.onItemFailure === "continue") ||
+            ("repeat" in step && step.repeat.onItemFailure === "continue")
+          ) {
+            if (
+              "foreach" in step &&
+              step.foreach.mode === "parallel" &&
+              requiresDurableExecution(
+                { ...rule, steps: step.foreach.steps },
+                Object.values(checkpoint.rules),
+              )
+            )
+              this.startFork(checkpoint, lane, rule, step, frame.scope);
+            else
+              await this.hooks.compound(run.execution.context, rule, step, scope, checkpoint.state);
+          } else if ("foreach" in step || "repeat" in step) {
+            const config = "foreach" in step ? step.foreach : step.repeat;
+            const raw =
+              "foreach" in step
+                ? this.hooks.read(step.foreach.source.$ref, scope)
+                : typeof step.repeat.times === "number"
+                  ? step.repeat.times
+                  : this.hooks.read(step.repeat.times.$ref, scope);
+            if (
+              !("foreach" in step) &&
+              (typeof raw !== "number" || !Number.isInteger(raw) || raw < 0)
+            )
+              throw resourceConflict("Repeat count must be a non-negative integer.");
+            const count = Array.isArray(raw) ? raw.length : typeof raw === "number" ? raw : -1;
+            if (count < 0 || count > (config.max ?? 100))
+              throw resourceConflict("Durable loop exceeds its bound or has an invalid source.");
+            const items =
+              "foreach" in step ? raw : Array.from({ length: count }, (_, index) => index);
+            if (!Array.isArray(items)) throw resourceConflict("Foreach source must be an array.");
+            lane.frames.push({
+              kind: "loop",
+              ruleId: rule.id,
+              step,
+              items: structuredClone(items),
+              index: 0,
+              scope: frame.scope,
+              ...("foreach" in step && step.foreach.collect ? { collected: [] } : {}),
+            });
+          } else if ("invoke" in step) {
+            const nested = checkpoint.rules[step.invoke.ruleId]!;
+            await this.checkAuthority(run.execution.context, "rules.run", "rule", nested.id);
+            if (nested.enabled === false) throw resourceConflict("Nested Rule is disabled.");
+            const nestedScope = await this.hooks.scope(run.execution.context, nested, {
+              input: this.hooks.values(step.invoke.input ?? {}, scope),
+            });
+            const from = checkpoint.scopes.push(nestedScope) - 1;
+            lane.frames.push({
+              kind: "return",
+              ruleId: rule.id,
+              nestedRuleId: nested.id,
+              stepId: step.id,
+              from,
+              to: frame.scope,
+              ...(step.invoke.as ? { as: step.invoke.as } : {}),
+            });
+            lane.frames.push({
+              kind: "steps",
+              ruleId: nested.id,
+              steps: nested.steps,
+              index: 0,
+              scope: from,
+            });
+          } else if ("wait" in step || "delay" in step) {
+            const duration = "delay" in step ? step.delay.duration : step.wait.timeout;
+            const dueAt = duration === undefined ? undefined : deadline(this.clock.now(), duration);
+            let requestId: string | undefined;
+            if ("wait" in step && step.wait.request) {
+              const definition = step.wait.request;
+              const assigned = await this.hooks.actor(
+                run.execution.context,
+                rule,
+                step.id,
+                definition.actor,
+                scope,
+              );
+              const actor = await this.catalog.getActor(assigned.actorId);
+              if (actor?.kind !== "user") throw denied("ActorRequests must be assigned to a User.");
+              requestId = this.ids.create("actor_request");
+              checkpoint.requests.push({
+                id: requestId,
+                executionId: run.execution.id,
+                actorId: actor.id,
+                label: definition.label,
+                fields: structuredClone(definition.fields),
+                status: "pending",
+                createdAt: this.clock.now(),
+              });
+            }
+            lane.pending = {
+              id: this.ids.create("wait"),
+              step,
+              ruleId: rule.id,
+              scope: frame.scope,
+              ...(dueAt ? { dueAt } : {}),
+              ...(requestId ? { requestId } : {}),
+            };
+            run.saving = true;
+            run.execution = await this.save(run.execution, checkpoint, "running");
+            run.saving = false;
+            return "waiting";
+          } else if ("parallel" in step) {
+            if (
+              requiresDurableExecution(
+                { ...rule, steps: step.parallel.branches.flatMap((branch) => branch.steps) },
+                Object.values(checkpoint.rules),
+              )
+            )
+              this.startFork(checkpoint, lane, rule, step, frame.scope);
+            else
+              await this.hooks.compound(run.execution.context, rule, step, scope, checkpoint.state);
+          } else throw unsupported("Unknown durable Rule step.");
+        }
+      }
+      run.saving = true;
+      run.execution = await this.save(run.execution, checkpoint, "running");
+      run.saving = false;
+    }
+    return "done";
+  }
+
+  private async driveFork(
+    checkpoint: Checkpoint,
+    fork: Fork,
+    run: { execution: RuleExecution; saving: boolean },
+  ): Promise<"waiting" | "done"> {
+    let waiting = false;
+    const limit = "foreach" in fork.step ? (fork.step.foreach.concurrency ?? 4) : Infinity;
+    let active = fork.branches.filter((branch) => branch.status === "waiting").length;
+    for (const branch of fork.branches) {
+      if (
+        branch.status === "completed" ||
+        branch.status === "failed" ||
+        branch.status === "cancelled"
+      )
+        continue;
+      if (branch.pending) {
+        waiting = true;
+        continue;
+      }
+      if (branch.status === "queued" && active >= limit) {
+        waiting = true;
+        continue;
+      }
+      if (branch.status === "waiting") active--;
+      branch.status = "running";
+      const previousBranch = checkpoint.state.activeBranch;
+      checkpoint.state.activeBranch = branch.laneId;
+      try {
+        branch.status =
+          (await this.driveLane(checkpoint, branch, run)) === "done" ? "completed" : "waiting";
+      } catch (error) {
+        if (run.saving) throw error;
+        branch.status = "failed";
+        branch.failure = error instanceof Error ? error.message : String(error);
+        if ("foreach" in fork.step || fork.step.parallel.join !== "any") throw error;
+        await this.hooks.compensateBranch(checkpoint.state, branch.laneId);
+      } finally {
+        if (previousBranch === undefined) delete checkpoint.state.activeBranch;
+        else checkpoint.state.activeBranch = previousBranch;
+      }
+      if (branch.status === "waiting") {
+        active++;
+        waiting = true;
+      }
+    }
+    if (waiting) return "waiting";
+    if (
+      "parallel" in fork.step &&
+      fork.step.parallel.join === "any" &&
+      !fork.branches.some((branch) => branch.status === "completed")
+    )
+      throw resourceConflict("Every parallel branch failed.");
+    const parent = checkpoint.scopes[fork.parentScope]!;
+    if ("foreach" in fork.step) {
+      const collection = fork.step.foreach.collect;
+      if (collection)
+        parent.vars[collection.as] = fork.branches.map((branch) =>
+          this.hooks.value(collection.value, checkpoint.scopes[branch.scope]!),
+        );
+    } else {
+      for (const branch of fork.branches)
+        if (branch.status === "completed")
+          parent.vars[branch.key] = structuredClone(checkpoint.scopes[branch.scope]!.vars);
+    }
+    checkpoint.state.trace.push({
+      stepId: fork.step.id,
+      kind: "foreach" in fork.step ? "foreach" : "parallel",
+      status: "completed",
+    });
+    return "done";
+  }
+
+  private startFork(
+    checkpoint: Checkpoint,
+    lane: Lane,
+    rule: RuleDefinition,
+    step: Fork["step"],
+    parentScope: number,
+  ): void {
+    const scope = checkpoint.scopes[parentScope]!;
+    const items = "foreach" in step ? this.hooks.read(step.foreach.source.$ref, scope) : undefined;
+    if ("foreach" in step && !Array.isArray(items))
+      throw resourceConflict("Parallel foreach source must be an array.");
+    if ("foreach" in step && (items as JsonValue[]).length > (step.foreach.max ?? 100))
+      throw resourceConflict("Parallel foreach exceeds its bound.");
+    const branches: ForkBranch[] =
+      "parallel" in step
+        ? step.parallel.branches.map((branch) => {
+            const index = checkpoint.scopes.push(structuredClone(scope)) - 1;
+            return {
+              id: branch.id,
+              laneId: `${checkpoint.state.activeBranch ? `${checkpoint.state.activeBranch}/` : ""}${checkpoint.forks.length}:${branch.id}`,
+              key: branch.key ?? branch.id,
+              scope: index,
+              status: "queued",
+              frames: [
+                { kind: "steps", ruleId: rule.id, steps: branch.steps, index: 0, scope: index },
+              ],
+            };
+          })
+        : (items as JsonValue[]).map((item, ordinal) => {
+            const index = checkpoint.scopes.push(structuredClone(scope)) - 1;
+            checkpoint.scopes[index]!.vars[step.foreach.as ?? "item"] = item;
+            return {
+              id: `${step.id}:${ordinal}`,
+              laneId: `${checkpoint.state.activeBranch ? `${checkpoint.state.activeBranch}/` : ""}${checkpoint.forks.length}:${step.id}:${ordinal}`,
+              key: String(ordinal),
+              scope: index,
+              status: "queued",
+              frames: [
+                {
+                  kind: "steps",
+                  ruleId: rule.id,
+                  steps: step.foreach.steps,
+                  index: 0,
+                  scope: index,
+                },
+              ],
+            };
+          });
+    const fork = checkpoint.forks.push({ step, parentScope, branches }) - 1;
+    lane.frames.push({ kind: "join", fork, ruleId: rule.id, scope: parentScope });
   }
 
   private async save(
@@ -744,9 +964,32 @@ export class DurableRuleService {
 function encode(checkpoint: Checkpoint): Readonly<Record<string, JsonValue>> {
   return structuredClone(checkpoint) as unknown as Readonly<Record<string, JsonValue>>;
 }
+function pendingLanes(checkpoint: Checkpoint): Array<{ lane: Lane; pending: Pending }> {
+  const entries: Array<{ lane: Lane; pending: Pending }> = [];
+  if (checkpoint.pending) entries.push({ lane: checkpoint, pending: checkpoint.pending });
+  for (const fork of checkpoint.forks)
+    for (const branch of fork.branches)
+      if (branch.pending) entries.push({ lane: branch, pending: branch.pending });
+  return entries;
+}
 function describe(execution: RuleExecution): RuleExecutionDetails {
   const checkpoint = decode(execution);
-  const pending = checkpoint.pending;
+  const waits = pendingLanes(checkpoint).map(({ pending }) => ({
+    id: pending.id,
+    stepId: pending.step.id,
+    kind: pending.requestId
+      ? ("request" as const)
+      : "delay" in pending.step
+        ? ("delay" as const)
+        : pending.step.wait.signal
+          ? ("signal" as const)
+          : ("timeout" as const),
+    ...(pending.dueAt ? { dueAt: pending.dueAt } : {}),
+    ...("wait" in pending.step && pending.step.wait.signal
+      ? { signal: pending.step.wait.signal }
+      : {}),
+    ...(pending.requestId ? { requestId: pending.requestId } : {}),
+  }));
   const labels = new Map<string, string>();
   for (const definition of Object.values(checkpoint.rules))
     visitSteps(definition.steps, (step) => {
@@ -788,23 +1031,18 @@ function describe(execution: RuleExecution): RuleExecutionDetails {
       ? { result: checkpoint.result }
       : {}),
     ...(checkpoint.failure ? { failure: checkpoint.failure } : {}),
-    ...(pending
+    ...(waits.length ? { waits } : {}),
+    ...(waits.length === 1 ? { waiting: waits[0] } : {}),
+    ...(checkpoint.forks.length
       ? {
-          waiting: {
-            stepId: pending.step.id,
-            kind: pending.requestId
-              ? "request"
-              : "delay" in pending.step
-                ? "delay"
-                : pending.step.wait.signal
-                  ? "signal"
-                  : "timeout",
-            ...(pending.dueAt ? { dueAt: pending.dueAt } : {}),
-            ...("wait" in pending.step && pending.step.wait.signal
-              ? { signal: pending.step.wait.signal }
-              : {}),
-            ...(pending.requestId ? { requestId: pending.requestId } : {}),
-          } as NonNullable<RuleExecutionDetails["waiting"]>,
+          branches: checkpoint.forks.flatMap((fork) =>
+            fork.branches.map((branch) => ({
+              stepId: fork.step.id,
+              branchId: branch.id,
+              status: branch.status,
+              ...(branch.failure ? { failure: branch.failure } : {}),
+            })),
+          ),
         }
       : {}),
   };
