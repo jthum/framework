@@ -301,6 +301,15 @@ describe("Workspace settings and runtime Actions", () => {
       for await (const event of events) if (event.type === "completed") output = event.output;
       expect(output).toEqual({ provider: "mock", query: "agent" });
       expect(calls).toEqual(["direct", "rule", "agent"]);
+      await kernel.putRuntimeAction(context, {
+        ...runtimeAction("web.search"),
+        output: { type: "object", fields: { query: { type: "number", required: true } } },
+      });
+      await expect(
+        kernel.executeAction(context, "web.search", { query: "invalid" }),
+      ).rejects.toMatchObject({
+        code: ERROR_CODES.validationInvalidInput,
+      });
     } finally {
       await kernel.close();
     }
@@ -318,6 +327,12 @@ describe("Workspace settings and runtime Actions", () => {
         kernel.putRuntimeAction(context, {
           ...runtimeAction("bad"),
           input: null,
+        } as unknown as RuntimeAction),
+      ).rejects.toMatchObject({ code: ERROR_CODES.validationInvalidInput });
+      await expect(
+        kernel.putRuntimeAction(context, {
+          ...runtimeAction("bad-output"),
+          output: { type: "array", fields: {} },
         } as unknown as RuntimeAction),
       ).rejects.toMatchObject({ code: ERROR_CODES.validationInvalidInput });
       await kernel.putRuntimeAction(context, runtimeAction("web.search"));

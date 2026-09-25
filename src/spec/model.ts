@@ -4,6 +4,15 @@ export type JsonPrimitive = null | boolean | number | string;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 export type SpecMeta = Record<string, JsonValue>;
 
+/** Optional, open output assertion. Undeclared properties remain valid external data. */
+export interface RuleOutputContract {
+  readonly type: "text" | "number" | "boolean" | "null" | "object" | "array";
+  /** Required only has meaning for a named object field. */
+  readonly required?: boolean;
+  readonly fields?: Readonly<Record<string, RuleOutputContract>>;
+  readonly items?: RuleOutputContract;
+}
+
 export interface DefinitionIdentity {
   readonly id: string;
   readonly key: string;
@@ -356,6 +365,7 @@ export interface RuleActionCall {
 
 export interface RuleAction extends RuleActionCall {
   readonly as?: string;
+  readonly output?: RuleOutputContract;
   readonly retry?: RuleRetryDefinition;
   readonly compensate?: RuleActionCall;
 }
@@ -446,6 +456,8 @@ export interface RuleDefinition extends DefinitionIdentity {
   readonly steps: readonly RuleStep[];
   /** Optional value returned to direct callers, nested Rules, and agent tools. */
   readonly result?: RuleValue;
+  /** Optional assertion for the resolved result; not required for command Rules. */
+  readonly output?: RuleOutputContract;
 }
 
 export interface Spec extends DefinitionIdentity {

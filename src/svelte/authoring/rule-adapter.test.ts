@@ -10,6 +10,8 @@ describe("Rule authoring adapter", () => {
       id: "rule-roundtable",
       key: "roundtable",
       label: "Roundtable",
+      output: { type: "array", items: { type: "object", fields: { actor: { type: "text" } } } },
+      result: { $ref: "vars.critiques" },
       steps: [
         {
           id: "gather",
@@ -28,6 +30,7 @@ describe("Rule authoring adapter", () => {
                   key: "inference.run",
                   runAs: { $ref: "vars.item.actor" },
                   as: "answer",
+                  output: { type: "text" },
                   input: {
                     messages: [{ role: "user", content: { $ref: "vars.question" } }],
                   },

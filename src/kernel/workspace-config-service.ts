@@ -6,6 +6,7 @@ import {
 } from "../errors/error.ts";
 import type { WorkspaceConfigStore } from "../persistence/workspace-config.ts";
 import type { JsonValue } from "../spec/model.ts";
+import { assertValidRuleOutputContract } from "../spec/validate.ts";
 import type { AuthorizationRequest } from "./authorization.ts";
 import type { ActionRegistry } from "./action-registry.ts";
 import type { ExecutionContext } from "./model.ts";
@@ -168,6 +169,7 @@ export class WorkspaceConfigService {
     if (this.actions.has(key)) throw resourceConflict(`Action ${key} is installed by the host.`);
     if (!input.input || input.input.type !== "object")
       throw invalid("An Action input must be an object schema.");
+    if (input.output !== undefined) assertValidRuleOutputContract(input.output);
     if (!input.implementation || !isRecord(input.implementation.config))
       throw invalid("Action implementation config must be an object.");
     requiredKey(input.implementation.kind, "Action implementation kind");

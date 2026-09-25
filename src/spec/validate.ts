@@ -60,6 +60,18 @@ export function assertValidSpec(input: unknown): asserts input is Spec {
   });
 }
 
+/** Validate an instance Action's optional result assertion using the portable contract shape. */
+export function assertValidRuleOutputContract(input: unknown): void {
+  const issues: ValidationIssue[] = [];
+  requireRuleOutputShape(input, "output", issues);
+  if (issues.length)
+    throw new FrameworkError({
+      code: ERROR_CODES.validationInvalidInput,
+      message: "The Action output contract is invalid.",
+      issues,
+    });
+}
+
 export function assertValidFieldCondition(
   input: unknown,
   collection: CollectionDefinition,
@@ -250,6 +262,48 @@ function requireRuleShape(
     issue(issues, `${path}.steps`, "SPEC.TYPE_INVALID", "Rule steps must be an array.");
   else requireRuleStepsShape(input.steps, `${path}.steps`, issues, new Set());
   if (input.result !== undefined) requireRuleValueShape(input.result, `${path}.result`, issues);
+  if (input.output !== undefined) {
+    if (input.result === undefined)
+      issue(issues, `${path}.output`, "SPEC.PROPERTY_CONFLICT", "Rule output requires a result.");
+    requireRuleOutputShape(input.output, `${path}.output`, issues);
+  }
+}
+
+function requireRuleOutputShape(
+  input: unknown,
+  path: string,
+  issues: ValidationIssue[],
+  field = false,
+): void {
+  if (!isRecord(input))
+    return issue(issues, path, "SPEC.TYPE_INVALID", "Rule output contract must be an object.");
+  if (!(["text", "number", "boolean", "null", "object", "array"] as unknown[]).includes(input.type))
+    issue(issues, `${path}.type`, "SPEC.TYPE_INVALID", "Rule output type is invalid.");
+  optionalBoolean(input, "required", path, issues);
+  if (input.required !== undefined && !field)
+    issue(
+      issues,
+      `${path}.required`,
+      "SPEC.PROPERTY_CONFLICT",
+      "Only named output fields may be required.",
+    );
+  if (input.fields !== undefined) {
+    if (input.type !== "object" || !isRecord(input.fields))
+      issue(
+        issues,
+        `${path}.fields`,
+        "SPEC.TYPE_INVALID",
+        "Only object outputs can declare fields.",
+      );
+    else
+      for (const [key, field] of Object.entries(input.fields))
+        requireRuleOutputShape(field, `${path}.fields.${key}`, issues, true);
+  }
+  if (input.items !== undefined) {
+    if (input.type !== "array")
+      issue(issues, `${path}.items`, "SPEC.TYPE_INVALID", "Only array outputs can declare items.");
+    else requireRuleOutputShape(input.items, `${path}.items`, issues);
+  }
 }
 
 function requireRuleInputShape(input: unknown, path: string, issues: ValidationIssue[]): void {
@@ -492,6 +546,7 @@ function requireRuleActionShape(
 ): void {
   requireString(input, "key", path, issues);
   optionalString(input, "as", path, issues);
+  if (input.output !== undefined) requireRuleOutputShape(input.output, `${path}.output`, issues);
   requireRuleActorBinding(input.runAs, `${path}.runAs`, issues);
   if (input.input !== undefined) requireRuleValueMap(input.input, `${path}.input`, issues);
   if (input.retry !== undefined) {

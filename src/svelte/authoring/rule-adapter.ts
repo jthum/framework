@@ -67,6 +67,7 @@ export function ruleDraftFromDefinition(
     ...(rule.tool ? { tool: structuredClone(rule.tool) } : {}),
     steps: rule.steps.map((step) => draftStep(step, spec, schemas, inputs)),
     ...(rule.result !== undefined ? { result: draftClone<AutomationValue>(rule.result) } : {}),
+    ...(rule.output ? { output: structuredClone(rule.output) } : {}),
   };
 }
 
@@ -108,6 +109,7 @@ export function ruleDefinitionFromDraft(
     ...(draft.tool ? { tool: structuredClone(draft.tool) } : {}),
     steps: draft.steps.map((step) => canonicalStep(step, spec, schemas, inputs)),
     ...(draft.result !== undefined ? { result: structuredClone(draft.result) } : {}),
+    ...(draft.output ? { output: structuredClone(draft.output) } : {}),
   };
 }
 
@@ -318,6 +320,7 @@ function draftAction(
   return {
     ...draftActionCall(action, spec, schemas, inputs),
     ...(action.as ? { as: action.as } : {}),
+    ...(action.output ? { output: structuredClone(action.output) } : {}),
     ...(action.retry
       ? {
           retry: {
@@ -341,6 +344,7 @@ function canonicalAction(
   return {
     ...canonicalActionCall(effect, spec, schemas, inputs),
     ...(effect.as ? { as: effect.as } : {}),
+    ...(effect.output ? { output: structuredClone(effect.output) } : {}),
     ...(effect.retry ? { retry: structuredClone(effect.retry) } : {}),
     ...(effect.compensate
       ? { compensate: canonicalActionCall(effect.compensate, spec, schemas, inputs) }

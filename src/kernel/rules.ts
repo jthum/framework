@@ -9,6 +9,7 @@ import type {
   RuleSelection,
   RuleValue,
 } from "../spec/model.ts";
+import { ruleOutputMismatch } from "../spec/rule-output.ts";
 import type { ActionRegistry, ActionRuntime, RuntimeActionExecutor } from "./action-registry.ts";
 import type { WorkspaceConfigStore } from "../persistence/workspace-config.ts";
 import type { ConditionRegistry } from "./condition-registry.ts";
@@ -392,8 +393,15 @@ export class RuleService {
       vars: await this.prepareInputs(context, rule, input.input ?? {}),
       meta: emptyScope(context, rule, this.clock.now()).meta,
     };
+    let result: JsonValue | undefined;
     try {
       await this.runSteps(context, rule, rule.steps, scope, state);
+      result = rule.result === undefined ? undefined : resolveValue(rule.result, scope);
+      const mismatch = rule.output && ruleOutputMismatch(rule.output, result);
+      if (mismatch)
+        throw invalidExecution(`Rule ${rule.key} returned an invalid result: ${mismatch}`, {
+          ruleId: rule.id,
+        });
     } catch (error) {
       await this.compensate(state, compensationStart);
       throw error;
@@ -407,7 +415,7 @@ export class RuleService {
       status: "completed",
       vars: structuredClone(scope.vars),
       trace: structuredClone(state.trace),
-      ...(rule.result === undefined ? {} : { result: resolveValue(rule.result, scope) }),
+      ...(result === undefined ? {} : { result }),
     };
   }
 
@@ -468,6 +476,12 @@ export class RuleService {
             stepId: step.id,
             ...(state.activeBranch ? { branchId: state.activeBranch } : {}),
           });
+        const mismatch = step.action.output && ruleOutputMismatch(step.action.output, output);
+        if (mismatch)
+          throw invalidExecution(
+            `Action ${step.action.key} returned an invalid result: ${mismatch}`,
+            { stepId: step.id },
+          );
         state.trace.push({ stepId: step.id, kind, status: "completed" });
       } else if ("invoke" in step) {
         const nested = await this.requireRuleById(context, step.invoke.ruleId);
@@ -840,7 +854,13 @@ export class RuleService {
           code: ERROR_CODES.persistenceUnsupported,
           message: `The ${action.implementation.kind} Action executor is unavailable.`,
         });
-      return (await executor.run(action, execution)) ?? null;
+      const result = (await executor.run(action, execution)) ?? null;
+      const mismatch = action.output && ruleOutputMismatch(action.output, result);
+      if (mismatch)
+        throw invalidExecution(`Action ${key} returned an invalid result: ${mismatch}`, {
+          action: key,
+        });
+      return result;
     } finally {
       state.depth -= 1;
     }

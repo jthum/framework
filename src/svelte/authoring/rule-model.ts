@@ -1,11 +1,11 @@
-import type { FieldDefinition, SpecMeta } from "@jthum/framework/spec";
+import type { FieldDefinition, RuleOutputContract, SpecMeta } from "@jthum/framework/spec";
 /** Descriptive registry metadata only; authoring never calls an effect. */
 export interface RuleEffect {
   key: string;
   label: string;
   description?: string;
   input?: Record<string, unknown>;
-  output?: Record<string, unknown>;
+  output?: RuleOutputContract;
 }
 export interface RuleCompatibility {
   diagnostics: Array<{ capability: string; support: string; message: string }>;
@@ -78,6 +78,7 @@ export interface AutomationEffectCall {
 
 export interface AutomationEffect extends AutomationEffectCall {
   as?: string;
+  output?: RuleOutputContract;
   retry?: AutomationRetry;
   compensate?: AutomationEffectCall;
 }
@@ -161,4 +162,5 @@ export interface RuleDraft extends SpecNode {
   tool?: { name?: string; description?: string };
   steps: RuleStep[];
   result?: AutomationValue;
+  output?: RuleOutputContract;
 }

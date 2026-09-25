@@ -7,6 +7,106 @@ import type { Clock, IdGenerator, IdKind } from "./defaults.ts";
 import { Kernel } from "./kernel.ts";
 
 describe("Kernel Rules", () => {
+  it("validates opt-in Action and Rule outputs without constraining undeclared results", async () => {
+    const { kernel, context, spec } = await bootstrap(undefined, [
+      { key: "test.open", run: () => ({ verdict: "yes", extra: { provider: "ok" } }) },
+      {
+        key: "test.strict",
+        output: { type: "object", fields: { verdict: { type: "number", required: true } } },
+        run: () => ({ verdict: "wrong" }),
+      },
+    ]);
+    await kernel.applySpec(
+      context,
+      specWithRules(spec, [
+        {
+          id: "rule-output",
+          key: "output_test",
+          label: "Output test",
+          steps: [
+            {
+              id: "read",
+              action: {
+                key: "test.open",
+                as: "answer",
+                output: { type: "object", fields: { verdict: { type: "text", required: true } } },
+              },
+            },
+          ],
+          result: { $ref: "vars.answer" },
+          output: { type: "object", fields: { verdict: { type: "text", required: true } } },
+        },
+      ]),
+    );
+    expect((await kernel.runRule(context, "output_test")).result).toMatchObject({ verdict: "yes" });
+    await expect(kernel.executeAction(context, "test.strict")).rejects.toMatchObject({
+      code: ERROR_CODES.validationInvalidInput,
+    });
+    await kernel.applySpec(
+      context,
+      specWithRules(spec, [
+        {
+          id: "rule-output",
+          key: "output_test",
+          label: "Output test",
+          steps: [
+            { id: "read", action: { key: "test.open", as: "answer", output: { type: "number" } } },
+          ],
+          result: { $ref: "vars.answer" },
+          output: { type: "number" },
+        },
+      ]),
+    );
+    await expect(kernel.runRule(context, "output_test")).rejects.toMatchObject({
+      code: ERROR_CODES.validationInvalidInput,
+    });
+    await kernel.close();
+  });
+
+  it("compensates a successful Action when its declared step output is invalid", async () => {
+    const effects: string[] = [];
+    const { kernel, context, spec } = await bootstrap(undefined, [
+      {
+        key: "test.write",
+        run: () => {
+          effects.push("write");
+          return { count: "wrong" };
+        },
+      },
+      {
+        key: "test.undo",
+        run: () => {
+          effects.push("undo");
+        },
+      },
+    ]);
+    await kernel.applySpec(
+      context,
+      specWithRules(spec, [
+        {
+          id: "rule-compensate",
+          key: "compensate",
+          label: "Compensate",
+          steps: [
+            {
+              id: "write",
+              action: {
+                key: "test.write",
+                as: "written",
+                output: { type: "object", fields: { count: { type: "number", required: true } } },
+                compensate: { key: "test.undo" },
+              },
+            },
+          ],
+        },
+      ]),
+    );
+    await expect(kernel.runRule(context, "compensate")).rejects.toThrow(
+      "output.count must be number",
+    );
+    expect(effects).toEqual(["write", "undo"]);
+    await kernel.close();
+  });
   it("lets an authorized Actor author a Rule through the Action boundary", async () => {
     const { kernel, context } = await bootstrap();
     const saved = await kernel.executeAction(context, "rules.save", {

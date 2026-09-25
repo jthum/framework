@@ -1,4 +1,4 @@
-import type { JsonValue } from "../spec/model.ts";
+import type { JsonValue, RuleOutputContract } from "../spec/model.ts";
 import type { InferenceToolInputSchema } from "./inference-runtime.ts";
 
 /** Instance settings belong to one Workspace, never to the portable Spec. */
@@ -32,6 +32,7 @@ export interface RuntimeAction {
   readonly label: string;
   readonly description: string;
   readonly input: InferenceToolInputSchema;
+  readonly output?: RuleOutputContract;
   readonly implementation: {
     readonly kind: string;
     readonly config: Readonly<Record<string, JsonValue>>;

@@ -30,6 +30,12 @@ outputs and named parallel branches appear among subsequent reference choices. T
 block may create many runtime tasks. Hosts should pass compatibility diagnostics because support
 for wait-bearing branches still depends on the host enabling durable Rule execution.
 
+The Rule editor can optionally declare an expected result kind and selected object fields, and
+an Action step can declare the output it expects. These assertions round-trip through the
+canonical Spec. Hosts may also supply typed `RuleEffect.output` metadata to suggest object-field
+references after a named Action; metadata alone does not turn an external result into a closed
+schema or silently add a persisted assertion.
+
 The separate `@jthum/framework/svelte/settings` surface contains `WorkspaceSettings`, which edits
 user-defined Workspace settings through a `WorkspaceClient`.
 `SettingsPanel` renders a host-defined `SettingsLayout` with tabs, sections, and typed Field controls.

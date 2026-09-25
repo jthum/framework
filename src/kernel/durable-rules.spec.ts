@@ -74,6 +74,28 @@ async function setup(
 }
 
 describe("Durable Rules", () => {
+  it("fails a declared result mismatch after a durable wait", async () => {
+    const app = await setup();
+    await app.install([
+      {
+        ...rule([
+          { id: "approval", wait: { request: { label: "Approve", fields: [] }, as: "approval" } },
+        ]),
+        result: { $ref: "vars.approval" },
+        output: { type: "number" },
+      },
+    ]);
+    const paused = await app.kernel.startRule(app.context, "test");
+    const [request] = await app.kernel.listActorRequests(app.context, paused.id);
+    await expect(
+      app.kernel.respondToActorRequest(app.context, paused.id, request!.id, {}),
+    ).rejects.toMatchObject({
+      code: "VALIDATION.INVALID_INPUT",
+      message: expect.stringContaining("output must be number"),
+    });
+    expect((await app.kernel.getRuleExecution(app.context, paused.id))?.status).toBe("failed");
+    await app.kernel.close();
+  });
   it("joins any after one branch fails and another succeeds", async () => {
     const app = await setup();
     await app.install([

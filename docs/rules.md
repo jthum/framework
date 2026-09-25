@@ -91,6 +91,16 @@ declared child result under its `as` name; when the child has no result declarat
 child variable map instead. Actions and Rules remain separate even when either is callable or
 exposed as a tool.
 
+Output contracts are optional. A registered or Workspace-defined Action may declare an `output`
+contract for its own implementation; an authored Action step may declare the result it expects; and
+a Rule with `result` may declare its `output`. The contract describes a JSON kind and optionally
+named object fields or array items. Declared fields are checked at runtime; extra object fields
+remain allowed, so third-party payloads need not be exhaustively modeled. Undeclared outputs
+remain open `JsonValue`. A mismatch fails the Action or Rule with a validation error. A Rule step
+with captured compensation attempts it if an already-returned Action result fails the step's
+contract. A registered Action's own output failure occurs before the Rule receives a result, so
+external side effects still require idempotency/recovery policy.
+
 An Agent-exposed Rule uses its semantic `key` as the model-facing tool name and its Rule
 description as the tool description by default. Authors may set `tool: { name, description }`
 to make either more specific without changing the Rule key or internal ID. The tool name may be

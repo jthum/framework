@@ -3,6 +3,7 @@
 	import AutomationStepList from "./automation-step-list.svelte";
 	import AutomationValueInput, { type AutomationReferenceOption } from "./automation-value-input.svelte";
 	import AutomationValueMapEditor from "./automation-value-map-editor.svelte";
+	import AutomationOutputContract from "./automation-output-contract.svelte";
 	import RequestFields from "./request-fields.svelte";
 	import OptionSelect from "../ui/option-select/option-select.svelte";
 	import { reorderAtVerticalTarget, startVerticalDrag, type VerticalDragSession, type VerticalDropTarget } from "./vertical-drag.js";
@@ -16,6 +17,7 @@
 	import type { RuleActorOption, RuleEffect } from "./rule-model.js";
 	import { labelFromKey } from "./editor-data.js";
 	import type { AutomationPredicate, RuleStep, AutomationValue } from "./rule-model.js";
+	import type { RuleOutputContract } from "@jthum/framework/spec";
 	import type { EditorContext, RuleDraft, CollectionDraft } from "./authoring.js";
 	import ArrowDownIcon from "@lucide/svelte/icons/arrow-down";
 	import ArrowUpIcon from "@lucide/svelte/icons/arrow-up";
@@ -107,8 +109,16 @@
 	function referencesBefore(index: number): AutomationReferenceOption[] {
 		const options = [...baseReferences];
 		for (const step of steps.slice(0, index)) {
-			if ("effect" in step && step.effect.as) options.push({ value: `vars.${step.effect.as}`, label: labelFromKey(step.effect.as), group: "Previous steps" });
-			if ("invoke" in step && step.invoke.as) options.push({ value: `vars.${step.invoke.as}`, label: labelFromKey(step.invoke.as), group: "Previous steps" });
+			if ("effect" in step && step.effect.as) {
+				const root = `vars.${step.effect.as}`;
+				options.push({ value: root, label: labelFromKey(step.effect.as), group: "Previous steps" });
+				appendOutputReferences(options, root, step.effect.output ?? effects.find((effect) => effect.key === step.effect.key)?.output);
+			}
+			if ("invoke" in step && step.invoke.as) {
+				const root = `vars.${step.invoke.as}`;
+				options.push({ value: root, label: labelFromKey(step.invoke.as), group: "Previous steps" });
+				appendOutputReferences(options, root, workflows.find((workflow) => workflow.key === step.invoke.workflow)?.output);
+			}
 			if ("compute" in step) {
 				for (const name of Object.keys(step.compute.assign)) options.push({ value: `vars.${name}`, label: labelFromKey(name), group: "Previous steps" });
 			}
@@ -123,6 +133,16 @@
 			}
 		}
 		return uniqueReferences(options);
+	}
+
+	function appendOutputReferences(options: AutomationReferenceOption[], root: string, output?: RuleOutputContract, depth = 0) {
+		if (output?.type !== "object" || !output.fields || depth >= 4) return;
+		for (const [key, field] of Object.entries(output.fields)) {
+			if (key.includes(".")) continue;
+			const value = `${root}.${key}`;
+			options.push({ value, label: labelFromKey(key), group: "Output fields" });
+			appendOutputReferences(options, value, field, depth + 1);
+		}
 	}
 
 	function uniqueReferences(options: AutomationReferenceOption[]): AutomationReferenceOption[] {
@@ -812,6 +832,10 @@
 									<Input value={step.effect.as ?? ""} oninput={(event) => replace(index, setEffectAs(step, event.currentTarget.value))} placeholder="Optional result name" />
 								</Field.Field>
 							{/if}
+							<Field.Field>
+								<Field.Label>Expected output (optional)</Field.Label>
+								<AutomationOutputContract value={step.effect.output} onValueChange={(output) => replace(index, { ...step, effect: { ...step.effect, output } })} />
+							</Field.Field>
 							<div class="grid gap-3 sm:grid-cols-2">
 								<Field.Field>
 									<Field.Label>Maximum attempts</Field.Label>

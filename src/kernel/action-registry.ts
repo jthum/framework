@@ -1,6 +1,7 @@
 import { ERROR_CODES, FrameworkError, resourceConflict } from "../errors/error.ts";
 import type { CollectionRecord, RecordValues } from "../persistence/records.ts";
-import type { JsonValue } from "../spec/model.ts";
+import type { JsonValue, RuleOutputContract } from "../spec/model.ts";
+import { ruleOutputMismatch } from "../spec/rule-output.ts";
 import type { ExecutionContext } from "./model.ts";
 import type { RuleEvent } from "./rules.ts";
 import type { SourceRow } from "./sources.ts";
@@ -71,6 +72,8 @@ export interface RuntimeActionExecutor {
 export interface ActionDefinition {
   /** Immutable semantic contract key, for example `records.create`. */
   readonly key: string;
+  /** Optional assertion of this implementation's result; external payloads may remain undeclared. */
+  readonly output?: RuleOutputContract;
   /** Optional opt-in metadata for projecting this Action as an Inference tool. */
   readonly tool?: {
     readonly label: string;
@@ -117,7 +120,14 @@ export class ActionRegistry {
         message: `The ${key} Action is not installed in this runtime.`,
         details: { action: key },
       });
-    return (await definition.run(execution)) ?? null;
+    const result = (await definition.run(execution)) ?? null;
+    const mismatch = definition.output && ruleOutputMismatch(definition.output, result);
+    if (mismatch)
+      throw new FrameworkError({
+        code: ERROR_CODES.validationInvalidInput,
+        message: `Action ${key} returned an invalid result: ${mismatch}`,
+      });
+    return result;
   }
 }
 

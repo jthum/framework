@@ -20,6 +20,7 @@ import {
 import type { Clock, IdGenerator } from "./defaults.ts";
 import type { ExecutionContext } from "./model.ts";
 import type { RunRuleInput, RuleStepTrace } from "./rules.ts";
+import { ruleOutputMismatch } from "../spec/rule-output.ts";
 
 export interface ActorRequest {
   readonly id: string;
@@ -562,6 +563,12 @@ export class DurableRuleService {
       const root = checkpoint.rules[run.execution.rule.id]!;
       if (root.result !== undefined)
         checkpoint.result = this.hooks.value(root.result, checkpoint.scopes[0]!);
+      const mismatch = root.output && ruleOutputMismatch(root.output, checkpoint.result);
+      if (mismatch)
+        throw new FrameworkError({
+          code: ERROR_CODES.validationInvalidInput,
+          message: `Rule ${root.key} returned an invalid result: ${mismatch}`,
+        });
       return this.save(run.execution, checkpoint, "completed");
     } catch (error) {
       if (run.saving) throw error;
@@ -602,13 +609,19 @@ export class DurableRuleService {
         "scope" in frame ? checkpoint.scopes[frame.scope]! : checkpoint.scopes[frame.to]!;
       const rule = checkpoint.rules[frame.ruleId]!;
       if (frame.kind === "return") {
+        const nested = checkpoint.rules[frame.nestedRuleId]!;
+        const nestedScope = checkpoint.scopes[frame.from]!;
+        const nestedResult =
+          nested.result === undefined ? undefined : this.hooks.value(nested.result, nestedScope);
+        const mismatch = nested.output && ruleOutputMismatch(nested.output, nestedResult);
+        if (mismatch)
+          throw new FrameworkError({
+            code: ERROR_CODES.validationInvalidInput,
+            message: `Rule ${nested.key} returned an invalid result: ${mismatch}`,
+          });
         if (frame.as) {
-          const nested = checkpoint.rules[frame.nestedRuleId]!;
-          const nestedScope = checkpoint.scopes[frame.from]!;
           scope.vars[frame.as] =
-            nested.result === undefined
-              ? { ...nestedScope.vars }
-              : this.hooks.value(nested.result, nestedScope);
+            nestedResult === undefined ? { ...nestedScope.vars } : nestedResult;
         }
         checkpoint.state.trace.push({
           stepId: frame.stepId,

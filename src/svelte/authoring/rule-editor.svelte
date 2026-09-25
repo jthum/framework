@@ -2,6 +2,8 @@
 	import { toastError } from "../internal/error-presentation.ts";
 	import AutomationPredicateEditor from "./automation-predicate-editor.svelte";
 	import AutomationStepList from "./automation-step-list.svelte";
+	import AutomationOutputContract from "./automation-output-contract.svelte";
+	import AutomationValueInput from "./automation-value-input.svelte";
 	import AutomationValueMapEditor from "./automation-value-map-editor.svelte";
 	import OptionSelect from "../ui/option-select/option-select.svelte";
 	import EditorActions from "./editor-actions.svelte";
@@ -21,6 +23,7 @@
 	import type { EditorContext } from "./authoring.js";
 	import type { RuleActions, RuleActorOption, RuleEffect, RuleCompatibility } from "./rule-model.js";
 	import type { AutomationPredicate, AutomationValue } from "./rule-model.js";
+	import type { RuleOutputContract } from "@jthum/framework/spec";
 	import { labelFromKey } from "./editor-data.js";
 	import { cloneData, type Exposure, type RuleDraft, type RuleStep } from "./authoring.js";
 	import CircleAlertIcon from "@lucide/svelte/icons/circle-alert";
@@ -59,6 +62,9 @@
 	let guardEnabled = $state(false);
 	let guardPredicate = $state<AutomationPredicate>({ op: "always" });
 	let steps = $state<RuleStep[]>([]);
+	let resultEnabled = $state(false);
+	let resultValue = $state<AutomationValue>({ $ref: "vars.result" });
+	let resultOutput = $state<RuleOutputContract | undefined>(undefined);
 	let exposeUi = $state(true);
 	let exposeAgent = $state(true);
 	let toolName = $state("");
@@ -106,6 +112,9 @@
 		guardEnabled = Boolean(entryGate);
 		guardPredicate = cloneData(entryGate?.predicate ?? simplePredicate(inputName, inputType));
 		steps = cloneData(entryGate?.steps ?? workflow.steps);
+		resultEnabled = workflow.result !== undefined;
+		resultValue = cloneData(workflow.result ?? { $ref: "vars.result" });
+		resultOutput = workflow.output ? cloneData(workflow.output) : undefined;
 		exposeUi = workflow.expose?.includes("ui") ?? kind === "manual";
 		exposeAgent = workflow.expose?.includes("agent") ?? true;
 		toolName = workflow.tool?.name ?? "";
@@ -116,6 +125,16 @@
 		const actions = cloneData(steps);
 		return guardEnabled ? [{ gate: { predicate: cloneData(guardPredicate), pass: actions } }] : actions;
 	});
+	const resultReferences = $derived(steps.flatMap((step) => {
+		const names = "effect" in step && step.effect.as ? [step.effect.as]
+			: "compute" in step ? Object.keys(step.compute.assign)
+			: "invoke" in step && step.invoke.as ? [step.invoke.as]
+			: "wait" in step && step.wait.as ? [step.wait.as]
+			: "foreach" in step && step.foreach.collect ? [step.foreach.collect.as]
+			: "parallel" in step ? step.parallel.branches.map((branch) => branch.key ?? branch.id).filter((name): name is string => Boolean(name))
+			: [];
+		return names.map((name) => ({ value: `vars.${name}`, label: labelFromKey(name), group: "Workflow values" }));
+	}));
 	const compiledTrigger = $derived.by(() => {
 		if (kind !== "automatic") return undefined;
 		if (triggerCustom) return triggerKey ? { key: triggerKey, ...(Object.keys(triggerConfig).length ? { config: triggerConfig } : {}) } : undefined;
@@ -152,6 +171,8 @@
 			? { ...(toolName.trim() ? { name: toolName.trim() } : {}), ...(toolDescription.trim() ? { description: toolDescription.trim() } : {}) }
 			: undefined,
 		steps: compiledSteps,
+		result: resultEnabled ? resultValue : undefined,
+		output: resultEnabled ? resultOutput : undefined,
 	} as RuleDraft);
 	const compatibility = $derived(checkCompatibility?.(draft) ?? { diagnostics: [] });
 	const dirty = $derived(stableStringify(draft) !== stableStringify(workflow));
@@ -409,6 +430,15 @@
 			<Card.Root>
 				<Card.Header class="gap-0"><Card.Title>Then</Card.Title><Card.Description>Actions run from top to bottom. Conditions can branch into more steps.</Card.Description></Card.Header>
 				<Card.Content><AutomationStepList {actorRequests} {actorOptions} {effects} {steps} onStepsChange={(next) => (steps = next)} inputName={contextInputName} {inputType} inputFields={contextFields} inputLabel={submittedForm?.label} recordInput={!formTrigger && Boolean(inputTypeDef)} {types} workflows={workflows.filter((item) => item.key !== workflow.key)} {spec} /></Card.Content>
+				<Card.Footer class="flex-col items-stretch gap-3">
+					<label class="flex items-center gap-2 text-sm"><Switch bind:checked={resultEnabled} />Return a result</label>
+					{#if resultEnabled}
+						<Field.Group class="w-full gap-3">
+							<Field.Field><Field.Label>Result value</Field.Label><AutomationValueInput value={resultValue} onValueChange={(value) => (resultValue = value)} references={resultReferences} placeholder="=vars.result" /><Field.Description>Choose a value produced by the workflow, such as =vars.summary.</Field.Description></Field.Field>
+							<Field.Field><Field.Label>Expected result (optional)</Field.Label><AutomationOutputContract value={resultOutput} onValueChange={(value) => (resultOutput = value)} /></Field.Field>
+						</Field.Group>
+					{/if}
+				</Card.Footer>
 				</Card.Root>
 			</section>
 		</div>
