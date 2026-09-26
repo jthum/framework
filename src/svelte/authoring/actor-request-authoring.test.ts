@@ -38,7 +38,7 @@ describe("ActorRequest authoring", () => {
     expect(body).toContain("Request title");
     expect(body).toContain("Response fields");
     expect(body).toContain("Approve?");
-    expect(body).toContain("Assigned actor binding");
+    expect(body).toContain("Assign to");
     expect(body).not.toContain("Optional signal key");
   });
 });

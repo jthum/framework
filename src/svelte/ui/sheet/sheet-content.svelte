@@ -15,6 +15,7 @@
 	let {
 		ref = $bindable(null),
 		class: className,
+		overlayClass,
 		side = "right",
 		showCloseButton = true,
 		portalProps,
@@ -22,6 +23,7 @@
 		...restProps
 	}: WithoutChildrenOrChild<SheetPrimitive.ContentProps> & {
 		portalProps?: WithoutChildrenOrChild<ComponentProps<typeof SheetPortal>>;
+		overlayClass?: string;
 		side?: Side;
 		showCloseButton?: boolean;
 		children: Snippet;
@@ -29,7 +31,7 @@
 </script>
 
 <SheetPortal {...portalProps}>
-	<SheetOverlay />
+	<SheetOverlay class={overlayClass} />
 	<SheetPrimitive.Content
 		bind:ref
 		data-slot="sheet-content"

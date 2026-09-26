@@ -43,6 +43,11 @@
 		effects = [],
 		actorOptions = [],
 		actorRequests = false,
+		pickerRequest = 0,
+		pickerPresentation = "dialog",
+		onStepAdded,
+		showAddControls = true,
+		focused = false,
 	}: {
 		steps: RuleStep[];
 		onStepsChange: (steps: RuleStep[]) => void;
@@ -59,6 +64,14 @@
 		effects?: RuleEffect[];
 		actorOptions?: readonly RuleActorOption[];
 		actorRequests?: boolean;
+		/** Increment to open the step picker from a host-owned Add control. */
+		pickerRequest?: number;
+		/** Inline keeps the catalogue in a host inspector instead of stacking a dialog over it. */
+		pickerPresentation?: "dialog" | "inline";
+		onStepAdded?: (index: number) => void;
+		showAddControls?: boolean;
+		/** Present one selected step without a second card header or reorder controls. */
+		focused?: boolean;
 	} = $props();
 
 	const inputTypeDef = $derived(types.find((type) => type.key === inputType));
@@ -91,6 +104,15 @@
 	);
 	let pickerOpen = $state(false);
 	let pickerCategory = $state<PickerCategory | "all">("all");
+	let handledPickerRequest = 0;
+	let branchPickerRequests = $state<Record<string, number>>({});
+	let branchPickerSequence = 0;
+	$effect(() => {
+		if (pickerRequest <= 0 || pickerRequest === handledPickerRequest) return;
+		handledPickerRequest = pickerRequest;
+		pickerCategory = "all";
+		pickerOpen = true;
+	});
 	let stepList = $state<HTMLDivElement | null>(null);
 	let dragStep = $state<RuleStep | null>(null);
 	let dragSession: VerticalDragSession | null = null;
@@ -206,7 +228,7 @@
 
 	function nextBranchKey(branches: Extract<RuleStep, { parallel: unknown }>["parallel"]["branches"]): string {
 		const used = new Set(branches.map((branch) => branch.key ?? branch.id));
-		let index = 1;
+		let index = branches.length + 1;
 		while (used.has(`branch_${index}`)) index += 1;
 		return `branch_${index}`;
 	}
@@ -269,7 +291,11 @@
 				},
 			};
 		}
+		// The host may synchronously update this component's steps prop in onStepsChange.
+		// Capture the insertion index before that update so selection stays on the new step.
+		const addedIndex = steps.length;
 		onStepsChange([...steps, step]);
+		onStepAdded?.(addedIndex);
 	}
 
 	function openPicker(category: PickerCategory | "all") {
@@ -278,8 +304,16 @@
 	}
 
 	function chooseStep(choice: StepChoice) {
-		add(choice.kind, choice.effectKey);
 		pickerOpen = false;
+		add(choice.kind, choice.effectKey);
+	}
+
+	function requestBranchStep(index: number, outcome: "signal" | "timeout") {
+		branchPickerRequests = { ...branchPickerRequests, [`${index}:${outcome}`]: ++branchPickerSequence };
+	}
+
+	function clearBranchRequest(index: number, outcome: "signal" | "timeout") {
+		branchPickerRequests = { ...branchPickerRequests, [`${index}:${outcome}`]: 0 };
 	}
 
 	function createFieldsFor(step: RuleStep): Record<string, AutomationValue> {
@@ -518,11 +552,37 @@
 	}
 </script>
 
+{#snippet pickerOptions()}
+	<Command.Input placeholder="Search steps…" />
+	<Command.List class="max-h-[min(60dvh,36rem)]">
+		<Command.Empty>No matching steps.</Command.Empty>
+		{#each ["actions", "conditions", "wait", "loops"] as category (category)}
+			{#if pickerCategory === "all" || pickerCategory === category}
+				<Command.Group heading={{ actions: "Actions", conditions: "Logic", wait: "Wait", loops: "Loops" }[category]}>
+					{#each stepChoices.filter((choice) => choice.category === category) as choice (`${choice.kind}:${choice.effectKey ?? choice.label}`)}
+						<Command.Item value={`${choice.label} ${choice.description}`} onSelect={() => chooseStep(choice)}>
+							<div class="flex min-w-0 flex-col"><span>{choice.label}</span><span class="truncate text-xs text-muted-foreground">{choice.description}</span></div>
+						</Command.Item>
+					{/each}
+				</Command.Group>
+			{/if}
+		{/each}
+	</Command.List>
+{/snippet}
+
+{#if pickerPresentation === "inline" && pickerOpen}
+	<div class="flex flex-col gap-3">
+		<Button variant="ghost" size="sm" class="w-fit" onclick={() => (pickerOpen = false)}>Back to step</Button>
+		<Command.Root class="h-auto rounded-xl border border-border bg-card p-1 shadow-sm">
+			{@render pickerOptions()}
+		</Command.Root>
+	</div>
+{:else}
 <div class="flex min-w-0 flex-col" bind:this={stepList}>
 	{#each steps as step, index (index)}
 		<div data-sort-card data-sort-key={sortableId(step)} animate:flip={{ duration: 160 }} class="min-w-0" class:opacity-40={dragStep === step}>
-			<Card.Root size="sm">
-				<Card.Header class="flex flex-row items-center gap-2">
+			<Card.Root size="sm" variant={focused || depth > 0 ? "inset" : "default"} class={focused ? "h-auto overflow-visible rounded-none bg-transparent" : depth > 0 ? "h-auto border border-border/80 bg-card shadow-none" : ""}>
+				{#if !focused}<Card.Header class="flex flex-row items-center gap-2">
 					<Button size="icon-sm" variant="ghost" aria-label="Drag to reorder step" class="cursor-grab touch-none active:cursor-grabbing" onpointerdown={(event) => startStepDrag(step, event)}><GripVerticalIcon /></Button>
 					<div class="min-w-0">
 						<p class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{categoryLabel(step)} · Step {index + 1}</p>
@@ -539,9 +599,9 @@
 							<Trash2Icon />
 						</Button>
 					</div>
-				</Card.Header>
+				</Card.Header>{/if}
 
-				<Card.Content>
+				<Card.Content class={focused ? "bg-transparent! p-0! shadow-none!" : depth > 0 ? "shadow-none!" : ""}>
 			{#if "effect" in step && step.effect.key === "records.set"}
 				<div class="flex min-w-0 flex-col gap-2">
 					{#if isBinding(step.effect.params?.record) && step.effect.params.record.$ref !== `vars.${inputName}`}
@@ -670,12 +730,12 @@
 						fields={contextFields}
 						references={referencesBefore(index)}
 					/>
-					<div class="flex min-w-0 flex-col gap-3 rounded-xl bg-primary/4 p-3 ring-1 ring-primary/12">
+					<div class="flex min-w-0 flex-col gap-3 rounded-xl border border-border/80 bg-card p-4">
 						<div class="flex items-center gap-2">
 							<span class="size-2 rounded-full bg-primary" aria-hidden="true"></span>
 							<p class="text-xs font-semibold">Yes · condition matches</p>
 						</div>
-						<AutomationStepList {actorRequests} {actorOptions} {effects}
+						<AutomationStepList {pickerPresentation} {actorRequests} {actorOptions} {effects}
 							steps={step.gate.pass ?? []}
 							onStepsChange={(pass) => replace(index, { ...step, gate: { ...step.gate, pass } })}
 							{inputName}
@@ -691,12 +751,12 @@
 						/>
 					</div>
 					{#if step.gate.fail}
-						<div class="flex min-w-0 flex-col gap-3 rounded-xl bg-muted/45 p-3 ring-1 ring-foreground/8">
+						<div class="flex min-w-0 flex-col gap-3 rounded-xl border border-border/80 bg-card p-4">
 							<div class="flex items-center gap-2">
 								<span class="size-2 rounded-full bg-muted-foreground/50" aria-hidden="true"></span>
 								<p class="text-xs font-semibold">No · condition does not match</p>
 							</div>
-							<AutomationStepList {actorRequests} {actorOptions} {effects}
+							<AutomationStepList {pickerPresentation} {actorRequests} {actorOptions} {effects}
 								steps={step.gate.fail}
 								onStepsChange={(fail) => replace(index, { ...step, gate: { ...step.gate, fail } })}
 								{inputName}
@@ -724,46 +784,54 @@
 				</div>
 			{:else if "foreach" in step}
 				<div class="flex min-w-0 flex-col gap-4">
-					<Field.Group class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+					<Field.Group class="grid gap-3 sm:grid-cols-2">
 						<Field.Field><Field.Label>List reference</Field.Label><AutomationValueInput value={step.foreach.source} onValueChange={(next) => replace(index, { ...step, foreach: { ...step.foreach, source: isBinding(next) ? next : binding(String(next)) } })} references={referencesBefore(index)} placeholder="=vars.records" /></Field.Field>
-						<Field.Field><Field.Label>Item name</Field.Label><Input value={step.foreach.as ?? "item"} oninput={(event) => replace(index, { ...step, foreach: { ...step.foreach, as: event.currentTarget.value || undefined } })} /></Field.Field>
 						<Field.Field><Field.Label>Execution</Field.Label><OptionSelect value={step.foreach.mode ?? "sequential"} onValueChange={(mode) => replace(index, { ...step, foreach: { ...step.foreach, mode: mode as "sequential" | "parallel", concurrency: mode === "parallel" ? step.foreach.concurrency : undefined } })} options={[{ value: "sequential", label: "One at a time" }, { value: "parallel", label: "In parallel" }]} /></Field.Field>
 						{#if step.foreach.mode === "parallel"}<Field.Field><Field.Label>At once</Field.Label><Input type="number" min="1" value={step.foreach.concurrency ?? 4} oninput={(event) => replace(index, { ...step, foreach: { ...step.foreach, concurrency: Math.max(1, Math.trunc(event.currentTarget.valueAsNumber || 1)) } })} /></Field.Field>{/if}
-						<Field.Field><Field.Label>Maximum items</Field.Label><Input type="number" min="1" value={step.foreach.max ?? ""} oninput={(event) => replace(index, { ...step, foreach: { ...step.foreach, max: event.currentTarget.value ? Math.max(1, Math.trunc(event.currentTarget.valueAsNumber || 1)) : undefined } })} placeholder="1000" /></Field.Field>
-						<Field.Field><Field.Label>On failure</Field.Label><OptionSelect value={step.foreach.on_item_failure ?? "stop"} onValueChange={(next) => replace(index, { ...step, foreach: { ...step.foreach, on_item_failure: next as "stop" | "continue" } })} options={[{ value: "stop", label: "Stop workflow" }, { value: "continue", label: "Continue" }]} /></Field.Field>
 					</Field.Group>
 					<Field.Field><Field.Label>Collect each result as</Field.Label><Input value={step.foreach.collect?.as ?? ""} oninput={(event) => replace(index, { ...step, foreach: { ...step.foreach, collect: event.currentTarget.value.trim() ? { as: event.currentTarget.value.trim(), value: step.foreach.collect?.value ?? { $ref: `vars.${step.foreach.as ?? "item"}` } } : undefined } })} placeholder="Optional array name" /></Field.Field>
 					{#if step.foreach.collect}<Field.Field><Field.Label>Value from each item</Field.Label><AutomationValueInput value={step.foreach.collect.value} onValueChange={(value) => replace(index, { ...step, foreach: { ...step.foreach, collect: { ...step.foreach.collect!, value } } })} references={[...referencesBefore(index), { value: `vars.${step.foreach.as ?? "item"}`, label: "Current item", group: "Loop" }]} /><Field.Description>Collected values preserve source order. A failed item continued past contributes null.</Field.Description></Field.Field>{/if}
-					<div class="flex min-w-0 flex-col gap-3 rounded-xl bg-chart-2/5 p-3 ring-1 ring-chart-2/12">
+					<details class="text-xs text-muted-foreground">
+						<summary class="w-fit cursor-pointer hover:text-foreground">Advanced iteration settings</summary>
+						<Field.Group class="mt-3 grid gap-3 sm:grid-cols-2">
+							<Field.Field><Field.Label>Item variable</Field.Label><Input value={step.foreach.as ?? "item"} oninput={(event) => replace(index, { ...step, foreach: { ...step.foreach, as: event.currentTarget.value || undefined } })} /></Field.Field>
+							<Field.Field><Field.Label>Maximum items</Field.Label><Input type="number" min="1" value={step.foreach.max ?? ""} oninput={(event) => replace(index, { ...step, foreach: { ...step.foreach, max: event.currentTarget.value ? Math.max(1, Math.trunc(event.currentTarget.valueAsNumber || 1)) : undefined } })} placeholder="1000" /></Field.Field>
+							<Field.Field><Field.Label>On failure</Field.Label><OptionSelect value={step.foreach.on_item_failure ?? "stop"} onValueChange={(next) => replace(index, { ...step, foreach: { ...step.foreach, on_item_failure: next as "stop" | "continue" } })} options={[{ value: "stop", label: "Stop workflow" }, { value: "continue", label: "Continue" }]} /></Field.Field>
+						</Field.Group>
+					</details>
+					<div class="flex min-w-0 flex-col gap-3 rounded-xl border border-border/80 bg-card p-4">
 						<p class="text-xs font-semibold">For each item, run</p>
-						<AutomationStepList {actorRequests} {actorOptions} {effects} steps={step.foreach.steps} onStepsChange={(childSteps) => replace(index, { ...step, foreach: { ...step.foreach, steps: childSteps } })} {inputName} {inputType} {inputFields} {inputLabel} {recordInput} {types} {workflows} {spec} references={[...referencesBefore(index), { value: `vars.${step.foreach.as ?? "item"}`, label: labelFromKey(step.foreach.as ?? "item"), group: "Loop" }]} depth={depth + 1} />
+						<AutomationStepList {pickerPresentation} {actorRequests} {actorOptions} {effects} steps={step.foreach.steps} onStepsChange={(childSteps) => replace(index, { ...step, foreach: { ...step.foreach, steps: childSteps } })} {inputName} {inputType} {inputFields} {inputLabel} {recordInput} {types} {workflows} {spec} references={[...referencesBefore(index), { value: `vars.${step.foreach.as ?? "item"}`, label: labelFromKey(step.foreach.as ?? "item"), group: "Loop" }]} depth={depth + 1} />
 					</div>
 				</div>
 			{:else if "repeat" in step}
 				<div class="flex min-w-0 flex-col gap-4">
-					<Field.Group class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-						<Field.Field><Field.Label>Times</Field.Label><AutomationValueInput value={step.repeat.times} onValueChange={(next) => replace(index, { ...step, repeat: { ...step.repeat, times: typeof next === "number" || isBinding(next) ? next : countValue(String(next)) } })} references={referencesBefore(index)} type="number" /></Field.Field>
-						<Field.Field><Field.Label>Index name</Field.Label><Input value={step.repeat.as ?? "index"} oninput={(event) => replace(index, { ...step, repeat: { ...step.repeat, as: event.currentTarget.value || undefined } })} /></Field.Field>
-						<Field.Field><Field.Label>Maximum repeats</Field.Label><Input type="number" min="1" value={step.repeat.max ?? ""} oninput={(event) => replace(index, { ...step, repeat: { ...step.repeat, max: event.currentTarget.value ? Math.max(1, Math.trunc(event.currentTarget.valueAsNumber || 1)) : undefined } })} placeholder="1000" /></Field.Field>
-						<Field.Field><Field.Label>On failure</Field.Label><OptionSelect value={step.repeat.on_item_failure ?? "stop"} onValueChange={(next) => replace(index, { ...step, repeat: { ...step.repeat, on_item_failure: next as "stop" | "continue" } })} options={[{ value: "stop", label: "Stop workflow" }, { value: "continue", label: "Continue" }]} /></Field.Field>
-					</Field.Group>
+					<Field.Field><Field.Label>Times</Field.Label><AutomationValueInput value={step.repeat.times} onValueChange={(next) => replace(index, { ...step, repeat: { ...step.repeat, times: typeof next === "number" || isBinding(next) ? next : countValue(String(next)) } })} references={referencesBefore(index)} type="number" /></Field.Field>
 					<Field.Field><Field.Label>Stop early when</Field.Label><OptionSelect value={step.repeat.until ? "condition" : "never"} onValueChange={(value) => replace(index, { ...step, repeat: { ...step.repeat, until: value === "condition" ? step.repeat.until ?? { op: "context.equals", left: { $ref: "vars.approved" }, right: true } : undefined } })} options={[{ value: "never", label: "After the maximum repetitions" }, { value: "condition", label: "A condition passes" }]} /></Field.Field>
 					{#if step.repeat.until}<AutomationPredicateEditor predicate={step.repeat.until} onPredicateChange={(until) => replace(index, { ...step, repeat: { ...step.repeat, until } })} {inputName} type={inputTypeDef} fields={contextFields} references={referencesBefore(index)} />{/if}
-					<div class="flex min-w-0 flex-col gap-3 rounded-xl bg-chart-2/5 p-3 ring-1 ring-chart-2/12">
+					<details class="text-xs text-muted-foreground">
+						<summary class="w-fit cursor-pointer hover:text-foreground">Advanced repeat settings</summary>
+						<Field.Group class="mt-3 grid gap-3 sm:grid-cols-2">
+							<Field.Field><Field.Label>Iteration variable</Field.Label><Input value={step.repeat.as ?? "index"} oninput={(event) => replace(index, { ...step, repeat: { ...step.repeat, as: event.currentTarget.value || undefined } })} /></Field.Field>
+							<Field.Field><Field.Label>Maximum repeats</Field.Label><Input type="number" min="1" value={step.repeat.max ?? ""} oninput={(event) => replace(index, { ...step, repeat: { ...step.repeat, max: event.currentTarget.value ? Math.max(1, Math.trunc(event.currentTarget.valueAsNumber || 1)) : undefined } })} placeholder="1000" /></Field.Field>
+							<Field.Field><Field.Label>On failure</Field.Label><OptionSelect value={step.repeat.on_item_failure ?? "stop"} onValueChange={(next) => replace(index, { ...step, repeat: { ...step.repeat, on_item_failure: next as "stop" | "continue" } })} options={[{ value: "stop", label: "Stop workflow" }, { value: "continue", label: "Continue" }]} /></Field.Field>
+						</Field.Group>
+					</details>
+					<div class="flex min-w-0 flex-col gap-3 rounded-xl border border-border/80 bg-card p-4">
 						<p class="text-xs font-semibold">On every repetition, run</p>
-						<AutomationStepList {actorRequests} {actorOptions} {effects} steps={step.repeat.steps} onStepsChange={(childSteps) => replace(index, { ...step, repeat: { ...step.repeat, steps: childSteps } })} {inputName} {inputType} {inputFields} {inputLabel} {recordInput} {types} {workflows} {spec} references={[...referencesBefore(index), { value: `vars.${step.repeat.as ?? "index"}`, label: labelFromKey(step.repeat.as ?? "index"), group: "Loop" }]} depth={depth + 1} />
+						<AutomationStepList {pickerPresentation} {actorRequests} {actorOptions} {effects} steps={step.repeat.steps} onStepsChange={(childSteps) => replace(index, { ...step, repeat: { ...step.repeat, steps: childSteps } })} {inputName} {inputType} {inputFields} {inputLabel} {recordInput} {types} {workflows} {spec} references={[...referencesBefore(index), { value: `vars.${step.repeat.as ?? "index"}`, label: labelFromKey(step.repeat.as ?? "index"), group: "Loop" }]} depth={depth + 1} />
 					</div>
 				</div>
 			{:else if "parallel" in step}
 				<div class="flex min-w-0 flex-col gap-4">
 					<Field.Field><Field.Label>Continue when</Field.Label><OptionSelect value={step.parallel.join ?? "all"} onValueChange={(join) => replace(index, { ...step, parallel: { ...step.parallel, join: join as "all" | "any" } })} options={[{ value: "all", label: "All branches succeed" }, { value: "any", label: "At least one succeeds (after all finish)" }]} /></Field.Field>
 					{#each step.parallel.branches as branch, branchIndex (branchIndex)}
-						<div class="flex min-w-0 flex-col gap-3 rounded-xl bg-chart-4/4 p-3 ring-1 ring-chart-4/12">
+						<div class="flex min-w-0 flex-col gap-3 rounded-xl border border-border/80 bg-card p-4">
 							<div class="flex items-center gap-2 text-sm font-medium">
-								<span>Branch {branchIndex + 1}</span>
+								<span>{labelFromKey(branch.key ?? `branch_${branchIndex + 1}`)}</span>
 								<Button class="ml-auto" size="icon-xs" variant="ghost" aria-label="Remove branch" disabled={step.parallel.branches.length === 1} onclick={() => replace(index, { ...step, parallel: { ...step.parallel, branches: step.parallel.branches.filter((_, itemIndex) => itemIndex !== branchIndex) } })}><Trash2Icon /></Button>
 							</div>
-							<AutomationStepList {actorRequests} {actorOptions} {effects} steps={branch.steps} onStepsChange={(childSteps) => replace(index, { ...step, parallel: { ...step.parallel, branches: step.parallel.branches.map((item, itemIndex) => itemIndex === branchIndex ? { ...item, steps: childSteps } : item) } })} {inputName} {inputType} {inputFields} {inputLabel} {recordInput} {types} {workflows} {spec} references={referencesBefore(index)} depth={depth + 1} />
+							<AutomationStepList {pickerPresentation} {actorRequests} {actorOptions} {effects} steps={branch.steps} onStepsChange={(childSteps) => replace(index, { ...step, parallel: { ...step.parallel, branches: step.parallel.branches.map((item, itemIndex) => itemIndex === branchIndex ? { ...item, steps: childSteps } : item) } })} {inputName} {inputType} {inputFields} {inputLabel} {recordInput} {types} {workflows} {spec} references={referencesBefore(index)} depth={depth + 1} />
 							<details class="text-xs text-muted-foreground">
 								<summary class="w-fit cursor-pointer hover:text-foreground">Advanced output settings</summary>
 								<Field.Field class="mt-3 max-w-xs"><Field.Label>Result variable</Field.Label><Input value={branch.key ?? branch.id ?? `branch_${branchIndex + 1}`} onblur={(event) => replace(index, { ...step, parallel: { ...step.parallel, branches: step.parallel.branches.map((item, itemIndex) => itemIndex === branchIndex ? { ...item, key: event.currentTarget.value.trim() || `branch_${branchIndex + 1}` } : item) } })} aria-label={`Branch ${branchIndex + 1} result variable`} /><Field.Description>Use this name to reference this branch’s values after the join.</Field.Description></Field.Field>
@@ -774,26 +842,52 @@
 				</div>
 			{:else if "wait" in step}
 				<div class="flex min-w-0 flex-col gap-4">
-					<Field.Group class="grid gap-3 sm:grid-cols-3">
-						{#if !step.wait.request}<Field.Field><Field.Label>Signal</Field.Label><Input value={step.wait.signal ?? ""} oninput={(event) => replace(index, { ...step, wait: { ...step.wait, signal: event.currentTarget.value || undefined } })} placeholder="Signal key" /></Field.Field>{/if}
-						<Field.Field><Field.Label>Timeout</Field.Label><Input value={String(step.wait.timeout ?? "")} oninput={(event) => replace(index, { ...step, wait: { ...step.wait, timeout: event.currentTarget.value || undefined } })} placeholder="Optional, e.g. 5m or 1d" /></Field.Field>
-						<Field.Field><Field.Label>Result name</Field.Label><Input value={step.wait.as ?? ""} oninput={(event) => replace(index, { ...step, wait: { ...step.wait, as: event.currentTarget.value || undefined } })} placeholder="Optional" /></Field.Field>
-					</Field.Group>
+					{#if !step.wait.request}<Field.Field><Field.Label>Signal</Field.Label><Input value={step.wait.signal ?? ""} oninput={(event) => replace(index, { ...step, wait: { ...step.wait, signal: event.currentTarget.value || undefined } })} placeholder="Signal key" /></Field.Field>{/if}
 					{#if step.wait.request}
 						{@const request = step.wait.request}
 						<Field.Group>
 							<Field.Field><Field.Label>Request title</Field.Label><Input value={request.label} oninput={(event) => replace(index, { ...step, wait: { ...step.wait, request: { ...request, label: event.currentTarget.value } } })} /></Field.Field>
-							<Field.Field><Field.Label>Assigned actor binding</Field.Label><AutomationValueInput value={request.actor ?? ""} onValueChange={(actor) => replace(index, { ...step, wait: { ...step.wait, request: { ...request, actor: isBinding(actor) ? actor : String(actor).trim() || undefined } } })} references={referencesBefore(index)} placeholder="Current actor or =vars.reviewer" /><Field.Description>The assignee must resolve to a User binding.</Field.Description></Field.Field>
+							<Field.Field><Field.Label>Assign to</Field.Label><AutomationValueInput value={request.actor ?? ""} onValueChange={(actor) => replace(index, { ...step, wait: { ...step.wait, request: { ...request, actor: isBinding(actor) ? actor : String(actor).trim() || undefined } } })} references={referencesBefore(index)} placeholder="Person who started this Workflow" /><Field.Description>Leave blank to ask the person who started this Workflow.</Field.Description></Field.Field>
 						</Field.Group>
 						<RequestFields fields={request.fields} {types} onChange={(fields) => replace(index, { ...step, wait: { ...step.wait, request: { ...request, fields } } })} />
-						{#if step.wait.as}<p class="text-xs text-muted-foreground">Use vars.{step.wait.as}.&lt;field key&gt; in later conditions or actions.</p>{/if}
 					{/if}
+					<details class="border-t border-border pt-3 text-sm" open={Boolean(step.wait.on_signal?.length || step.wait.on_timeout?.length)}>
+						<summary class="w-fit cursor-pointer font-medium text-muted-foreground hover:text-foreground">More options</summary>
+						<div class="mt-4 flex flex-col gap-5">
+							<section class="flex flex-col gap-3">
+								<h4 class="text-sm font-semibold">Waiting limit</h4>
+								<Field.Field><Field.Label>Timeout</Field.Label><Input class="w-full" value={String(step.wait.timeout ?? "")} oninput={(event) => replace(index, { ...step, wait: { ...step.wait, timeout: event.currentTarget.value || undefined } })} placeholder="e.g. 5m or 1d" /><Field.Description>Optional. Leave blank to wait without a time limit.</Field.Description></Field.Field>
+							</section>
+							<section class="flex flex-col gap-3 border-t border-border pt-5">
+								<h4 class="text-sm font-semibold">Use the result later</h4>
+								<Field.Field><Field.Label>Save result as</Field.Label><Input value={step.wait.as ?? ""} oninput={(event) => replace(index, { ...step, wait: { ...step.wait, as: event.currentTarget.value || undefined } })} placeholder="Optional" /><Field.Description>A name for referring to this value in later steps.</Field.Description></Field.Field>
+							</section>
+							<section class="flex flex-col gap-3 border-t border-border pt-5">
+								<h4 class="text-sm font-semibold">Handle specific outcomes</h4>
+								<p class="text-xs text-muted-foreground">The next step runs when this wait completes. Add steps here only when an outcome needs its own handling.</p>
 					{#if step.wait.signal || step.wait.request}
-						<div class="flex min-w-0 flex-col gap-3 rounded-xl bg-muted/45 p-3 ring-1 ring-foreground/8"><p class="text-xs font-semibold">{step.wait.request ? "When the response arrives" : "When the signal arrives"}</p><AutomationStepList {actorRequests} {actorOptions} {effects} steps={step.wait.on_signal ?? []} onStepsChange={(childSteps) => replace(index, { ...step, wait: { ...step.wait, on_signal: childSteps } })} {inputName} {inputType} {inputFields} {inputLabel} {recordInput} {types} {workflows} {spec} references={referencesBefore(index + 1)} depth={depth + 1} /></div>
+						{#if step.wait.on_signal?.length || branchPickerRequests[`${index}:signal`]}
+							<div class="flex min-w-0 flex-col gap-3 rounded-xl border border-border/80 bg-card p-4">
+								<p class="text-sm font-semibold">{step.wait.request ? "Only after a response" : "Only after this signal"}</p>
+								<AutomationStepList {pickerPresentation} {actorRequests} {actorOptions} {effects} pickerRequest={branchPickerRequests[`${index}:signal`] ?? 0} onStepAdded={() => clearBranchRequest(index, "signal")} steps={step.wait.on_signal ?? []} onStepsChange={(childSteps) => replace(index, { ...step, wait: { ...step.wait, on_signal: childSteps } })} {inputName} {inputType} {inputFields} {inputLabel} {recordInput} {types} {workflows} {spec} references={referencesBefore(index + 1)} depth={depth + 1} />
+							</div>
+						{:else}
+							<Button variant="ghost" size="sm" class="w-fit" onclick={() => requestBranchStep(index, "signal")}><PlusIcon data-icon="inline-start" /> Add a {step.wait.request ? "response" : "signal"}-only step</Button>
+						{/if}
 					{/if}
 					{#if step.wait.timeout !== undefined}
-						<div class="flex min-w-0 flex-col gap-3 rounded-xl bg-muted/45 p-3 ring-1 ring-foreground/8"><p class="text-xs font-semibold">If the wait times out</p><AutomationStepList {actorRequests} {actorOptions} {effects} steps={step.wait.on_timeout ?? []} onStepsChange={(childSteps) => replace(index, { ...step, wait: { ...step.wait, on_timeout: childSteps } })} {inputName} {inputType} {inputFields} {inputLabel} {recordInput} {types} {workflows} {spec} references={referencesBefore(index)} depth={depth + 1} /></div>
+						{#if step.wait.on_timeout?.length || branchPickerRequests[`${index}:timeout`]}
+							<div class="flex min-w-0 flex-col gap-3 rounded-xl border border-border/80 bg-card p-4">
+								<p class="text-sm font-semibold">Only on timeout</p>
+								<AutomationStepList {pickerPresentation} {actorRequests} {actorOptions} {effects} pickerRequest={branchPickerRequests[`${index}:timeout`] ?? 0} onStepAdded={() => clearBranchRequest(index, "timeout")} steps={step.wait.on_timeout ?? []} onStepsChange={(childSteps) => replace(index, { ...step, wait: { ...step.wait, on_timeout: childSteps } })} {inputName} {inputType} {inputFields} {inputLabel} {recordInput} {types} {workflows} {spec} references={referencesBefore(index)} depth={depth + 1} />
+							</div>
+						{:else}
+							<Button variant="ghost" size="sm" class="w-fit" onclick={() => requestBranchStep(index, "timeout")}><PlusIcon data-icon="inline-start" /> Add a timeout-only step</Button>
+						{/if}
 					{/if}
+							</section>
+						</div>
+					</details>
 				</div>
 			{:else if "effect" in step && step.effect.key === "inference.run"}
 				<Field.Field>
@@ -890,10 +984,12 @@
 		</div>
 	{/each}
 
-	{#if steps.length > 0}
+	{#if steps.length > 0 && showAddControls && !focused}
 		<div class="ml-[2.15rem] h-3 w-px bg-border" aria-hidden="true"></div>
 	{/if}
-	{#if depth === 0}
+	{#if showAddControls && pickerPresentation === "inline"}
+		<Button variant="outline" size="sm" class="w-fit" onclick={() => openPicker("all")}><PlusIcon data-icon="inline-start" /> Add step</Button>
+	{:else if showAddControls && depth === 0}
 		<Card.Root size="sm">
 			<Card.Header class="gap-0">
 				<Card.Title>Add a step</Card.Title>
@@ -915,25 +1011,14 @@
 			</Card.Content>
 			<Card.Footer><Button variant="ghost" size="sm" onclick={() => openPicker("all")}><PlusIcon data-icon="inline-start" /> Browse all steps</Button></Card.Footer>
 		</Card.Root>
-	{:else}
+	{:else if showAddControls}
 		<Button variant="outline" size="sm" class="w-fit" onclick={() => openPicker("all")}><PlusIcon data-icon="inline-start" /> Add step</Button>
 	{/if}
 </div>
+{/if}
 
-<Command.Dialog bind:open={pickerOpen} title="Add a workflow step" description="Search or choose the next step in this workflow." showCloseButton>
-	<Command.Input placeholder="Search steps…" />
-	<Command.List>
-		<Command.Empty>No matching steps.</Command.Empty>
-		{#each ["actions", "conditions", "wait", "loops"] as category (category)}
-			{#if pickerCategory === "all" || pickerCategory === category}
-				<Command.Group heading={{ actions: "Actions", conditions: "Logic", wait: "Wait", loops: "Loops" }[category]}>
-					{#each stepChoices.filter((choice) => choice.category === category) as choice (`${choice.kind}:${choice.effectKey ?? choice.label}`)}
-						<Command.Item value={`${choice.label} ${choice.description}`} onSelect={() => chooseStep(choice)}>
-							<div class="flex min-w-0 flex-col"><span>{choice.label}</span><span class="truncate text-xs text-muted-foreground">{choice.description}</span></div>
-						</Command.Item>
-					{/each}
-				</Command.Group>
-			{/if}
-		{/each}
-	</Command.List>
-</Command.Dialog>
+{#if pickerPresentation === "dialog"}
+	<Command.Dialog bind:open={pickerOpen} title="Add a workflow step" description="Search or choose the next step in this workflow." showCloseButton>
+		{@render pickerOptions()}
+	</Command.Dialog>
+{/if}

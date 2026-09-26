@@ -47,8 +47,6 @@ export function startVerticalDrag({
     zIndex: "100",
     pointerEvents: "none",
     opacity: "0.98",
-    background: "var(--card)",
-    boxShadow: "0 6px 16px color-mix(in oklab, var(--foreground) 10%, transparent)",
     transform: "none",
     transition: "none",
   });

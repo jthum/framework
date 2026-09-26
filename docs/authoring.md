@@ -21,6 +21,8 @@ ownership rather than duplicating every prop signature.
 
 `RuleEditor` owns the complete structured workflow authoring UI. `RuleSteps`, `RuleConditions`, `RuleValueInput` and `RuleValueMap` can be composed independently. Hosts supply save/delete actions, optional effect metadata, semantic `actorOptions`, and optional compatibility diagnostics. Actor options expose friendly instance choices while persisting only portable binding keys in `runAs`. Custom effect metadata and Actor options propagate through every nested branch; they contain no implementation functions or concrete Actor IDs. No supplied diagnostics means Authoring makes no claim about runtime support. The executor, authorization and durable scheduling/wait implementation are outside Authoring.
 
+Hosts with a canvas-owned Add control can increment `RuleSteps.pickerRequest` to open the existing step catalogue directly. `pickerPresentation="inline"` keeps that catalogue in a host inspector instead of opening a dialog over it, including inside nested branches. `onStepAdded(index)` lets the host focus the newly appended step; `showAddControls={false}` and `focused` suppress the redundant add card and card-level reorder header while editing one selected step. RuleSteps still owns step kinds, defaults, and nested authoring; these hooks do not create a second catalogue in the host.
+
 The step editor also preserves and authors parallel `foreach` mode, bounded concurrency, collected
 per-item values, `repeat.until`, and dynamic Actor bindings from prior values. A collection value
 can be a direct reference or a declarative `$select` expression. The value input offers a guided
@@ -127,6 +129,8 @@ Global assigned-task discovery remains a subsequent slice; this interface consum
 persisted requests.
 
 # Imports and bundle boundaries
+
+Hosts can reuse the same vertical reorder interaction as Collection, Form, View and Rule editors through `@jthum/framework/svelte/authoring/vertical-drag`. `startVerticalDrag` owns pointer capture, the floating preview, cancellation and cleanup; `reorderAtVerticalTarget` keeps list ordering immutable. The host supplies its list targets and state updates.
 
 Import editor components from their individual subpaths, such as
 `@jthum/framework/svelte/authoring/rule-editor`. Import working models, authoring actions and

@@ -84,6 +84,10 @@
       "types": "./src/svelte/authoring/data.ts",
       "import": "./src/svelte/authoring/data.ts"
     },
+    "./svelte/authoring/vertical-drag": {
+      "types": "./src/svelte/authoring/vertical-drag.ts",
+      "import": "./src/svelte/authoring/vertical-drag.ts"
+    },
     "./svelte/authoring/*": {
       "types": "./src/svelte/authoring/*.svelte",
       "svelte": "./src/svelte/authoring/*.svelte",
