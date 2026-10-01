@@ -21,7 +21,7 @@
 	data-size={size}
 	data-variant={variant}
 	class={cn(
-		"group/card flex h-full flex-col gap-[2px] overflow-hidden rounded-2xl bg-surface-chrome p-[4px] text-sm text-card-foreground has-[>img:first-child]:p-0 [--chrome:4px] [--frame-radius:var(--radius-2xl)] data-[size=sm]:rounded-xl data-[size=sm]:[--frame-radius:var(--radius-xl)] data-[variant=inset]:gap-0 data-[variant=inset]:bg-card data-[variant=inset]:p-0 data-[variant=inset]:[--chrome:0px]",
+		"group/card flex h-full flex-col gap-[2px] overflow-hidden rounded-2xl bg-surface-chrome p-[4px] text-sm text-card-foreground has-[>img:first-child]:p-0 [--chrome:4px] [--frame-radius:var(--radius-2xl)] data-[variant=default]:border data-[variant=default]:border-border/80 data-[size=sm]:rounded-xl data-[size=sm]:[--frame-radius:var(--radius-xl)] data-[variant=inset]:gap-0 data-[variant=inset]:bg-card data-[variant=inset]:p-0 data-[variant=inset]:[--chrome:0px]",
 		className
 	)}
 	{...restProps}

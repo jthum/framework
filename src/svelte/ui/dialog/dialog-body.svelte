@@ -14,7 +14,7 @@
 	bind:this={ref}
 	data-slot="dialog-body"
 	class={cn(
-		"min-h-0 flex-1 rounded-[calc(var(--frame-radius)-var(--chrome))] bg-card px-6 py-5 text-foreground shadow-xs",
+		"min-h-0 flex-1 rounded-[calc(var(--frame-radius)-var(--chrome))] border border-border bg-card px-6 py-5 text-foreground",
 		className
 	)}
 	{...restProps}

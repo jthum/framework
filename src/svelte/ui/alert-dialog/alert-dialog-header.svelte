@@ -18,3 +18,9 @@
 >
 	{@render children?.()}
 </div>
+
+<style>
+	[data-slot="alert-dialog-header"] {
+		border: 1px solid var(--border);
+	}
+</style>
