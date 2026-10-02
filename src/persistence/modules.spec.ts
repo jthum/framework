@@ -86,6 +86,47 @@ for (const [name, create] of Object.entries({
       ...extra,
     });
 
+    it("registers additional entities atomically without modifying existing schemas or data", async () => {
+      const { kernel, workspace, store } = await setup();
+      const before = await store.insert("entries", input("before"));
+      const expanded: ModuleSchema = {
+        ...schema,
+        entities: {
+          ...schema.entities,
+          notes: {
+            fields: {
+              entryId: {
+                type: "id",
+                optional: true,
+                references: { entity: "entries", onDelete: "setNull" },
+              },
+              body: { type: "text" },
+            },
+          },
+        },
+      };
+      const next = (await kernel.openModuleStorage(expanded)).workspace(workspace.id);
+      expect(await next.get("entries", before.id as number)).toEqual(before);
+      const note = await next.insert("notes", { entryId: before.id, body: "Note" });
+      await store.delete("entries", before.id as number);
+      expect(await next.get("notes", note.id as number)).toEqual({
+        id: note.id,
+        workspaceId: workspace.id,
+        body: "Note",
+      });
+      await kernel.openModuleStorage(expanded);
+      await expect(kernel.openModuleStorage(schema)).rejects.toMatchObject({
+        code: "RESOURCE.CONFLICT",
+      });
+      await expect(
+        kernel.openModuleStorage({
+          ...expanded,
+          entities: { ...expanded.entities, notes: { fields: { renamed: { type: "text" } } } },
+        }),
+      ).rejects.toMatchObject({ code: "RESOURCE.CONFLICT" });
+      expect(await next.get("notes", note.id as number)).toMatchObject({ body: "Note" });
+    });
+
     it("preserves native identity, typed/nested data and Workspace isolation across all operations", async () => {
       const { module, store } = await setup();
       const first = await store.insert(

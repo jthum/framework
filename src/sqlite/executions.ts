@@ -7,9 +7,27 @@ import {
 } from "../persistence/executions.ts";
 import type { SqliteDatabase } from "./gateway.ts";
 import type { ScopeHandle } from "../kernel/model.ts";
+import type { ActorRequest } from "../kernel/durable-rules.ts";
 
 export class SqliteExecutionStore implements ExecutionStore {
   constructor(private readonly database: SqliteDatabase) {}
+
+  async listPendingRequests(
+    workspaceId: string,
+    actorId: string,
+    limit: number,
+    offset: number,
+  ): Promise<readonly ActorRequest[]> {
+    const rows = await this.database.all<{ request_json: string }>(
+      `SELECT request.value AS request_json FROM rule_executions AS execution,
+       json_each(execution.execution_json, '$.checkpoint.requests') AS request
+       WHERE execution.workspace_id = ? AND json_extract(execution.execution_json, '$.status') = 'waiting'
+         AND json_extract(request.value, '$.actorId') = ? AND json_extract(request.value, '$.status') = 'pending'
+       ORDER BY json_extract(request.value, '$.createdAt') DESC, json_extract(request.value, '$.id') DESC LIMIT ? OFFSET ?`,
+      [workspaceId, actorId, limit, offset],
+    );
+    return rows.map((row) => JSON.parse(row.request_json) as ActorRequest);
+  }
 
   async hasActiveScope(workspaceId: string, scope: ScopeHandle): Promise<boolean> {
     return !!(await this.database.get(
@@ -27,6 +45,7 @@ export class SqliteExecutionStore implements ExecutionStore {
         execution_json TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS rule_executions_workspace_id ON rule_executions(workspace_id);
+      CREATE INDEX IF NOT EXISTS rule_executions_waiting ON rule_executions(workspace_id, json_extract(execution_json, '$.status'));
     `);
   }
 

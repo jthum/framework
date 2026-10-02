@@ -8,6 +8,8 @@ import { SqlitePersistenceAdapter } from "../sqlite/catalog.ts";
 import { openNodeSqlite } from "../sqlite/node.ts";
 import type { PersistenceAdapter } from "./catalog.ts";
 import type { RuleExecution } from "./executions.ts";
+import type { ActorRequest } from "../kernel/durable-rules.ts";
+import type { JsonValue } from "../spec/model.ts";
 import { MemoryPersistenceAdapter } from "./memory.ts";
 
 for (const [name, create] of [
@@ -23,6 +25,15 @@ for (const [name, create] of [
         persistence: { kind: adapter.kind, open: async () => session },
       });
       const root = await kernel.createRootWorkspace({ name: "Space", user: { name: "Jane" } });
+      const request: ActorRequest = {
+        id: "request-one",
+        executionId: "execution-one",
+        actorId: "reviewer",
+        label: "Review",
+        fields: [],
+        status: "pending",
+        createdAt: "2026-09-17T00:00:00.000Z",
+      };
       const execution: RuleExecution = {
         id: "execution-one",
         context: { workspaceId: root.workspace.id, actorId: root.user.id },
@@ -34,11 +45,24 @@ for (const [name, create] of [
         },
         revision: 0,
         status: "waiting",
-        checkpoint: { vars: { amount: 12 }, frames: [] },
+        checkpoint: {
+          vars: { amount: 12 },
+          frames: [],
+          requests: JSON.parse(
+            JSON.stringify([request, { ...request, id: "other-request", actorId: root.user.id }]),
+          ) as JsonValue,
+        },
         createdAt: "2026-09-17T00:00:00.000Z",
         updatedAt: "2026-09-17T00:00:00.000Z",
       };
       await session.executions.create(execution);
+      expect(
+        await session.executions.listPendingRequests(root.workspace.id, "reviewer", 1, 0),
+      ).toEqual([request]);
+      expect(await session.executions.listPendingRequests("other", "reviewer", 1, 0)).toEqual([]);
+      expect(
+        await session.executions.listPendingRequests(root.workspace.id, "reviewer", 1, 1),
+      ).toEqual([]);
       await expect(session.executions.create(execution)).rejects.toMatchObject({
         code: ERROR_CODES.resourceConflict,
       });
@@ -97,6 +121,9 @@ for (const [name, create] of [
         ),
       ).rejects.toMatchObject({ code: ERROR_CODES.resourceConflict });
       expect(await session.executions.get(root.workspace.id, execution.id)).toEqual(next);
+      expect(
+        await session.executions.listPendingRequests(root.workspace.id, "reviewer", 1, 0),
+      ).toEqual([]);
       await kernel.close();
     });
   });

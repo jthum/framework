@@ -527,6 +527,17 @@ describe("Durable Rules", () => {
     const requests = paused.checkpoint.requests as unknown as { id: string }[];
     const id = requests[0]!.id;
     const assigned = { ...app.context, actorId: reviewer.id };
+    expect(await kernel.listPendingActorRequests(system)).toEqual([]);
+    const pending = await kernel.listPendingActorRequests(assigned, 1);
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({
+      id,
+      executionId: paused.id,
+      actorId: reviewer.id,
+      status: "pending",
+    });
+    expect(pending[0]).not.toHaveProperty("checkpoint");
+    expect(await kernel.listPendingActorRequests(assigned, 1, 1)).toEqual([]);
     await expect(
       kernel.respondToActorRequest(system, paused.id, id, { answer: "yes" }),
     ).rejects.toThrow("assigned User");
@@ -534,6 +545,7 @@ describe("Durable Rules", () => {
     await expect(kernel.getRuleExecution(assigned, paused.id)).rejects.toThrow();
     const response = await kernel.respondToActorRequest(assigned, paused.id, id, { answer: "yes" });
     expect(response.status).toBe("responded");
+    expect(await kernel.listPendingActorRequests(assigned)).toEqual([]);
     expect(response).not.toHaveProperty("checkpoint");
     expect(app.observed).toEqual([app.root.system.id]);
     await expect(

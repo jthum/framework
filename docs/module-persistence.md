@@ -41,8 +41,10 @@ reference deletion are provider responsibilities. Unique indexes treat missing v
 atomic upsert requires a declared unique index. Query indexes are logical optimization hints, not
 SQL expressions or a promise of a particular index implementation.
 
-Module schemas are host code, not live user-authored schemas. Incompatible declarations fail rather
-than silently reinterpreting existing data. Development changes currently require a reset; no schema
+Module schemas are host code, not live user-authored schemas. Additional entities register
+transactionally without changing existing data; existing entity declarations must remain identical.
+Incompatible declarations fail rather than silently reinterpreting existing data. Changes to existing
+declarations currently require a development reset; no schema
 migrations or legacy readers are supplied by this contract. This is distinct from Collection's live,
 transactional schema-edit API.
 

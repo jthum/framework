@@ -5,7 +5,7 @@ import {
   assertEntityId,
   entitySchema,
   normalizeEntity,
-  moduleSchemaSignature,
+  moduleEntityAdditions,
   setAt,
   patchEntity,
   validateModuleSchema,
@@ -44,11 +44,11 @@ export class MemoryModuleDatabase {
   }
   register(schema: ModuleSchema): void {
     const existing = this.modules.get(schema.id);
-    if (existing && moduleSchemaSignature(existing.schema) !== moduleSchemaSignature(schema))
-      throw resourceConflict(
-        "The module schema changed. Reset development storage before opening it.",
-      );
-    if (!existing)
+    const additions = moduleEntityAdditions(existing?.schema, schema);
+    if (existing) {
+      for (const name of additions) existing.entities.set(name, { rows: new Map(), sequence: 0 });
+      existing.schema = schema;
+    } else
       this.modules.set(schema.id, {
         schema,
         entities: new Map(

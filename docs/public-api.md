@@ -81,6 +81,10 @@ dependency direction remains visible.
 - Persistence conformance: [`src/persistence`](../src/persistence)
 - Svelte integration boundaries: [`src/svelte/svelte-boundaries.test.ts`](../src/svelte/svelte-boundaries.test.ts)
 
+Actor-facing Rule execution clients include bounded `listPendingActorRequests(limit, offset)` for
+assigned requests across executions. It returns only current-Actor attention, not continuation state
+or the execution owner's authority; see [Agents](agents.md) and the durable Rule contract tests.
+
 When documentation and code disagree, first determine whether the implementation or the intended
 contract is wrong. Do not silently edit prose to bless accidental behavior; update the canonical
 contract, tests, and guide together.

@@ -584,6 +584,9 @@ export class Kernel {
   listActorRequests(context: ExecutionContext, executionId: string) {
     return this.durableRules.listRequests(context, executionId);
   }
+  listPendingActorRequests(context: ExecutionContext, limit?: number, offset?: number) {
+    return this.durableRules.listPendingRequests(context, limit, offset);
+  }
   respondToActorRequest(
     context: ExecutionContext,
     executionId: string,

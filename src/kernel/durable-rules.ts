@@ -1,6 +1,7 @@
 import {
   ERROR_CODES,
   FrameworkError,
+  invalidInput,
   resourceConflict,
   resourceNotFound,
 } from "../errors/error.ts";
@@ -395,6 +396,27 @@ export class DurableRuleService {
   }
 
   /** Assigned requests only; never expose another Actor's execution checkpoint. */
+  async listPendingRequests(
+    context: ExecutionContext,
+    limit = 30,
+    offset = 0,
+  ): Promise<readonly ActorRequest[]> {
+    await this.assertContext(context);
+    await this.checkAuthority(context, "actor_requests.list", "workspace", context.workspaceId);
+    if (
+      !Number.isSafeInteger(limit) ||
+      limit < 1 ||
+      limit > 100 ||
+      !Number.isSafeInteger(offset) ||
+      offset < 0
+    )
+      throw invalidInput(
+        "ActorRequest pagination requires a limit of 1–100 and a non-negative offset.",
+      );
+    return this.store.listPendingRequests(context.workspaceId, context.actorId, limit, offset);
+  }
+
+  /** Assigned requests in one execution; no execution ownership is implied. */
   async listRequests(
     context: ExecutionContext,
     executionId: string,
@@ -963,7 +985,7 @@ export class DurableRuleService {
   private checkAuthority(
     context: ExecutionContext,
     operation: string,
-    kind: "rule" | "execution" | "actor_request",
+    kind: "rule" | "execution" | "actor_request" | "workspace",
     id: string,
   ): Promise<void> {
     return this.authorize({

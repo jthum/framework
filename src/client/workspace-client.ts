@@ -43,6 +43,7 @@ import type { SettingInput, SettingSummary } from "../kernel/workspace-config-se
 
 /** Transport-neutral durable operations. Components receive this, never a Kernel or database. */
 export interface RuleExecutionClient {
+  listPendingActorRequests(limit?: number, offset?: number): Promise<readonly ActorRequest[]>;
   listRuleExecutions(limit?: number, offset?: number): Promise<readonly RuleExecutionSummary[]>;
   getRuleExecutionDetails(id: string): Promise<RuleExecutionDetails | null>;
   startRule(key: string, input?: RunRuleInput): Promise<RuleExecutionDetails>;
@@ -415,6 +416,9 @@ class LocalWorkspaceClient implements WorkspaceClient {
   }
   listActorRequests(executionId: string) {
     return this.kernel.listActorRequests(this.context, executionId);
+  }
+  listPendingActorRequests(limit?: number, offset?: number) {
+    return this.kernel.listPendingActorRequests(this.context, limit, offset);
   }
   respondToActorRequest(
     executionId: string,

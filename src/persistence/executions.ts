@@ -1,6 +1,7 @@
 import { resourceConflict } from "../errors/error.ts";
 import type { ExecutionContext, ScopeHandle } from "../kernel/model.ts";
 import type { JsonValue, RuleDefinition } from "../spec/model.ts";
+import type { ActorRequest } from "../kernel/durable-rules.ts";
 
 /** Instance state, not portable Spec. The Rule snapshot fixes the meaning of a resumed run. */
 export interface RuleExecution {
@@ -18,6 +19,13 @@ export interface RuleExecution {
 
 /** Trusted persistence port. Actor-facing authorization belongs to the Kernel. */
 export interface ExecutionStore {
+  /** Bounded assigned attention, including requests in another Actor's execution. */
+  listPendingRequests(
+    workspaceId: string,
+    actorId: string,
+    limit: number,
+    offset: number,
+  ): Promise<readonly ActorRequest[]>;
   hasActiveScope(workspaceId: string, scope: ScopeHandle): Promise<boolean>;
   create(execution: RuleExecution): Promise<void>;
   get(workspaceId: string, id: string): Promise<RuleExecution | null>;
@@ -73,6 +81,30 @@ function canonicalJson(value: unknown): string | undefined {
 
 export class MemoryExecutionStore implements ExecutionStore {
   private readonly executions = new Map<string, RuleExecution>();
+
+  async listPendingRequests(
+    workspaceId: string,
+    actorId: string,
+    limit: number,
+    offset: number,
+  ): Promise<readonly ActorRequest[]> {
+    const requests = [...this.executions.values()]
+      .filter(
+        (execution) =>
+          execution.context.workspaceId === workspaceId && execution.status === "waiting",
+      )
+      .flatMap((execution) =>
+        Array.isArray(execution.checkpoint.requests)
+          ? (execution.checkpoint.requests as unknown as readonly ActorRequest[])
+          : [],
+      )
+      .filter((request) => request.actorId === actorId && request.status === "pending")
+      .sort(
+        (left, right) =>
+          right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id),
+      );
+    return structuredClone(requests.slice(offset, offset + limit));
+  }
 
   async hasActiveScope(workspaceId: string, scope: ScopeHandle): Promise<boolean> {
     return [...this.executions.values()].some(

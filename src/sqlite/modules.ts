@@ -1,16 +1,11 @@
-import {
-  ERROR_CODES,
-  FrameworkError,
-  invalidInput,
-  resourceConflict,
-  resourceNotFound,
-} from "../errors/error.ts";
+import { ERROR_CODES, FrameworkError, invalidInput, resourceNotFound } from "../errors/error.ts";
 import { fieldsForEntity, validateEntityQuery } from "../persistence/module-query.ts";
 import {
   assertEntityId,
   entitySchema,
   normalizeEntity,
   moduleSchemaSignature,
+  moduleEntityAdditions,
   patchEntity,
   validateModuleSchema,
   valueAt,
@@ -69,24 +64,25 @@ export class SqliteModulePersistence implements ModulePersistence {
         "SELECT definition FROM module_schemas WHERE id = ?",
         [schema.id],
       );
-      if (existing && existing.definition !== moduleSchemaSignature(schema))
-        throw resourceConflict(
-          "The module schema changed. Reset development storage before opening it.",
-        );
-      if (!existing) {
-        for (const [name, definition] of Object.entries(schema.entities)) {
+      const additions = moduleEntityAdditions(
+        existing ? (JSON.parse(existing.definition) as ModuleSchema) : undefined,
+        schema,
+      );
+      if (!existing || additions.length) {
+        for (const name of additions) {
+          const definition = schema.entities[name]!;
           await connection.execute(entityDdl(schema, name, definition));
           await connection.run(
             "INSERT INTO module_sequences (module_id,entity_id,sequence) VALUES (?,?,0)",
             [schema.id, name],
           );
         }
-        const triggers = nullifyReferencesDdl(schema);
+        const triggers = nullifyReferencesDdl(schema, additions);
         if (triggers) await connection.execute(triggers);
-        await connection.run("INSERT INTO module_schemas (id,definition) VALUES (?,?)", [
-          schema.id,
-          moduleSchemaSignature(schema),
-        ]);
+        await connection.run(
+          "INSERT INTO module_schemas (id,definition) VALUES (?,?) ON CONFLICT(id) DO UPDATE SET definition=excluded.definition",
+          [schema.id, moduleSchemaSignature(schema)],
+        );
       }
     });
     return {
@@ -183,19 +179,20 @@ function entityDdl(schema: ModuleSchema, name: string, entity: EntitySchema): st
   return `CREATE TABLE ${quote(table)} (${[...columns, ...constraints].join(",")}) STRICT; ${indexes.join("\n")}`;
 }
 
-function nullifyReferencesDdl(schema: ModuleSchema): string {
+function nullifyReferencesDdl(schema: ModuleSchema, names: readonly string[]): string {
   const triggers: string[] = [];
   for (const [name, entity] of Object.entries(schema.entities))
-    for (const [path, field] of Object.entries(entity.fields)) {
-      if (field.references?.onDelete !== "setNull") continue;
-      const table = moduleTable(schema.id, name),
-        column = moduleColumn(path);
-      // A composite FK's native SET NULL would also clear workspace_id. Null only its ID,
-      // including when the target is itself removed by a cascade elsewhere in the module.
-      triggers.push(`CREATE TRIGGER ${quote(`${table}__null_${column}`)} BEFORE DELETE ON ${quote(moduleTable(schema.id, field.references.entity))} BEGIN
+    if (names.includes(name))
+      for (const [path, field] of Object.entries(entity.fields)) {
+        if (field.references?.onDelete !== "setNull") continue;
+        const table = moduleTable(schema.id, name),
+          column = moduleColumn(path);
+        // A composite FK's native SET NULL would also clear workspace_id. Null only its ID,
+        // including when the target is itself removed by a cascade elsewhere in the module.
+        triggers.push(`CREATE TRIGGER ${quote(`${table}__null_${column}`)} BEFORE DELETE ON ${quote(moduleTable(schema.id, field.references.entity))} BEGIN
         UPDATE ${quote(table)} SET ${quote(column)} = NULL WHERE workspace_id = OLD.workspace_id AND ${quote(column)} IS OLD.id;
       END;`);
-    }
+      }
   return triggers.join("\n");
 }
 

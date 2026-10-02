@@ -1,4 +1,4 @@
-import { ERROR_CODES, FrameworkError, invalidInput } from "../errors/error.ts";
+import { ERROR_CODES, FrameworkError, invalidInput, resourceConflict } from "../errors/error.ts";
 import type {
   EntityField,
   EntityId,
@@ -87,6 +87,27 @@ export function moduleSchemaSignature(schema: ModuleSchema): string {
   return JSON.stringify(
     sort({ ...schema, ...(schema.requires ? { requires: [...schema.requires].sort() } : {}) }),
   );
+}
+
+/** New entities are registration, not reinterpretation/backfill of existing entity data. */
+export function moduleEntityAdditions(
+  previous: ModuleSchema | undefined,
+  next: ModuleSchema,
+): string[] {
+  if (
+    previous &&
+    (previous.id !== next.id ||
+      Object.entries(previous.entities).some(
+        ([name, entity]) =>
+          !next.entities[name] ||
+          moduleSchemaSignature({ id: next.id, entities: { [name]: entity } }) !==
+            moduleSchemaSignature({ id: next.id, entities: { [name]: next.entities[name]! } }),
+      ))
+  )
+    throw resourceConflict(
+      "An existing module entity schema changed. Reset development storage before opening it.",
+    );
+  return Object.keys(next.entities).filter((name) => !previous?.entities[name]);
 }
 
 export function entitySchema(schema: ModuleSchema, name: string): EntitySchema {

@@ -146,6 +146,12 @@ An embedded host can consume the async stream directly. A server host resolves t
 Actor, runs the Kernel, and frames events for its transport. Conversation persistence and bounded
 history are host state.
 
+Assigned conversation work and Rule ActorRequests have different owners/lifecycles. Hosts may show
+them together as attention without converting either into the other. `listPendingActorRequests`
+returns a bounded page for the current Actor, including requests from another Actor's execution;
+it does not expose checkpoints or grant execution-owner authority. Respond through the existing
+`respondToActorRequest` client operation.
+
 `text_delta` carries visible answer text; `reasoning_delta` carries separate provider-exposed
 thinking. Hosts decide whether to display or retain thinking. Assistant messages may carry opaque
 JSON `providerState` for provider continuity. Preserve it when replaying messages, rather than

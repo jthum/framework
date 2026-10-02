@@ -10,6 +10,7 @@ const untouched = async () => {
   throw new Error("Rendering must not call the runtime");
 };
 const client: RuleExecutionClient = {
+  listPendingActorRequests: untouched,
   listRuleExecutions: untouched,
   getRuleExecutionDetails: untouched,
   startRule: untouched,
