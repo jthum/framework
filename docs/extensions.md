@@ -42,9 +42,12 @@ primitives and keep domain invariants in module code. See [Domain modules](domai
 the client, storage, integration, and testing pattern.
 
 Module-owned state uses a module-owned client contract in interface code. Local and remote hosts
-implement that same contract against their chosen storage or transport and compose it beside
+implement that same contract against Framework's provider-neutral module storage or their transport and compose it beside
 `WorkspaceClient`; see [local and remote deployment](deployment-modes.md). A Framework scope may
 attach optional configuration to a module entity without changing ownership of the entity itself.
+
+Modules declare logical entity schemas/queries; Framework persistence providers own physical
+storage, transactions and constraints. See [Host module persistence](module-persistence.md).
 
 Custom Source-provider registration is not yet a public Kernel extension point. A host may expose
 external data through its own client or module boundary today; a future provider contract must

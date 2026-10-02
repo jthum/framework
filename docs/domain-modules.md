@@ -12,7 +12,7 @@ They integrate through existing Framework contracts where that adds value.
 A module may own:
 
 - its entity types, invariants, and lifecycle;
-- logical storage contracts and physical adapter;
+- logical entity schemas, query contracts and provider-neutral repositories;
 - a transport-neutral client used by product interfaces;
 - local and remote client implementations;
 - Actions, Events, Conditions, Agent tools, and Rule integration;
@@ -35,7 +35,7 @@ interface ConversationClient {
 }
 ```
 
-The local implementation can use module-owned browser storage. The remote implementation can call
+The local implementation uses Framework's selected persistence provider. The remote implementation can call
 an authenticated server and expose the same stream. Compose it beside `WorkspaceClient`; do not add
 module methods to Framework's client merely to obtain one application API.
 
@@ -82,20 +82,24 @@ Authoritative contracts:
 
 ## Storage
 
-Module tables may share a physical database with Framework or live in a separate database. That is
-deployment policy, not entity ownership. Keep module queries behind the module's storage port so a
-browser-local implementation can later be replaced with server SQLite, Postgres, Convex, or
-another backend without changing the interface.
+Declare intrinsic entity schemas and logical queries through Framework's
+[`ModuleSchema`/`EntityQuery` port](module-persistence.md). Trusted composition obtains a module store
+from `kernel.openModuleStorage(schema)`; the selected persistence provider supplies transactions,
+constraints, queries, IDs and physical storage. The module keeps its product-language repository
+and invariants, but must not implement SQLite/Convex/etc. adapters or inspect provider identifiers.
+Changing providers changes composition and the provider implementation, not each domain module.
 
 Framework database-per-scope routing applies only to Framework Collections selected for that
-scope. It does not automatically route module-owned entities.
+scope. SQLite currently stores module entities in its catalog database. Physical placement remains
+provider policy and grants no authorization. Module transactions do not imply an atomic transaction
+across Framework catalog/Collections or external effects; see [the exact contract](module-persistence.md).
 
 ## Testing a module
 
 Test the contract at three levels:
 
 1. Pure domain tests for invariants and transitions.
-2. A reusable client/store contract suite run against local and remote implementations.
+2. A reusable repository contract suite run against Framework persistence providers, plus client/transport contracts where needed.
 3. Integration scenarios proving Action, Event, Rule, Actor, and optional scope propagation.
 
 Browser storage and streaming receive focused integration smoke tests. Authorization and
@@ -105,6 +109,7 @@ validation stay deterministic; inference evals never replace them.
 
 - Do not model intrinsic module entities as Collections solely to reuse CRUD.
 - Do not import a concrete database into components.
+- Do not generate SQL, own physical tables or select a second provider inside module code.
 - Do not treat a scope ID, parent Workspace, or Actor origin as authority.
 - Do not hide module behavior in unvalidated Framework `meta`.
 - Do not create a parallel Rule, tool, or mutation runtime when an Action integration suffices.

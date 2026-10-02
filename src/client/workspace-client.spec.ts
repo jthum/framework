@@ -57,6 +57,12 @@ describe("WorkspaceClient", () => {
 
     await expect(client.getWorkspace()).resolves.toMatchObject({ spec: next });
     await expect(client.listRecords("note")).resolves.toEqual([record]);
+    await expect(
+      client.getSourceRecords("note", [record.id, "missing", record.id]),
+    ).resolves.toEqual([{ id: record.id, values: record.values }]);
+    await expect(client.getSourceRecords("note", Array(501).fill(record.id))).rejects.toMatchObject(
+      { code: "VALIDATION.INVALID_INPUT" },
+    );
     await expect(client.getPage("home")).resolves.toMatchObject({ id: "page_home" });
 
     // The client does not close or otherwise own the shared Kernel.

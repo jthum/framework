@@ -182,6 +182,8 @@ export interface WorkspaceClient
   getSource(key: string): Promise<SourceDescriptor | null>;
   querySource(key: string, query?: SourceQueryDefinition): Promise<SourceResult>;
   getSourceRecord(key: string, id: string): Promise<SourceRow | null>;
+  /** Authorized lookup; missing/row-policy-hidden records are omitted. Up to 500 IDs. */
+  getSourceRecords(key: string, ids: readonly string[]): Promise<readonly SourceRow[]>;
 
   listViews(): Promise<readonly ViewDefinition[]>;
   getView(key: string): Promise<ViewDefinition | null>;
@@ -475,6 +477,9 @@ class LocalWorkspaceClient implements WorkspaceClient {
 
   getSourceRecord(key: string, id: string): Promise<SourceRow | null> {
     return this.kernel.getSourceRecord(this.context, key, id);
+  }
+  getSourceRecords(key: string, ids: readonly string[]): Promise<readonly SourceRow[]> {
+    return this.kernel.getSourceRecords(this.context, key, ids);
   }
 
   listViews(): Promise<readonly ViewDefinition[]> {

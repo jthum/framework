@@ -24,6 +24,7 @@ import { SqliteScopeStore } from "./scopes.ts";
 import { SqliteRuleSubscriptionStore } from "./subscriptions.ts";
 import { SqliteExecutionStore } from "./executions.ts";
 import { SqliteWorkspaceConfigStore } from "./workspace-config.ts";
+import { SqliteModulePersistence } from "./modules.ts";
 import { routeDatabases, type SqlitePersistenceOptions } from "./database-routing.ts";
 import {
   assertActorIntegrity,
@@ -59,6 +60,7 @@ export class SqlitePersistenceAdapter implements PersistenceAdapter {
     const database = await this.openDatabase();
     const records = new SqliteRecordStore(database);
     const executions = new SqliteExecutionStore(database);
+    const modules = new SqliteModulePersistence(database);
     try {
       await initializeCatalog(database);
       await database.transaction(async (connection) => {
@@ -84,6 +86,7 @@ export class SqlitePersistenceAdapter implements PersistenceAdapter {
       });
       await records.initialize();
       await executions.initialize();
+      await modules.initialize();
     } catch (error) {
       try {
         await database.close();
@@ -93,6 +96,7 @@ export class SqlitePersistenceAdapter implements PersistenceAdapter {
       throw error;
     }
     const session: PersistenceSession = {
+      modules,
       workspaceConfigs: new SqliteWorkspaceConfigStore(database),
       scopes: new SqliteScopeStore(database),
       subscriptions: new SqliteRuleSubscriptionStore(database),
@@ -151,9 +155,13 @@ export class SqlitePersistenceAdapter implements PersistenceAdapter {
           if (!(await connection.get("SELECT id FROM workspaces WHERE id = ?", [workspaceId])))
             throw resourceNotFound("Workspace", workspaceId);
           await records.deleteWorkspaceWith(connection, workspaceId);
+          await modules.deleteWorkspaceWith(connection, workspaceId);
           await connection.run("DELETE FROM workspaces WHERE id = ?", [workspaceId]);
         }),
-      close: () => database.close(),
+      close: async () => {
+        modules.close();
+        await database.close();
+      },
     };
     if (!this.options.scopeDatabases && !this.options.workspaceDatabases) return session;
     try {

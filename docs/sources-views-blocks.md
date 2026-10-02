@@ -51,6 +51,11 @@ connection for the duration of that query, then detached. A host SQLite gateway 
 stable attachable database name for each routed file. The memory adapter remains the reference
 evaluator.
 
+Hosts can resolve a bounded set of records with `WorkspaceClient.getSourceRecords(key, ids)`
+(up to 500 IDs). It uses the same authorized Source batch lookup as relationship traversal,
+deduplicates IDs, and omits missing or row-policy-hidden records. Attachment restrictions and
+revocation still apply; this is not raw RecordStore access.
+
 ## Views
 
 A View is portable Spec data with exactly one root Source, an optional query, and an optional default presentation:

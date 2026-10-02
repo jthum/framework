@@ -5,3 +5,4 @@ export * from "./executions.ts";
 export * from "./scopes.ts";
 export * from "./subscriptions.ts";
 export * from "./workspace-config.ts";
+export * from "./modules.ts";

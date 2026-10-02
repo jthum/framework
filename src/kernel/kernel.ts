@@ -11,6 +11,7 @@ import type {
   PersistenceSession,
 } from "../persistence/catalog.ts";
 import type { CollectionRecord, RecordValues } from "../persistence/records.ts";
+import type { ModuleSchema, ModuleStore } from "../persistence/modules.ts";
 import type { ScopeConfig } from "./model.ts";
 import { assertScope, emptyScopeConfig, readScopeConfig } from "./scopes.ts";
 import {
@@ -440,6 +441,14 @@ export class Kernel {
   }
   getSourceRecord(context: ExecutionContext, key: string, id: string) {
     return this.sources.get(context, key, id);
+  }
+  async getSourceRecords(context: ExecutionContext, key: string, ids: readonly string[]) {
+    if (!Array.isArray(ids) || ids.length > 500 || ids.some((id) => typeof id !== "string" || !id))
+      throw new FrameworkError({
+        code: ERROR_CODES.validationInvalidInput,
+        message: "Choose up to 500 record IDs.",
+      });
+    return this.sources.getMany(context, key, [...new Set(ids)]);
   }
   async updateSourceRecord(
     context: ExecutionContext,
@@ -1433,6 +1442,11 @@ export class Kernel {
 
   close(): Promise<void> {
     return this.persistence.close();
+  }
+
+  /** Trusted host composition only. Modules must authorize their actor-facing operations. */
+  openModuleStorage(schema: ModuleSchema): Promise<ModuleStore> {
+    return this.persistence.modules.open(schema);
   }
 
   private async authorizeCatalogRead(

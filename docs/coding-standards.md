@@ -65,7 +65,7 @@ adapters      Svelte/editor bindings
 - Host code composes the Kernel, adapters, editors, navigation, and product policy.
 - Ordinary interface code depends on context-bound clients. Direct Kernel, persistence, and adapter
   imports belong at a local or server composition root.
-- Domain modules own their entities, storage, invariants, and client contracts. Compose module
+- Domain modules own their entities, logical schemas/queries, invariants, and client contracts. Physical storage belongs to Framework's provider. Compose module
   clients beside `WorkspaceClient`; do not disguise intrinsic module data as Collections.
 - Blocks receive declared values and resolved data; they do not open databases or reach into host state.
 
@@ -168,7 +168,8 @@ EnvironmentProfile describes capabilities, not URLs, credentials, or arbitrary c
 ## Persistence
 
 - SQL belongs only in a SQL persistence adapter.
-- Kernel services depend on logical catalog, schema, record, and execution contracts.
+- Kernel services depend on logical catalog, schema, record, execution and module-entity contracts.
+- Host module repositories use `ModuleStore`, never SQL, physical identifiers or driver imports. See [Host module persistence](module-persistence.md).
 - Transactions are adapter capabilities; do not assume one global transaction spans unrelated adapters.
 - Physical database and table names are adapter policy.
 - Adapter results are normalized into framework values before leaving the adapter boundary.

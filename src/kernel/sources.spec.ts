@@ -129,7 +129,11 @@ describe("Source contract", () => {
       type: "text",
       aggregate: "group",
     });
-    expect(grouped.rows).toEqual([
+    expect(
+      [...grouped.rows].sort((left, right) =>
+        (left.values.client as string).localeCompare(right.values.client as string),
+      ),
+    ).toEqual([
       { id: acme.id, values: { client: "Acme", project_count: 1 } },
       { id: beta.id, values: { client: "Beta", project_count: 1 } },
     ]);
@@ -354,6 +358,7 @@ function memoryAdapter(records: MemoryRecordStore): PersistenceAdapter {
     kind: "memory-test",
     async open(): Promise<PersistenceSession> {
       return {
+        modules: (await new MemoryPersistenceAdapter().open()).modules,
         scopes: new MemoryScopeStore(),
         subscriptions: new MemoryRuleSubscriptionStore(),
         executions: new MemoryExecutionStore(),

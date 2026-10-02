@@ -3,6 +3,7 @@ import { MemoryExecutionStore } from "./executions.ts";
 import { MemoryScopeStore } from "./scopes.ts";
 import { MemoryRuleSubscriptionStore } from "./subscriptions.ts";
 import { MemoryWorkspaceConfigStore } from "./workspace-config.ts";
+import { MemoryModuleDatabase, MemoryModulePersistence } from "./memory-modules.ts";
 import type {
   Actor,
   AgentConfig,
@@ -51,9 +52,12 @@ export class MemoryPersistenceAdapter implements PersistenceAdapter {
   private readonly scopes = new MemoryScopeStore();
   private readonly subscriptions = new MemoryRuleSubscriptionStore();
   private readonly workspaceConfigs = new MemoryWorkspaceConfigStore();
+  private readonly moduleDatabase = new MemoryModuleDatabase();
 
   async open(): Promise<PersistenceSession> {
+    const modules = new MemoryModulePersistence(this.moduleDatabase);
     return {
+      modules,
       workspaceConfigs: this.workspaceConfigs,
       scopes: this.scopes,
       subscriptions: this.subscriptions,
@@ -136,6 +140,7 @@ export class MemoryPersistenceAdapter implements PersistenceAdapter {
           this.workspaceConfigs.deleteWorkspace(workspaceId);
           this.scopes.deleteWorkspace(workspaceId);
           await this.subscriptions.deleteWorkspace(workspaceId);
+          await this.moduleDatabase.deleteWorkspace(workspaceId);
         } catch (error) {
           this.repository.restore(catalog);
           this.scopes.restore(scopes);
@@ -146,7 +151,10 @@ export class MemoryPersistenceAdapter implements PersistenceAdapter {
           throw error;
         }
       },
-      close: async () => {},
+      close: async () => {
+        modules.close();
+        await this.moduleDatabase.drain();
+      },
     };
   }
 }

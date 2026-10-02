@@ -54,6 +54,7 @@ aliases or migration baggage.
 - [Choose local or remote deployment](docs/deployment-modes.md)
 - [Extend a host safely](docs/extensions.md)
 - [Build domain modules](docs/domain-modules.md)
+- [Persist host entities without provider-specific code](docs/module-persistence.md)
 - [Find public APIs and authoritative code](docs/public-api.md)
 - [Integrate inference and Agents](docs/agents.md)
 - [Develop Framework itself](docs/developing-framework.md)

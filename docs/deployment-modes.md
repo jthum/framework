@@ -25,7 +25,7 @@ Kernel, and a server-rendered route may still hydrate into the same remote clien
 
 `WorkspaceClient` exposes Framework-owned capabilities. It includes focused interfaces for
 Workspace management, Memberships, Attachments, scope configuration, Rules, inference, and ordinary
-Spec-backed data. A host-owned domain module keeps its own storage, invariants, and client contract.
+Spec-backed data. A host-owned domain module keeps its logical schema, invariants, repository and client contract.
 It composes beside the Framework client rather than masquerading as a Collection:
 
 ```ts
@@ -41,7 +41,7 @@ interface ApplicationSession {
 }
 ```
 
-The local composition may implement `ConversationClient` against module-owned local tables. The
+The local composition implements `ConversationClient` using the selected provider's module port. The
 remote composition implements it over the same transport used by the application server. Framework
 does not require every module operation to pass through `WorkspaceClient`.
 
@@ -61,7 +61,7 @@ The host owns:
 - authentication and login-identity-to-Actor resolution;
 - Kernel and persistence lifetime;
 - transport, request routing, streaming, and live module updates;
-- module-owned storage and migrations;
+- logical module schemas, domain queries and lifecycle;
 - filesystem paths, database backup, and deployment policy.
 
 Framework owns:
@@ -69,15 +69,16 @@ Framework owns:
 - portable definitions and validation;
 - Kernel semantics and authorization choke points;
 - context-bound Framework client contracts and their local implementation;
-- persistence ports and reference adapters;
+- persistence ports and reference adapters, including [host-defined entities](module-persistence.md);
 - reusable Svelte capability surfaces.
 
 ## SQLite layouts
 
 The SQLite adapter works in either deployment. The host can use one database, route records to one
 database per Workspace, and optionally route scope-local Framework records to separate databases.
-Those callbacks choose OPFS names in a browser or filesystem paths on a server. Module-owned tables
-may use their own database layout; Framework scope databases do not prescribe module storage.
+Those callbacks choose OPFS names in a browser or filesystem paths on a server. Host module entities
+currently live in the catalog database and use the same provider/session; these record-routing
+callbacks do not route module entities. Physical layout belongs in the provider, never module code.
 
 Browser hosts can opt into `@jthum/framework-sqlite-browser`. Its `createBrowserSqlitePool` uses a
 host-chosen namespace, runs wa-sqlite in a worker, prefers OPFS, and implements the same

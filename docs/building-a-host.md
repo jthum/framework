@@ -11,13 +11,13 @@ For exact exports, source, and behavioral tests, use the [public API map](public
 
 Classify each part of the product before writing storage or interface code:
 
-| Concern                                                                         | Owner                               |
-| ------------------------------------------------------------------------------- | ----------------------------------- |
-| Portable Collections, Views, Forms, Pages, Rules, and Agent definitions         | Framework Spec                      |
-| Workspaces, Actors, Memberships, Attachments, records, and executions           | Framework instance                  |
-| Product entities with their own invariants and lifecycle                        | Host domain module                  |
-| Authentication, routes, navigation, credentials, deployment, and product policy | Host shell                          |
-| Physical tables, files, indexes, and connection behavior                        | Persistence adapter or module store |
+| Concern                                                                         | Owner                          |
+| ------------------------------------------------------------------------------- | ------------------------------ |
+| Portable Collections, Views, Forms, Pages, Rules, and Agent definitions         | Framework Spec                 |
+| Workspaces, Actors, Memberships, Attachments, records, and executions           | Framework instance             |
+| Product entities with their own invariants and lifecycle                        | Host domain module             |
+| Authentication, routes, navigation, credentials, deployment, and product policy | Host shell                     |
+| Physical tables, files, indexes, and connection behavior                        | Framework persistence provider |
 
 A domain entity does not become a Collection merely because it has fields. If it is intrinsic to
 the product and has its own protocol, storage, or live behavior, keep it in a
@@ -68,6 +68,11 @@ chooses one database or routed Workspace/scope databases. See
 
 Do not let database names, SQL connections, or adapter repositories escape into components or
 domain contracts.
+
+Host modules declare logical entities with `ModuleSchema` and obtain storage from
+`kernel.openModuleStorage(schema)`. Their repositories use backend-neutral queries and transactions,
+not separate database adapters. That one provider choice covers host entities too. See
+[Host module persistence](module-persistence.md) for capabilities, identity, authority and examples.
 
 ### 3. Bootstrap identity and bind a client
 

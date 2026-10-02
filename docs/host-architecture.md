@@ -34,7 +34,7 @@ The host owns:
 - persistence adapter and deployment environment;
 - routes, navigation, layout, product vocabulary, and error presentation;
 - application-specific Actions, Conditions, Sources, Blocks, and modules;
-- Agent provider adapters, credential resolution, conversation storage, and stream transport;
+- Agent provider adapters, credential resolution, module semantics, and stream transport;
 - Spec import/export envelope and validation of host extensions;
 - catalogs, template installation, registry trust, and optional library UI.
 
@@ -58,10 +58,15 @@ another inference library, or its own implementation without changing Kernel sem
 
 ## Persistence
 
-`PersistenceAdapter` exposes logical catalog, record, and execution storage. SQL belongs inside SQL
+`PersistenceAdapter` exposes logical catalog, record, execution and host-module entity storage. SQL belongs inside SQL
 adapters. A host may use the included in-memory adapter, a SQLite gateway, or another adapter that
 passes the shared contracts. Analytics engines may sit beside primary persistence as Sources; they
 do not have to replace transactional storage.
+
+Host-defined entities use `PersistenceSession.modules`, obtained through trusted
+`Kernel.openModuleStorage`. Modules own schemas and product queries; providers implement the
+shared [module persistence contract](module-persistence.md), including transaction and query
+capabilities. Selecting another provider does not require module-specific storage implementations.
 
 The optional `@jthum/framework-sqlite-browser` package supplies a worker-backed browser driver. It
 prefers OPFS and falls back to IndexedDB or memory. The package owns browser SQLite mechanics only;
@@ -74,7 +79,7 @@ the host still chooses its namespace and database routing policy. Server hosts c
 Without either, records live in the catalog database. With `workspaceDatabases`, each Workspace's
 records live in its own database; scope-local tables co-locate there unless `scopeDatabases` selects
 separate storage. Scope-only routing is also supported. Workspace definitions, Actors, Memberships,
-Attachments, scope configuration, subscriptions, and executions remain in the central catalog.
+Attachments, scope configuration, subscriptions, executions and host-module entities remain in the central catalog.
 Physical placement does not grant access: cross-Workspace sharing still uses explicit Attachments,
 which query the origin Workspace's record database without copying its data.
 

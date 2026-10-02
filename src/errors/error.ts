@@ -63,7 +63,7 @@ export class FrameworkError extends Error {
   }
 }
 
-export function resourceNotFound(kind: string, id: string): FrameworkError {
+export function resourceNotFound(kind: string, id: string | number): FrameworkError {
   return new FrameworkError({
     code: ERROR_CODES.resourceNotFound,
     message: `${kind} was not found.`,
