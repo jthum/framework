@@ -11,6 +11,7 @@ import {
   entityEqual,
   entityField,
   entityValue,
+  type EntityId,
   type EntityRow,
   type ModuleSchema,
   type ModuleTransaction,
@@ -84,6 +85,35 @@ for (const [name, create] of Object.entries({
       payload: null,
       tag,
       ...extra,
+    });
+    it("resets only the selected development module, including references, and accepts a fresh incompatible declaration", async () => {
+      const { kernel, workspace, actorId, store } = await setup();
+      const entry = await store.insert("entries", input("old"));
+      await store.insert("links", { key: "retained", retainedId: entry.id });
+      const other = (
+        await kernel.openModuleStorage({
+          id: "other",
+          entities: { notes: { fields: { body: { type: "text" } } } },
+        })
+      ).workspace(workspace.id);
+      const note = await other.insert<{ id: EntityId; body: string }>("notes", { body: "Keep me" });
+      const changed = {
+        id: schema.id,
+        entities: { ...schema.entities, folders: { fields: { name: { type: "text" } } } },
+      } satisfies ModuleSchema;
+      await expect(kernel.openModuleStorage(changed)).rejects.toMatchObject({
+        code: "RESOURCE.CONFLICT",
+        details: { moduleId: schema.id, entity: "folders", recovery: "reset_module" },
+      });
+      await kernel.resetModuleStorage(schema.id);
+      await kernel.resetModuleStorage(schema.id);
+      const fresh = (await kernel.openModuleStorage(changed)).workspace(workspace.id);
+      expect(await fresh.query({ from: "folders" })).toEqual([]);
+      await fresh.insert("folders", { name: "Fresh" });
+      expect(await other.get("notes", note.id)).toMatchObject({ body: "Keep me" });
+      expect(await kernel.getWorkspace({ workspaceId: workspace.id, actorId })).toMatchObject({
+        id: workspace.id,
+      });
     });
 
     it("registers additional entities atomically without modifying existing schemas or data", async () => {

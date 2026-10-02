@@ -48,6 +48,17 @@ declarations currently require a development reset; no schema
 migrations or legacy readers are supplied by this contract. This is distinct from Collection's live,
 transactional schema-edit API.
 
+For deliberate development recovery, trusted composition can call
+`kernel.resetModuleStorage(moduleId)` (or the session's `modules.reset(moduleId)`). This permanently
+removes that module's declaration, entities and sequences **across all Workspaces**; other modules,
+Framework catalog data, Collections and settings are preserved. Missing modules are a no-op. Close
+the module's clients, workers and storage handles before resetting and register fresh storage
+afterwards; stale handles must not be reused. Hosts must obtain explicit confirmation and quiesce
+other sessions before exposing this destructive maintenance action. It is not an Actor permission,
+a migration API, or automatic conflict recovery. Declaration conflicts include `moduleId`, the
+changed `entity` when known, and `recovery: "reset_module"` in trusted error details, so a host can
+offer scoped recovery without parsing messages or exposing provider-specific storage operations.
+
 ## Queries and transactions
 
 `EntityQuery` supports typed comparisons, ordering, named projection, joins, unions, grouping and

@@ -2,6 +2,7 @@ import { ERROR_CODES, FrameworkError, invalidInput, resourceNotFound } from "../
 import { fieldsForEntity, validateEntityQuery } from "../persistence/module-query.ts";
 import {
   assertEntityId,
+  assertPath,
   entitySchema,
   normalizeEntity,
   moduleSchemaSignature,
@@ -115,6 +116,35 @@ export class SqliteModulePersistence implements ModulePersistence {
         });
       },
     };
+  }
+  async reset(moduleId: string): Promise<void> {
+    assertPath(moduleId);
+    this.assertOpen();
+    await this.database.transaction(async (connection) => {
+      this.assertOpen();
+      const row = await connection.get<{ definition: string }>(
+        "SELECT definition FROM module_schemas WHERE id = ?",
+        [moduleId],
+      );
+      if (!row) return;
+      const schema = JSON.parse(row.definition) as ModuleSchema;
+      const names = Object.keys(schema.entities);
+      await connection.execute("PRAGMA defer_foreign_keys = ON");
+      // Remove rows while every referenced table exists; cyclic/self references settle at commit.
+      for (const name of names)
+        await connection.run(`DELETE FROM ${quote(moduleTable(moduleId, name))}`);
+      // Nullable-reference triggers can otherwise refer to a table already dropped later in this reset.
+      for (const [name, entity] of Object.entries(schema.entities))
+        for (const [path, field] of Object.entries(entity.fields))
+          if (field.references?.onDelete === "setNull")
+            await connection.execute(
+              `DROP TRIGGER IF EXISTS ${quote(`${moduleTable(moduleId, name)}__null_${moduleColumn(path)}`)}`,
+            );
+      for (const name of names.reverse())
+        await connection.execute(`DROP TABLE ${quote(moduleTable(moduleId, name))}`);
+      await connection.run("DELETE FROM module_sequences WHERE module_id = ?", [moduleId]);
+      await connection.run("DELETE FROM module_schemas WHERE id = ?", [moduleId]);
+    });
   }
   async deleteWorkspaceWith(connection: SqliteConnection, workspaceId: string): Promise<void> {
     const modules = await connection.all<{ definition: string }>(

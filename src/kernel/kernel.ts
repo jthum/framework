@@ -1451,6 +1451,10 @@ export class Kernel {
   openModuleStorage(schema: ModuleSchema): Promise<ModuleStore> {
     return this.persistence.modules.open(schema);
   }
+  /** Trusted maintenance only, never exposed on WorkspaceClient. Stop module workers first. */
+  resetModuleStorage(moduleId: string): Promise<void> {
+    return this.persistence.modules.reset(moduleId);
+  }
 
   private async authorizeCatalogRead(
     context: ExecutionContext,

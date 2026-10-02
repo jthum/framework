@@ -3,6 +3,7 @@ import { validateEntityQuery } from "./module-query.ts";
 import { evaluateEntityQuery } from "./module-evaluator.ts";
 import {
   assertEntityId,
+  assertPath,
   entitySchema,
   normalizeEntity,
   moduleEntityAdditions,
@@ -59,6 +60,9 @@ export class MemoryModuleDatabase {
   state(module: string): ModuleState {
     return this.modules.get(module)!;
   }
+  reset(moduleId: string): void {
+    this.modules.delete(moduleId);
+  }
   async deleteWorkspace(workspaceId: string): Promise<void> {
     await this.run(async () => {
       for (const module of this.modules.values())
@@ -81,6 +85,14 @@ export class MemoryModulePersistence implements ModulePersistence {
   }
   private assertOpen(): void {
     if (this.closed) throw invalidInput("The persistence session is closed.");
+  }
+  async reset(moduleId: string): Promise<void> {
+    assertPath(moduleId);
+    this.assertOpen();
+    await this.database.run(async () => {
+      this.assertOpen();
+      this.database.reset(moduleId);
+    });
   }
   async open(input: ModuleSchema): Promise<ModuleStore> {
     this.assertOpen();

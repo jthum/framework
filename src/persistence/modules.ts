@@ -138,6 +138,8 @@ export interface ModuleStore {
 export interface ModulePersistence {
   readonly capabilities: readonly ModuleCapability[];
   open(schema: ModuleSchema): Promise<ModuleStore>;
+  /** Destructive development reset of one module across Workspaces. Quiesce its handles first. */
+  reset(moduleId: string): Promise<void>;
 }
 
 export const MODULE_CAPABILITIES: readonly ModuleCapability[] = [

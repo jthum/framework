@@ -1,4 +1,4 @@
-import { ERROR_CODES, FrameworkError, invalidInput, resourceConflict } from "../errors/error.ts";
+import { ERROR_CODES, FrameworkError, invalidInput } from "../errors/error.ts";
 import type {
   EntityField,
   EntityId,
@@ -94,19 +94,24 @@ export function moduleEntityAdditions(
   previous: ModuleSchema | undefined,
   next: ModuleSchema,
 ): string[] {
-  if (
+  const changed =
     previous &&
-    (previous.id !== next.id ||
-      Object.entries(previous.entities).some(
-        ([name, entity]) =>
-          !next.entities[name] ||
-          moduleSchemaSignature({ id: next.id, entities: { [name]: entity } }) !==
-            moduleSchemaSignature({ id: next.id, entities: { [name]: next.entities[name]! } }),
-      ))
-  )
-    throw resourceConflict(
-      "An existing module entity schema changed. Reset development storage before opening it.",
+    Object.entries(previous.entities).find(
+      ([name, entity]) =>
+        !next.entities[name] ||
+        moduleSchemaSignature({ id: next.id, entities: { [name]: entity } }) !==
+          moduleSchemaSignature({ id: next.id, entities: { [name]: next.entities[name]! } }),
     );
+  if (previous && (previous.id !== next.id || changed))
+    throw new FrameworkError({
+      code: ERROR_CODES.resourceConflict,
+      message: `The ${changed?.[0] ?? next.id} storage definition changed. Reset this module’s development data before opening it.`,
+      details: {
+        moduleId: next.id,
+        ...(changed ? { entity: changed[0] } : {}),
+        recovery: "reset_module",
+      },
+    });
   return Object.keys(next.entities).filter((name) => !previous?.entities[name]);
 }
 
