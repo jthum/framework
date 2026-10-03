@@ -69,6 +69,7 @@ describe("browser SQLite pool", () => {
   });
 
   it("preserves worker loading diagnostics when the browser omits an Error object", async () => {
+    let terminations = 0;
     vi.stubGlobal(
       "Worker",
       class {
@@ -89,12 +90,54 @@ describe("browser SQLite pool", () => {
           );
         }
 
-        terminate(): void {}
+        terminate(): void {
+          terminations++;
+        }
       },
     );
 
     await expect(createBrowserSqlitePool({ namespace: "test-host" })).rejects.toThrow(
       "Failed to load worker module (worker.mjs:4:2)",
     );
+    expect(terminations).toBe(1);
+  });
+
+  it("fails closed and rejects in-flight and later requests when the worker crashes", async () => {
+    let crash: (() => void) | undefined;
+    let terminations = 0;
+    vi.stubGlobal(
+      "Worker",
+      class {
+        private readonly listeners = new Map<string, (event: Record<string, unknown>) => void>();
+        constructor() {
+          crash = () => this.listeners.get("error")?.({ message: "worker crashed" });
+        }
+        addEventListener(name: string, listener: (event: Record<string, unknown>) => void): void {
+          this.listeners.set(name, listener);
+        }
+        postMessage(message: Record<string, unknown>): void {
+          if (message.method === "init" || message.method === "open")
+            queueMicrotask(() =>
+              this.listeners.get("message")?.({
+                data: {
+                  id: message.id,
+                  result: message.method === "init" ? { backend: "memory" } : true,
+                },
+              }),
+            );
+          else if (message.method === "all") queueMicrotask(() => crash?.());
+        }
+        terminate(): void {
+          terminations++;
+        }
+      },
+    );
+    const pool = await createBrowserSqlitePool({ namespace: "test-host" });
+    const database = await pool.open("catalog.db");
+    await expect(database.all("SELECT 1")).rejects.toThrow("worker crashed");
+    await expect(database.all("SELECT 2")).rejects.toThrow("pool is closed");
+    await expect(pool.open("catalog.db")).rejects.toThrow("pool is closed");
+    await pool.close();
+    expect(terminations).toBe(1);
   });
 });

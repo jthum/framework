@@ -7,6 +7,69 @@ import type { Clock, IdGenerator, IdKind } from "./defaults.ts";
 import { Kernel } from "./kernel.ts";
 
 describe("Kernel Rules", () => {
+  it("compensates only a failed repeat iteration before continuing", async () => {
+    const effects: string[] = [];
+    const { kernel, context, spec } = await bootstrap(undefined, [
+      {
+        key: "test.write",
+        run: ({ input }) => {
+          effects.push(`write:${JSON.stringify(input.index)}`);
+        },
+      },
+      {
+        key: "test.undo",
+        run: ({ input }) => {
+          effects.push(`undo:${JSON.stringify(input.index)}`);
+        },
+      },
+      {
+        key: "test.check",
+        run: ({ input }) => {
+          if (input.index === 1) throw new Error("iteration failed");
+        },
+      },
+    ]);
+    try {
+      await kernel.applySpec(
+        context,
+        specWithRules(spec, [
+          {
+            id: "repeat",
+            key: "repeat",
+            label: "Repeat",
+            steps: [
+              {
+                id: "loop",
+                repeat: {
+                  times: 3,
+                  onItemFailure: "continue",
+                  steps: [
+                    {
+                      id: "write",
+                      action: {
+                        key: "test.write",
+                        input: { index: { $ref: "vars.index" } },
+                        compensate: { key: "test.undo", input: { index: { $ref: "vars.index" } } },
+                      },
+                    },
+                    {
+                      id: "check",
+                      action: { key: "test.check", input: { index: { $ref: "vars.index" } } },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ]),
+      );
+      expect((await kernel.runRule(context, "repeat")).status).toBe("completed");
+      expect(effects).toEqual(["write:0", "write:1", "undo:1", "write:2"]);
+    } finally {
+      await kernel.close();
+    }
+  });
+
   it("validates opt-in Action and Rule outputs without constraining undeclared results", async () => {
     const { kernel, context, spec } = await bootstrap(undefined, [
       { key: "test.open", run: () => ({ verdict: "yes", extra: { provider: "ok" } }) },

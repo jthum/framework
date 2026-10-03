@@ -629,7 +629,12 @@ export class DurableRuleService {
     delete checkpoint.state.activeBranch;
     try {
       const status = await this.driveLane(checkpoint, checkpoint, run);
-      if (status === "waiting") return this.save(run.execution, checkpoint, "waiting");
+      if (status === "waiting") {
+        // Publish pending waits only when the entire driver is quiescent, including parallel lanes.
+        // A failed/uncertain checkpoint acknowledgement must never trigger compensation or replay.
+        run.saving = true;
+        return await this.save(run.execution, checkpoint, "waiting");
+      }
       const root = checkpoint.rules[run.execution.rule.id]!;
       if (root.result !== undefined)
         checkpoint.result = this.hooks.value(root.result, checkpoint.scopes[0]!);
@@ -639,7 +644,8 @@ export class DurableRuleService {
           code: ERROR_CODES.validationInvalidInput,
           message: `Rule ${root.key} returned an invalid result: ${mismatch}`,
         });
-      return this.save(run.execution, checkpoint, "completed");
+      run.saving = true;
+      return await this.save(run.execution, checkpoint, "completed");
     } catch (error) {
       if (run.saving) throw error;
       checkpoint.failure = error instanceof Error ? error.message : String(error);
@@ -873,9 +879,6 @@ export class DurableRuleService {
               ...(dueAt ? { dueAt } : {}),
               ...(requestId ? { requestId } : {}),
             };
-            run.saving = true;
-            run.execution = await this.save(run.execution, checkpoint, "running");
-            run.saving = false;
             return "waiting";
           } else if ("parallel" in step) {
             if (

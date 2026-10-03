@@ -238,6 +238,11 @@ membership and Rule authorization; Actions use ordinary current authorization an
 `runAs`. Inspection/resumption of another Actor's execution and explicit termination require
 management permission. A duplicate response or concurrent resume cannot claim the same revision.
 
+Pending waits and the public `waiting` state commit together once the driver is quiescent. Parallel
+lanes may have internal pending waits while other lanes still run; these are not published as
+actionable requests until the driver suspends. A failed checkpoint acknowledgement cannot trigger
+compensation or replay of preceding effects.
+
 This is **not exactly-once external delivery**. A waiting-to-running compare-and-swap happens
 before resumed effects. A crash or storage failure after an Action can leave its outcome uncertain;
 a `running` execution is never automatically replayed. `failRuleExecution` explicitly terminates

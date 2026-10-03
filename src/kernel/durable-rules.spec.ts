@@ -77,6 +77,43 @@ async function setup(
 }
 
 describe("Durable Rules", () => {
+  it("commits a resumable wait atomically even when its acknowledgement is lost", async () => {
+    const session = await new MemoryPersistenceAdapter().open();
+    const original = session.executions.update.bind(session.executions);
+    let interrupt = true;
+    const waitingWrites: string[] = [];
+    session.executions.update = async (execution, revision) => {
+      if (execution.checkpoint.pending) waitingWrites.push(execution.status);
+      await original(execution, revision);
+      if (interrupt && execution.status === "waiting") {
+        interrupt = false;
+        throw new Error("wait acknowledgement lost");
+      }
+    };
+    const app = await setup({ kind: "memory", open: async () => session });
+    try {
+      await app.install([
+        rule([
+          { id: "effect", action: { key: "test.capture", compensate: { key: "test.capture" } } },
+          delay,
+          { ...capture, id: "after" },
+        ]),
+      ]);
+      await expect(app.kernel.startRule(app.context, "test")).rejects.toThrow(
+        "wait acknowledgement lost",
+      );
+      expect(waitingWrites).toEqual(["waiting"]);
+      expect(app.observed).toEqual([app.context.actorId]);
+      const [paused] = await app.kernel.listRuleExecutions(app.context);
+      expect(paused?.status).toBe("waiting");
+      app.advance();
+      expect((await app.kernel.resumeRule(app.context, paused!.id)).status).toBe("completed");
+      expect(app.observed).toEqual([app.context.actorId, app.context.actorId]);
+    } finally {
+      await app.kernel.close();
+    }
+  });
+
   it("awaits host linkage before the first effect and isolates post-commit projection failures from durable progress", async () => {
     const observations: string[] = [];
     const errors: unknown[] = [];

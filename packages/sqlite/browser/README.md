@@ -14,6 +14,10 @@ const catalog = await pool.open("catalog.db");
 The package implements Framework's `SqliteDatabase` contract. Database routing and names remain
 host policy and are passed to `SqlitePersistenceAdapter` in the usual way.
 
+Every database connection enables foreign-key enforcement, including connections reopened after
+OPFS capacity growth. A worker crash or failed initialization closes the pool and rejects pending
+and subsequent requests; the host must create a new pool rather than reuse an uncertain worker.
+
 ## Linked source development
 
 When a Vite host links a separate Framework checkout and consumes its development source exports,

@@ -560,10 +560,12 @@ export class RuleService {
         const name = step.repeat.as ?? "index";
         for (let index = 0; index < resolved; index += 1) {
           scope.vars[name] = index;
+          const compensationStart = state.compensations.length;
           try {
             await this.runSteps(context, rule, step.repeat.steps, scope, state);
           } catch (error) {
             if (step.repeat.onItemFailure !== "continue") throw error;
+            await this.compensate(state, compensationStart);
           }
           if (step.repeat.until && (await this.test(step.repeat.until, scope))) break;
         }

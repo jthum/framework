@@ -134,11 +134,21 @@ async function openDatabase(name) {
   await ensureOpfsHeadroom();
   const existing = databases.get(name);
   if (existing != null) return existing;
+  let database;
   try {
-    const database = await sqlite.open_v2(name, undefined, selectedVfs);
+    database = await sqlite.open_v2(name, undefined, selectedVfs);
+    // This setting belongs to the connection, including connections reopened after OPFS growth.
+    await sqlite.exec(database, "PRAGMA foreign_keys = ON;");
     databases.set(name, database);
     return database;
   } catch (error) {
+    if (database != null) {
+      try {
+        await sqlite.close(database);
+      } catch {
+        /* Preserve the initialization failure. */
+      }
+    }
     const usage =
       typeof vfsInstance?.getSize === "function" && typeof vfsInstance?.getCapacity === "function"
         ? ` (${vfsInstance.getSize()}/${vfsInstance.getCapacity()} files in use)`

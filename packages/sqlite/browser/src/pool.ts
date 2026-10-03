@@ -49,6 +49,14 @@ export async function createBrowserSqlitePool(
   let closed = false;
   const openNames = new Set<string>();
 
+  function failWorker(error: Error): void {
+    closed = true;
+    openNames.clear();
+    worker.terminate();
+    for (const waiter of pending.values()) waiter.reject(error);
+    pending.clear();
+  }
+
   worker.addEventListener("message", (event: MessageEvent<RpcResult>) => {
     const waiter = pending.get(event.data.id);
     if (!waiter) return;
@@ -64,22 +72,35 @@ export async function createBrowserSqlitePool(
       event.error instanceof Error
         ? event.error
         : new Error(`${event.message || "SQLite worker failed."}${location}`);
-    for (const waiter of pending.values()) waiter.reject(error);
-    pending.clear();
+    failWorker(error);
   });
+  worker.addEventListener("messageerror", () =>
+    failWorker(new Error("SQLite worker response could not be decoded.")),
+  );
 
   function rpc(payload: Record<string, unknown>): Promise<unknown> {
     if (closed) return Promise.reject(new Error("Browser SQLite pool is closed."));
     const id = nextId++;
     return new Promise((resolve, reject) => {
       pending.set(id, { resolve, reject });
-      worker.postMessage({ id, ...payload });
+      try {
+        worker.postMessage({ id, ...payload });
+      } catch (error) {
+        failWorker(error instanceof Error ? error : new Error("SQLite worker request failed."));
+      }
     });
   }
 
-  const init = (await rpc({ method: "init", options: { ...options, namespace } })) as {
-    backend: BrowserSqliteBackend;
-  };
+  let init: { backend: BrowserSqliteBackend };
+  try {
+    init = (await rpc({ method: "init", options: { ...options, namespace } })) as typeof init;
+  } catch (error) {
+    if (!closed)
+      failWorker(
+        error instanceof Error ? error : new Error("SQLite worker initialization failed."),
+      );
+    throw error;
+  }
 
   async function closeWorker(): Promise<void> {
     if (closed) return;
