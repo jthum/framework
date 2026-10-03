@@ -17,6 +17,7 @@ import type {
   AutomationPredicate,
   AutomationTrigger,
   AutomationValue,
+  AutomationRequest,
   RuleDraft,
   RuleStep,
 } from "./rule-model.js";
@@ -156,7 +157,7 @@ function draftStep(
       id,
       wait: {
         ...(step.wait.signal ? { signal: step.wait.signal } : {}),
-        ...(step.wait.request ? { request: structuredClone(step.wait.request) } : {}),
+        ...(step.wait.request ? { request: draftClone<AutomationRequest>(step.wait.request) } : {}),
         ...(step.wait.timeout !== undefined ? { timeout: step.wait.timeout } : {}),
         ...(step.wait.as ? { as: step.wait.as } : {}),
         ...(step.wait.onSignal

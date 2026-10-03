@@ -11,7 +11,8 @@
   import FieldInputs from "../internal/field-inputs.svelte";
   import { fieldInputDefaults, parseFieldInputs, type FieldInputValues, type ReferenceInput } from "../internal/field-inputs.js";
   import { untrack } from "svelte";
-  let { request, onRespond, referenceInput }: { request: ActorRequest; onRespond: (values: Readonly<Record<string, JsonValue>>) => Promise<unknown>; referenceInput?: ReferenceInput } = $props();
+  import type { Snippet } from "svelte";
+  let { request, onRespond, referenceInput, description }: { request: ActorRequest; onRespond: (values: Readonly<Record<string, JsonValue>>) => Promise<unknown>; referenceInput?: ReferenceInput; description?: Snippet<[string]> } = $props();
   let values = $state<FieldInputValues>(untrack(() => fieldInputDefaults(request.fields)));
   let identity = $state(untrack(() => request.id));
   let pending = $state(false);
@@ -42,6 +43,7 @@
     <Card.Action><Badge variant={request.status === "pending" ? "default" : "outline"}>{request.status === "pending" ? "Needs your response" : request.status === "responded" ? "Responded" : request.status === "cancelled" ? "Cancelled" : "Expired"}</Badge></Card.Action>
   </Card.Header>
   <Card.Content>
+    {#if request.description}<div class="mb-5">{#if description}{@render description(request.description)}{:else}<p class="whitespace-pre-wrap text-sm leading-6">{request.description}</p>{/if}</div>{/if}
     {#if request.status === "pending"}
       <form onsubmit={submit} class="flex flex-col gap-5">
         <FieldInputs fields={request.fields} bind:values disabled={pending} {errors} {referenceInput} />

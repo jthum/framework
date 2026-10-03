@@ -46,6 +46,8 @@ export interface RuleExecutionClient {
   listPendingActorRequests(limit?: number, offset?: number): Promise<readonly ActorRequest[]>;
   listRuleExecutions(limit?: number, offset?: number): Promise<readonly RuleExecutionSummary[]>;
   getRuleExecutionDetails(id: string): Promise<RuleExecutionDetails | null>;
+  /** Bounded batch; inaccessible/missing executions are omitted, never exposed under owner authority. */
+  getRuleExecutionDetailsMany(ids: readonly string[]): Promise<readonly RuleExecutionDetails[]>;
   startRule(key: string, input?: RunRuleInput): Promise<RuleExecutionDetails>;
   resumeRule(id: string, input?: ResumeRuleInput): Promise<RuleExecutionDetails>;
   failRuleExecution(id: string): Promise<RuleExecutionDetails>;
@@ -401,6 +403,9 @@ class LocalWorkspaceClient implements WorkspaceClient {
   }
   getRuleExecutionDetails(id: string) {
     return this.kernel.getRuleExecutionDetails(this.context, id);
+  }
+  getRuleExecutionDetailsMany(ids: readonly string[]) {
+    return this.kernel.getRuleExecutionDetailsMany(this.context, ids);
   }
   async startRule(key: string, input?: RunRuleInput) {
     const execution = await this.kernel.startRule(this.context, key, input);

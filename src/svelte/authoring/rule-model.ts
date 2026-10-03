@@ -93,6 +93,13 @@ interface StepIdentity {
   id?: string;
 }
 
+export interface AutomationRequest {
+  actor?: string | AutomationBinding;
+  label: string;
+  description?: AutomationValue;
+  fields: readonly FieldDefinition[];
+}
+
 export type RuleStep =
   | (StepIdentity & {
       gate: {
@@ -109,11 +116,7 @@ export type RuleStep =
   | (StepIdentity & { delay: { duration: number | string } })
   | (StepIdentity & {
       wait: {
-        request?: {
-          actor?: string | AutomationBinding;
-          label: string;
-          fields: readonly FieldDefinition[];
-        };
+        request?: AutomationRequest;
         signal?: string;
         timeout?: number | string;
         as?: string;

@@ -28,6 +28,7 @@ export interface ActorRequest {
   readonly executionId: string;
   readonly actorId: string;
   readonly label: string;
+  readonly description?: string;
   readonly fields: readonly FieldDefinition[];
   status: "pending" | "responded" | "expired" | "cancelled";
   readonly createdAt: string;
@@ -76,6 +77,20 @@ export type RuleExecutionSummary = Pick<
   RuleExecutionDetails,
   "id" | "actorId" | "rule" | "status" | "createdAt" | "updatedAt"
 >;
+
+/** Trusted host projection notifications, not an Event outbox or an authorization shortcut. */
+export interface RuleExecutionChange {
+  readonly context: ExecutionContext;
+  readonly execution: RuleExecutionDetails;
+  readonly trigger: Readonly<Record<string, JsonValue>>;
+}
+export interface RuleExecutionObserver {
+  /** Awaited after creation but before the first effect. Failure stops this run without replay. */
+  created?(change: RuleExecutionChange): Promise<void>;
+  /** Post-commit projection work. Failure must never change the committed execution outcome. */
+  changed(change: RuleExecutionChange): Promise<void>;
+  failed(error: unknown, change: RuleExecutionChange): void;
+}
 
 interface Scope {
   trigger: Record<string, JsonValue>;
@@ -225,6 +240,7 @@ export class DurableRuleService {
     private readonly authorize: (
       request: import("./authorization.ts").AuthorizationRequest,
     ) => Promise<void>,
+    private readonly observer?: RuleExecutionObserver,
   ) {}
 
   profile(enabled = true): RuleRuntimeProfile {
@@ -289,6 +305,14 @@ export class DurableRuleService {
       updatedAt: stamp,
     };
     await this.store.create(execution);
+    try {
+      await this.observer?.created?.(this.change(execution));
+    } catch (error) {
+      checkpoint.failure =
+        "The host could not prepare this execution. No Rule effects were started.";
+      await this.save(execution, checkpoint, "failed");
+      throw error;
+    }
     return this.drive(execution, checkpoint);
   }
 
@@ -349,6 +373,30 @@ export class DurableRuleService {
   async details(context: ExecutionContext, id: string): Promise<RuleExecutionDetails | null> {
     const execution = await this.get(context, id);
     return execution ? describe(execution) : null;
+  }
+
+  async detailsMany(
+    context: ExecutionContext,
+    ids: readonly string[],
+  ): Promise<readonly RuleExecutionDetails[]> {
+    await this.assertContext(context);
+    if (!Array.isArray(ids) || ids.length > 100 || ids.some((id) => typeof id !== "string" || !id))
+      throw invalidInput("Choose up to 100 executions.");
+    const rows = await this.store.getMany(context.workspaceId, [...new Set(ids)]);
+    const result: RuleExecutionDetails[] = [];
+    for (const execution of rows) {
+      try {
+        await this.checkAuthority(context, "executions.read", "execution", execution.id);
+        if (execution.context.actorId !== context.actorId)
+          await this.checkAuthority(context, "executions.inspect", "execution", execution.id);
+      } catch (error) {
+        if (error instanceof FrameworkError && error.code === ERROR_CODES.permissionDenied)
+          continue;
+        throw error;
+      }
+      result.push(describe(execution));
+    }
+    return result;
   }
 
   async list(
@@ -800,11 +848,18 @@ export class DurableRuleService {
               const actor = await this.catalog.getActor(assigned.actorId);
               if (actor?.kind !== "user") throw denied("ActorRequests must be assigned to a User.");
               requestId = this.ids.create("actor_request");
+              const description =
+                definition.description === undefined
+                  ? undefined
+                  : this.hooks.values({ description: definition.description }, scope).description;
+              if (description !== undefined && typeof description !== "string")
+                throw invalidInput("Request description must resolve to text.");
               checkpoint.requests.push({
                 id: requestId,
                 executionId: run.execution.id,
                 actorId: actor.id,
                 label: definition.label,
+                ...(description === undefined ? {} : { description }),
                 fields: structuredClone(definition.fields),
                 status: "pending",
                 createdAt: this.clock.now(),
@@ -979,7 +1034,28 @@ export class DurableRuleService {
       updatedAt: this.clock.now(),
     };
     await this.store.update(next, execution.revision);
+    if (this.observer) {
+      const change = this.change(next);
+      try {
+        await this.observer.changed(change);
+      } catch (error) {
+        // Even a broken diagnostic callback cannot turn committed success into failure/replay.
+        try {
+          this.observer.failed(error, change);
+        } catch {
+          /* Observer-owned reporting only. */
+        }
+      }
+    }
     return next;
+  }
+
+  private change(execution: RuleExecution): RuleExecutionChange {
+    return {
+      context: structuredClone(execution.context),
+      execution: describe(execution),
+      trigger: structuredClone(decode(execution).scopes[0]!.trigger),
+    };
   }
 
   private checkAuthority(

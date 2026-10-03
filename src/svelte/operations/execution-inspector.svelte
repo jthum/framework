@@ -15,7 +15,8 @@
   import { Spinner } from "../ui/spinner/index.js";
   import ActorRequestCard from "./actor-request.svelte";
   import type { ReferenceInput } from "../internal/field-inputs.js";
-  let { execution, requests = [], client, actorName, onChange, canTerminate = false, referenceInput }: {
+  import type { Snippet } from "svelte";
+  let { execution, requests = [], client, actorName, onChange, canTerminate = false, referenceInput, requestDescription }: {
     execution: RuleExecutionDetails;
     requests?: readonly ActorRequest[];
     client: RuleExecutionClient;
@@ -23,6 +24,7 @@
     onChange: () => Promise<void>;
     canTerminate?: boolean;
     referenceInput?: ReferenceInput;
+    requestDescription?: Snippet<[string]>;
   } = $props();
   let pending = $state(false);
   let error = $state<PresentedError | null>(null);
@@ -76,7 +78,7 @@
   {/if}
 
   {#each requests as request (request.id)}
-    <ActorRequestCard {request} {referenceInput} onRespond={async values => {
+    <ActorRequestCard {request} {referenceInput} description={requestDescription} onRespond={async values => {
       try { await client.respondToActorRequest(execution.id, request.id, values); }
       finally { await onChange(); }
     }} />

@@ -408,6 +408,8 @@ function requireRuleStepsShape(
           issue(issues, `${at}.request`, "SPEC.TYPE_INVALID", "ActorRequest must be an object.");
         else {
           requireString(config.request, "label", `${at}.request`, issues);
+          if (config.request.description !== undefined)
+            requireRuleValueShape(config.request.description, `${at}.request.description`, issues);
           requireRuleActorBinding(config.request.actor, `${at}.request.actor`, issues);
           if (!Array.isArray(config.request.fields))
             issue(

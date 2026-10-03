@@ -575,6 +575,9 @@ export class Kernel {
   getRuleExecutionDetails(context: ExecutionContext, id: string) {
     return this.durableRules.details(context, id);
   }
+  getRuleExecutionDetailsMany(context: ExecutionContext, ids: readonly string[]) {
+    return this.durableRules.detailsMany(context, ids);
+  }
   listRuleExecutions(context: ExecutionContext, limit?: number, offset?: number) {
     return this.durableRules.list(context, limit, offset);
   }

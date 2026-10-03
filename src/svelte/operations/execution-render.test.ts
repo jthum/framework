@@ -11,6 +11,7 @@ const untouched = async () => {
 };
 const client: RuleExecutionClient = {
   listPendingActorRequests: untouched,
+  getRuleExecutionDetailsMany: untouched,
   listRuleExecutions: untouched,
   getRuleExecutionDetails: untouched,
   startRule: untouched,

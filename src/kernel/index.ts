@@ -22,6 +22,8 @@ export type {
   ResumeRuleInput,
   RuleExecutionDetails,
   RuleExecutionSummary,
+  RuleExecutionChange,
+  RuleExecutionObserver,
 } from "./durable-rules.ts";
 export * from "./sources.ts";
 export * from "./views.ts";

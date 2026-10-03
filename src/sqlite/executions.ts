@@ -74,6 +74,15 @@ export class SqliteExecutionStore implements ExecutionStore {
     );
     return row ? (JSON.parse(row.execution_json) as RuleExecution) : null;
   }
+  async getMany(workspaceId: string, ids: readonly string[]): Promise<readonly RuleExecution[]> {
+    if (!ids.length) return [];
+    const unique = [...new Set(ids)];
+    const rows = await this.database.all<{ execution_json: string }>(
+      `SELECT execution_json FROM rule_executions WHERE workspace_id = ? AND id IN (${unique.map(() => "?").join(",")})`,
+      [workspaceId, ...unique],
+    );
+    return rows.map((row) => JSON.parse(row.execution_json) as RuleExecution);
+  }
 
   async list(
     workspaceId: string,

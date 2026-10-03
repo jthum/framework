@@ -39,6 +39,11 @@ guides explain semantics and ownership.
 The root aggregate deliberately excludes Svelte. Prefer subpath imports in library and host code so
 dependency direction remains visible.
 
+Durable host projection hooks are `RuleExecutionObserver` and `RuleExecutionChange` from the Kernel
+subpath, configured through `KernelOptions.ruleExecution`. The context-bound execution client also
+provides `getRuleExecutionDetailsMany`; see [execution projections](rules.md#host-execution-projections)
+for ordering, authorization, failure isolation and delivery limits.
+
 ## Canonical symbols
 
 | Concern                          | Read these symbols                                                                                                                                                                            | Source                                                                                                 |

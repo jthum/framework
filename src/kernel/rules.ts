@@ -83,6 +83,7 @@ export type ActorBindingResolver = (request: ActorBindingRequest) => Promise<str
 export interface RuleServiceOptions {
   readonly maxSteps?: number;
   readonly maxDepth?: number;
+  readonly executionObserver?: import("./durable-rules.ts").RuleExecutionObserver;
 }
 
 interface RuleScope {
@@ -184,7 +185,7 @@ export class RuleService {
       value: JsonValue,
     ) => Promise<JsonValue>,
     private readonly resolveActor: ActorBindingResolver,
-    options: RuleServiceOptions = {},
+    private readonly options: RuleServiceOptions = {},
   ) {
     this.maxSteps = options.maxSteps ?? 1_000;
     this.maxDepth = options.maxDepth ?? 12;
@@ -247,6 +248,7 @@ export class RuleService {
       },
       this.assertContext,
       this.authorize,
+      this.options.executionObserver,
     );
     this.durable = runner;
     this.durableSubscriptions = eventSubscriptions;

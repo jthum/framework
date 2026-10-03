@@ -300,6 +300,7 @@ describe("Rule authoring adapter", () => {
             request: {
               actor: "reviewer",
               label: "Approve",
+              description: { $ref: "vars.research" },
               fields: [
                 {
                   id: "approved",

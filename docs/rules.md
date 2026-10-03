@@ -14,6 +14,25 @@ its adapter never persists those terms as a second Spec format.
 - Compatibility planning: [`src/kernel/rule-compatibility.ts`](../src/kernel/rule-compatibility.ts)
 - Behavioral tests: [`src/kernel/rules.spec.ts`](../src/kernel/rules.spec.ts), [`src/kernel/durable-rules.spec.ts`](../src/kernel/durable-rules.spec.ts), and [`src/kernel/delegated-rules.spec.ts`](../src/kernel/delegated-rules.spec.ts)
 
+## Host execution projections
+
+`KernelOptions.ruleExecution.executionObserver` is an optional trusted host seam for associating
+durable runs with module entities. `created` is awaited after execution creation and before the
+first effect; a rejected association leaves a failed execution without starting effects. `changed`
+runs after checkpoint commits. A projection failure is passed to `failed`, never converted into
+an execution failure or an automatic replay. Change payloads contain the original context, the
+public details projection and root trigger; checkpoints remain Kernel-owned.
+
+This is not an Event outbox or guaranteed delivery across process crashes. Hosts should retain a
+durable association, write reports/receipts atomically and offer idempotent projection repair. Recheck
+the original Actor's current authority when publishing; a reviewer's response does not lend their
+authority to the execution. Do not invoke/resume the same execution recursively from an observer.
+
+`WorkspaceClient.getRuleExecutionDetailsMany` reads up to 100 IDs through the execution persistence
+port. IDs are deduplicated; missing, foreign-Workspace and inaccessible runs are omitted. Reading
+another Actor's details still requires `executions.inspect`; a host association never grants that
+permission. Providers own the physical batching implementation.
+
 ```ts
 {
   id: "…",
@@ -35,6 +54,12 @@ The primitives are gate, compute, action, nested Rule invocation, delay, wait, f
 and parallel branches. Predicates compose with `all`, `any`, and `not`. Values are JSON plus a
 `{ $ref }` binding rooted at `trigger`, `actor`, `vars`, or `meta`. A record binding may add one
 stable `fieldId`; authoring projects that to an ordinary friendly field selector.
+
+User requests may include `description`, a RuleValue resolving to text. It is evaluated once when
+the request is created and retained with the durable request, so an approver sees the actual
+review context after reload. Non-text results fail explicitly. Hosts may provide a description
+snippet to the request card/inspector for Markdown or another trusted presentation; the default
+renders escaped text. Request Fields and response validation remain unchanged.
 `{ $select: { from, where: { path?, op: "eq" | "ne", value } } }` filters a bound array without
 embedding code. `path` reads a property from each item; omitting it compares whole items. This is
 deliberately a small selection operation, not a general expression language.

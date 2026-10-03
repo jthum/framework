@@ -9,6 +9,7 @@ import { SqlitePersistenceAdapter } from "../sqlite/catalog.ts";
 import { openNodeSqlite } from "../sqlite/node.ts";
 import { LOCAL_BROWSER_ENVIRONMENT } from "./environment.ts";
 import { Kernel } from "./kernel.ts";
+import type { RuleExecutionObserver } from "./durable-rules.ts";
 
 const capture: RuleStep = { id: "capture", action: { key: "test.capture" } };
 const delay: RuleStep = { id: "delay", delay: { duration: "1s" } };
@@ -22,6 +23,7 @@ const rule = (steps: readonly RuleStep[]): RuleDefinition => ({
 async function setup(
   persistence: PersistenceAdapter = new MemoryPersistenceAdapter(),
   durableRuleExecution = true,
+  executionObserver?: RuleExecutionObserver,
 ) {
   let time = Date.parse("2026-09-17T00:00:00.000Z");
   let next = 0;
@@ -29,6 +31,7 @@ async function setup(
   const options: Parameters<typeof Kernel.open>[0] = {
     persistence,
     environment: { ...LOCAL_BROWSER_ENVIRONMENT, durableRuleExecution },
+    ...(executionObserver ? { ruleExecution: { executionObserver } } : {}),
     clock: { now: () => new Date(time).toISOString() },
     ids: { create: (kind) => `${kind}-${++next}` },
     actions: [
@@ -74,6 +77,95 @@ async function setup(
 }
 
 describe("Durable Rules", () => {
+  it("awaits host linkage before the first effect and isolates post-commit projection failures from durable progress", async () => {
+    const observations: string[] = [];
+    const errors: unknown[] = [];
+    const app = await setup(new MemoryPersistenceAdapter(), true, {
+      created: async (change) => {
+        expect(app.observed).toEqual([]);
+        expect(change.trigger).toMatchObject({ event: "host.started", payload: { source: 7 } });
+        observations.push("linked");
+      },
+      changed: async (change) => {
+        if (change.execution.status === "completed") throw new Error("Projection unavailable");
+      },
+      failed: (error) => errors.push(error),
+    });
+    try {
+      await app.install([rule([capture, delay, { ...capture, id: "after-wait" }])]);
+      const paused = await app.kernel.startRule(app.context, "test", {
+        trigger: { event: "host.started", payload: { source: 7 } },
+      });
+      expect(observations).toEqual(["linked"]);
+      app.advance();
+      await app.kernel.resumeRule(app.context, paused.id);
+      expect((await app.kernel.getRuleExecutionDetails(app.context, paused.id))?.status).toBe(
+        "completed",
+      );
+      expect(app.observed).toEqual([app.context.actorId, app.context.actorId]);
+      expect(errors).toHaveLength(1);
+      await expect(app.kernel.resumeRule(app.context, paused.id)).rejects.toThrow();
+      expect(app.observed).toHaveLength(2);
+    } finally {
+      await app.kernel.close();
+    }
+  });
+
+  it("fails a rejected creation hook without running effects, and batch details omit inaccessible and foreign runs", async () => {
+    const blocked = await setup(new MemoryPersistenceAdapter(), true, {
+      created: async () => {
+        throw new Error("Link unavailable");
+      },
+      changed: async () => {},
+      failed: () => {},
+    });
+    try {
+      await blocked.install([rule([capture])]);
+      await expect(blocked.kernel.startRule(blocked.context, "test")).rejects.toThrow(
+        "Link unavailable",
+      );
+      expect(blocked.observed).toEqual([]);
+      expect((await blocked.kernel.listRuleExecutions(blocked.context))[0]?.status).toBe("failed");
+    } finally {
+      await blocked.kernel.close();
+    }
+    const app = await setup();
+    try {
+      await app.install([rule([])]);
+      const own = await app.kernel.startRule(app.context, "test");
+      const member = await app.kernel.createMember(app.context, {
+        name: "Reader",
+        permissions: ["read"],
+      });
+      const context = { ...app.context, actorId: member.actor.id };
+      const theirs = await app.kernel.startRule(context, "test");
+      expect(
+        (
+          await app.kernel.getRuleExecutionDetailsMany(context, [
+            own.id,
+            theirs.id,
+            theirs.id,
+            "missing",
+          ])
+        ).map((run) => run.id),
+      ).toEqual([theirs.id]);
+      expect(
+        await app.kernel.getRuleExecutionDetailsMany(app.context, [own.id, theirs.id]),
+      ).toHaveLength(2);
+      const child = await app.kernel.createWorkspace(app.context, { name: "Elsewhere" });
+      expect(
+        await app.kernel.getRuleExecutionDetailsMany(
+          { ...app.context, workspaceId: child.workspace.id },
+          [own.id],
+        ),
+      ).toEqual([]);
+      await expect(
+        app.kernel.getRuleExecutionDetailsMany(app.context, Array(101).fill(own.id)),
+      ).rejects.toThrow();
+    } finally {
+      await app.kernel.close();
+    }
+  });
   it("fails a declared result mismatch after a durable wait", async () => {
     const app = await setup();
     await app.install([

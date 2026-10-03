@@ -11,7 +11,7 @@
   import FieldInputs from "../internal/field-inputs.svelte";
   import { fieldInputDefaults, parseFieldInputs, type ReferenceInput } from "../internal/field-inputs.js";
   import { untrack } from "svelte";
-  let { rule, client, onStarted, referenceInput }: { rule: RuleDefinition; client: RuleExecutionClient; onStarted: (execution: RuleExecutionDetails) => Promise<void> | void; referenceInput?: ReferenceInput } = $props();
+  let { rule, client, onStarted, referenceInput }: { rule: RuleDefinition; client: Pick<RuleExecutionClient, "startRule">; onStarted: (execution: RuleExecutionDetails) => Promise<void> | void; referenceInput?: ReferenceInput } = $props();
   const fields = $derived(Object.entries(rule.input ?? {}).map(([key, input]): FieldDefinition => {
     const hasDefault = "default" in input && input.default !== undefined;
     const common = { id: key, key, label: key.replaceAll("_", " "), required: input.required && !hasDefault,

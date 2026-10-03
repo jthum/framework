@@ -402,6 +402,8 @@ export type RuleStep =
         readonly request?: {
           readonly actor?: string | RuleBinding;
           readonly label: string;
+          /** Optional review context, resolved once and retained with the request. Must resolve to text. */
+          readonly description?: RuleValue;
           readonly fields: readonly FieldDefinition[];
         };
         readonly signal?: string;

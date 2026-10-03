@@ -29,6 +29,7 @@ export interface ExecutionStore {
   hasActiveScope(workspaceId: string, scope: ScopeHandle): Promise<boolean>;
   create(execution: RuleExecution): Promise<void>;
   get(workspaceId: string, id: string): Promise<RuleExecution | null>;
+  getMany(workspaceId: string, ids: readonly string[]): Promise<readonly RuleExecution[]>;
   list(
     workspaceId: string,
     actorId: string,
@@ -156,6 +157,15 @@ export class MemoryExecutionStore implements ExecutionStore {
       throw resourceConflict("A new execution must have revision zero.");
     if (this.executions.has(execution.id)) throw resourceConflict("RuleExecution already exists.");
     this.executions.set(execution.id, structuredClone(execution));
+  }
+
+  async getMany(workspaceId: string, ids: readonly string[]): Promise<readonly RuleExecution[]> {
+    return structuredClone(
+      [...new Set(ids)].flatMap((id) => {
+        const execution = this.executions.get(id);
+        return execution?.context.workspaceId === workspaceId ? [execution] : [];
+      }),
+    );
   }
 
   async get(workspaceId: string, id: string): Promise<RuleExecution | null> {

@@ -493,20 +493,23 @@
 		if (!("effect" in step) || step.effect.key !== "inference.run") return "";
 		const messages = step.effect.params?.messages;
 		if (!Array.isArray(messages)) return "";
-		const first = messages[0];
-		if (!first || typeof first !== "object" || Array.isArray(first) || !("content" in first)) return "";
-		return first.content as AutomationValue;
+		const prompt = messages.findLast(message => isObject(message) && message.role === "user" && "content" in message);
+		return isObject(prompt) ? prompt.content ?? "" : "";
 	}
 
 	function setInferencePrompt(step: RuleStep, content: AutomationValue): RuleStep {
 		if (!("effect" in step)) return step;
+    const messages = Array.isArray(step.effect.params?.messages) ? [...step.effect.params.messages] : [];
+    const index = messages.findLastIndex(message => isObject(message) && message.role === "user");
+    if (index < 0) messages.push({ role: "user", content });
+    else messages[index] = { ...messages[index] as Record<string, AutomationValue>, content };
 		return {
 			...step,
 			effect: {
 				...step.effect,
 				params: {
 					...step.effect.params,
-					messages: [{ role: "user", content }],
+					messages,
 				},
 			},
 		};
@@ -847,6 +850,7 @@
 						{@const request = step.wait.request}
 						<Field.Group>
 							<Field.Field><Field.Label>Request title</Field.Label><Input value={request.label} oninput={(event) => replace(index, { ...step, wait: { ...step.wait, request: { ...request, label: event.currentTarget.value } } })} /></Field.Field>
+              <details class="text-sm" open={request.description !== undefined}><summary class="w-fit cursor-pointer text-muted-foreground hover:text-foreground">Review context</summary><Field.Field class="mt-3"><Field.Label>What should the reviewer see?</Field.Label><AutomationValueInput value={request.description ?? ""} onValueChange={description => replace(index, { ...step, wait: { ...step.wait, request: { ...request, description: description === "" ? undefined : description } } })} references={referencesBefore(index)} placeholder="Optional text or a result from an earlier step" /><Field.Description>Saved with the request so the reviewer can decide without hunting for context.</Field.Description></Field.Field></details>
 							<Field.Field><Field.Label>Assign to</Field.Label><AutomationValueInput value={request.actor ?? ""} onValueChange={(actor) => replace(index, { ...step, wait: { ...step.wait, request: { ...request, actor: isBinding(actor) ? actor : String(actor).trim() || undefined } } })} references={referencesBefore(index)} placeholder="Person who started this Workflow" /><Field.Description>Leave blank to ask the person who started this Workflow.</Field.Description></Field.Field>
 						</Field.Group>
 						<RequestFields fields={request.fields} {types} onChange={(fields) => replace(index, { ...step, wait: { ...step.wait, request: { ...request, fields } } })} />
