@@ -325,8 +325,8 @@
 				<Collapsible.Trigger class="flex w-full items-center justify-between text-sm font-medium text-muted-foreground hover:text-foreground">
 					Advanced <ChevronDownIcon class="transition-transform {advanced ? 'rotate-180' : ''}" />
 				</Collapsible.Trigger>
-				<Collapsible.Content class="pt-4">
-					<Field.Group>
+				<Collapsible.Content>
+					<Field.Group class="pt-4">
 						<Field.Field><Field.Label>Help text</Field.Label><Input bind:value={description} /></Field.Field>
 						<Field.Field><Field.Label>Placeholder</Field.Label><Input bind:value={placeholder} /></Field.Field>
 						{#if supportsNumberRange}

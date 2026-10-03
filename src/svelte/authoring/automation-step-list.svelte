@@ -929,8 +929,8 @@
 				{/if}
 				<Collapsible.Root class="mt-3 border-t pt-2">
 					<Collapsible.Trigger class="text-xs font-medium text-muted-foreground hover:text-foreground">Reliability and output</Collapsible.Trigger>
-					<Collapsible.Content class="pt-3">
-						<Field.Group>
+					<Collapsible.Content>
+						<Field.Group class="pt-3">
 							{#if step.effect.key !== "records.query"}
 								<Field.Field>
 									<Field.Label>Output variable</Field.Label>

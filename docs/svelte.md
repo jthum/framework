@@ -34,6 +34,7 @@ Import the Framework theme after Tailwind and shadcn-Svelte, then place host ove
 
 ```css
 @import "tailwindcss";
+@import "tw-animate-css";
 @import "shadcn-svelte/tailwind.css";
 @import "@jthum/framework/svelte/theme.css";
 
@@ -45,6 +46,12 @@ Import the Framework theme after Tailwind and shadcn-Svelte, then place host ove
 
 The theme uses semantic variables. A host may override light and dark values without forking the
 components. Product-specific tokens do not belong in the Framework theme.
+
+The shared disclosure and floating-menu primitives use `tw-animate-css` utilities. Hosts supply
+that stylesheet as shown above. Disclosures animate measured height over 180ms; floating menus
+use a subtle fade, scale and slide, with a quicker exit. These primitives disable animation for
+`prefers-reduced-motion`. Keep padding inside disclosure content so its animated outer box can
+collapse completely; Bits UI continues to own presence, keyboard interaction and focus.
 
 ## Customization levels
 

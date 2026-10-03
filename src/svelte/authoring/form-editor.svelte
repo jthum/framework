@@ -404,7 +404,8 @@
 				<ChevronDownIcon class="size-4 transition-transform {advancedOpen ? 'rotate-180' : ''}" />
 			</span>
 		</Collapsible.Trigger>
-		<Collapsible.Content class="pt-3">
+		<Collapsible.Content>
+			<div class="pt-3">
 			<Card.Root class="h-auto">
 				<Card.Header class="gap-0">
 					<Card.Title>After submission</Card.Title>
@@ -454,6 +455,7 @@
 					</Field.Group>
 				</Card.Content>
 			</Card.Root>
+			</div>
 		</Collapsible.Content>
 	</Collapsible.Root>
 

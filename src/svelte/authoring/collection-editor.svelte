@@ -692,7 +692,8 @@
 				<ChevronDownIcon class="size-4 transition-transform {schemaAdvanced ? 'rotate-180' : ''}" />
 			</span>
 		</Collapsible.Trigger>
-		<Collapsible.Content class="flex flex-col gap-3 pt-3">
+		<Collapsible.Content>
+			<div class="flex flex-col gap-3 pt-3">
 			<Card.Root class="h-auto">
 				<Card.Header class="gap-0">
 					<Card.Title>Technical key</Card.Title>
@@ -720,6 +721,7 @@
 				</Card.Footer>
 			</Card.Root>
 			<LifecycleEditor {type} onSave={actions.save} />
+			</div>
 		</Collapsible.Content>
 	</Collapsible.Root>
 </div>
@@ -877,8 +879,8 @@
 					Advanced
 					<ChevronDownIcon class="size-4 transition-transform {advanced ? 'rotate-180' : ''}" />
 				</Collapsible.Trigger>
-				<Collapsible.Content class="pt-4">
-					<Field.Group>
+				<Collapsible.Content>
+					<Field.Group class="pt-4">
 						<div class="grid gap-3 sm:grid-cols-2">
 							<Field.Field>
 								<Field.Label>Help text</Field.Label>
