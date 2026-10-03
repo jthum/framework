@@ -90,11 +90,16 @@ async function aggregate(
 ): Promise<RecordQueryResult> {
   const definition = query.aggregate!;
   const groupField = field(collection, definition.group.path);
-  const identity = valueExpression(groupField);
+  const identity = isStructuredField(groupField)
+    ? `json_quote(${valueExpression(groupField)})`
+    : valueExpression(groupField);
   const groupKey = quote(fieldColumn(groupField));
-  const label = definition.group.labelPath
-    ? valueExpression(field(collection, definition.group.labelPath))
-    : identity;
+  const labelField = definition.group.labelPath
+    ? field(collection, definition.group.labelPath)
+    : groupField;
+  const label = isStructuredField(labelField)
+    ? `json_quote(${valueExpression(labelField)})`
+    : valueExpression(labelField);
   const syntheticNull = nullColumns?.[groupField.id];
   if (!syntheticNull) parameters.push(groupField.id);
   const nullGroup = syntheticNull
@@ -130,11 +135,11 @@ async function aggregate(
   return {
     total: count?.total ?? 0,
     rows: rows.map((row) => {
-      const identityValue = row._identity;
+      const identityValue = decodeField(groupField, row._identity, true);
       const identityId =
         typeof identityValue === "string" ? identityValue : JSON.stringify(identityValue ?? null);
       const values: Record<string, JsonValue> = {
-        [definition.group.as]: (row._label ?? null) as JsonValue,
+        [definition.group.as]: decodeField(labelField, row._label, true) ?? null,
       };
       for (const [index, measure] of definition.measures.entries())
         values[measure.as] = (row[`_measure_${index}`] ?? null) as JsonValue;
@@ -278,9 +283,7 @@ export function compileFilter(
     typeof value === "boolean"
       ? Number(value)
       : typeof value === "number" || typeof value === "string"
-        ? definition.type === "datetime" && typeof value === "string"
-          ? new Date(value).toISOString()
-          : value
+        ? value
         : "",
   );
   return `${actual} ${comparator} ?`;
@@ -354,9 +357,19 @@ function sortExpression(definition: FieldDefinition): string {
 function numericExpression(definition: FieldDefinition): string {
   if (definition.type === "number") return quote(fieldColumn(definition));
   const column = quote(fieldColumn(definition));
+  const expression = isStructuredField(definition) ? `json_extract(${column}, '$')` : column;
+  if (
+    !isStructuredField(definition) &&
+    definition.type !== "text" &&
+    definition.type !== "choice" &&
+    definition.type !== "reference"
+  )
+    return "NULL";
+  const trimmed = `TRIM(${expression}, char(9) || char(10) || char(13) || ' ')`;
+  const numeric = `CASE WHEN json_valid(${trimmed}) THEN CASE WHEN json_type(${trimmed}) IN ('integer', 'real') AND ABS(CAST(${trimmed} AS REAL)) <= 1.7976931348623157e308 THEN CAST(${trimmed} AS REAL) ELSE NULL END ELSE NULL END`;
   return isStructuredField(definition)
-    ? `CASE WHEN json_type(${column}) IN ('integer', 'real') THEN json_extract(${column}, '$') ELSE NULL END`
-    : "NULL";
+    ? `CASE WHEN json_type(${column}) IN ('integer', 'real', 'text') THEN ${numeric} ELSE NULL END`
+    : numeric;
 }
 
 function readField(

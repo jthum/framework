@@ -202,10 +202,15 @@ export class SqliteRecordStore implements RecordStore {
     });
   }
 
-  async list(workspaceId: string, collection: CollectionDefinition): Promise<CollectionRecord[]> {
+  async list(
+    workspaceId: string,
+    collection: CollectionDefinition,
+    page?: import("../persistence/records.ts").RecordListPage,
+  ): Promise<CollectionRecord[]> {
     const table = await this.requireTable(workspaceId, collection.id);
     const rows = await this.database.all<DataRow>(
-      `SELECT * FROM ${quoteIdentifier(table)} ORDER BY ${quoteIdentifier("_created_at")}, ${quoteIdentifier("_id")}`,
+      `SELECT * FROM ${quoteIdentifier(table)} ORDER BY ${quoteIdentifier("_created_at")}, ${quoteIdentifier("_id")}${page ? " LIMIT ? OFFSET ?" : ""}`,
+      page ? [page.limit, page.offset ?? 0] : [],
     );
     return rows.map((row) => decodeRecord(row, collection));
   }
@@ -280,13 +285,14 @@ export class SqliteRecordStore implements RecordStore {
     workspaceId: string,
     collection: CollectionDefinition,
     filter: SourceFilter,
+    page?: import("../persistence/records.ts").RecordListPage,
   ): Promise<CollectionRecord[]> {
     const table = await this.requireTable(workspaceId, collection.id);
     const parameters: Array<null | number | string | Uint8Array> = [];
     const where = compileFilter(filter, collection, parameters);
     const rows = await this.database.all<DataRow>(
-      `SELECT * FROM ${quoteIdentifier(table)} WHERE ${where} ORDER BY ${quoteIdentifier("_created_at")}, ${quoteIdentifier("_id")}`,
-      parameters,
+      `SELECT * FROM ${quoteIdentifier(table)} WHERE ${where} ORDER BY ${quoteIdentifier("_created_at")}, ${quoteIdentifier("_id")}${page ? " LIMIT ? OFFSET ?" : ""}`,
+      page ? [...parameters, page.limit, page.offset ?? 0] : parameters,
     );
     return rows.map((row) => decodeRecord(row, collection));
   }
@@ -296,9 +302,6 @@ export class SqliteRecordStore implements RecordStore {
     collection: CollectionDefinition,
     record: CollectionRecord,
   ): Promise<void> {
-    if (!(await this.get(workspaceId, collection, record.id))) {
-      throw resourceNotFound("Record", record.id);
-    }
     const table = await this.requireTable(workspaceId, collection.id);
     const values: Array<readonly [string, null | number | string | Uint8Array]> = [
       ["_updated_at", record.updatedAt],
@@ -308,10 +311,14 @@ export class SqliteRecordStore implements RecordStore {
         (field) => [fieldColumn(field), encodeField(field, record.values[field.key])] as const,
       ),
     ];
-    await this.database.run(
-      `UPDATE ${quoteIdentifier(table)} SET ${values.map(([column]) => `${quoteIdentifier(column)} = ?`).join(", ")} WHERE ${quoteIdentifier("_id")} = ?`,
-      [...values.map(([, value]) => value), record.id],
-    );
+    await this.database.transaction(async (connection) => {
+      await connection.run(
+        `UPDATE ${quoteIdentifier(table)} SET ${values.map(([column]) => `${quoteIdentifier(column)} = ?`).join(", ")} WHERE ${quoteIdentifier("_id")} = ?`,
+        [...values.map(([, value]) => value), record.id],
+      );
+      const changed = await connection.get<{ count: number }>("SELECT changes() AS count");
+      if (changed?.count !== 1) throw resourceNotFound("Record", record.id);
+    });
   }
 
   async delete(
@@ -319,14 +326,15 @@ export class SqliteRecordStore implements RecordStore {
     collection: CollectionDefinition,
     recordId: string,
   ): Promise<void> {
-    if (!(await this.get(workspaceId, collection, recordId))) {
-      throw resourceNotFound("Record", recordId);
-    }
     const table = await this.requireTable(workspaceId, collection.id);
-    await this.database.run(
-      `DELETE FROM ${quoteIdentifier(table)} WHERE ${quoteIdentifier("_id")} = ?`,
-      [recordId],
-    );
+    await this.database.transaction(async (connection) => {
+      await connection.run(
+        `DELETE FROM ${quoteIdentifier(table)} WHERE ${quoteIdentifier("_id")} = ?`,
+        [recordId],
+      );
+      const changed = await connection.get<{ count: number }>("SELECT changes() AS count");
+      if (changed?.count !== 1) throw resourceNotFound("Record", recordId);
+    });
   }
 
   private async requireTable(workspaceId: string, collectionId: string): Promise<string> {

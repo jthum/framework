@@ -1,4 +1,7 @@
 import { ERROR_CODES, FrameworkError, type ValidationIssue } from "../errors/error.ts";
+import { semanticKeyPattern } from "./identity.ts";
+import { durationMilliseconds } from "./duration.ts";
+import { isPlainObject, isJsonValue } from "./json.ts";
 import {
   SPEC_VERSION,
   type ChoiceFieldDefinition,
@@ -17,10 +20,12 @@ import {
   type ViewDefinition,
 } from "./model.ts";
 
-const semanticKeyPattern = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/;
-
 export function validateSpec(input: unknown): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
+  if (!isJsonValue(input, true)) {
+    issue(issues, "", "SPEC.TYPE_INVALID", "Spec must contain bounded, plain JSON data.");
+    return issues;
+  }
   if (!hasSpecStructure(input, issues)) return issues;
   const spec = input;
   if (spec.version !== SPEC_VERSION) {
@@ -54,7 +59,9 @@ export function assertValidSpec(input: unknown): asserts input is Spec {
   const issues = validateSpec(input);
   if (issues.length === 0) return;
   throw new FrameworkError({
-    code: ERROR_CODES.specInvalid,
+    code: issues.some((item) => item.code === "SPEC.UNSUPPORTED_VERSION")
+      ? ERROR_CODES.specUnsupportedVersion
+      : ERROR_CODES.specInvalid,
     message: "The Spec is invalid.",
     issues,
   });
@@ -63,7 +70,9 @@ export function assertValidSpec(input: unknown): asserts input is Spec {
 /** Validate an instance Action's optional result assertion using the portable contract shape. */
 export function assertValidRuleOutputContract(input: unknown): void {
   const issues: ValidationIssue[] = [];
-  requireRuleOutputShape(input, "output", issues);
+  if (!isJsonValue(input, true))
+    issue(issues, "output", "SPEC.TYPE_INVALID", "Output must contain bounded, plain JSON data.");
+  else requireRuleOutputShape(input, "output", issues);
   if (issues.length)
     throw new FrameworkError({
       code: ERROR_CODES.validationInvalidInput,
@@ -77,7 +86,9 @@ export function assertValidFieldCondition(
   collection: CollectionDefinition,
 ): asserts input is FieldCondition {
   const issues: ValidationIssue[] = [];
-  requireConditionShape(input, "filter", issues);
+  if (!isJsonValue(input, true))
+    issue(issues, "filter", "SPEC.TYPE_INVALID", "Filter must contain bounded, plain JSON data.");
+  else requireConditionShape(input, "filter", issues);
   if (issues.length === 0)
     validateCondition(
       input as FieldCondition,
@@ -101,7 +112,9 @@ export function assertValidSourceQuery(
   boundSourceIds: ReadonlySet<string> = new Set(),
 ): asserts input is SourceQueryDefinition {
   const issues: ValidationIssue[] = [];
-  requireSourceQueryShape(input, "query", issues);
+  if (!isJsonValue(input, true))
+    issue(issues, "query", "SPEC.TYPE_INVALID", "Query must contain bounded, plain JSON data.");
+  else requireSourceQueryShape(input, "query", issues);
   if (issues.length === 0) {
     const query = input as SourceQueryDefinition;
     const aliases = new Set<string>();
@@ -159,6 +172,38 @@ export function assertValidSourceQuery(
       });
     }
     const byId = new Map(collections.map((collection) => [collection.id, collection]));
+    const checkDatetime = (filter: SourceFilter | undefined): void => {
+      if (!filter) return;
+      if ("all" in filter) return filter.all.forEach(checkDatetime);
+      if ("any" in filter) return filter.any.forEach(checkDatetime);
+      if ("not" in filter) return checkDatetime(filter.not);
+      let collection: CollectionDefinition | undefined = root;
+      let field: FieldDefinition | undefined;
+      for (const id of filter.path) {
+        field = collection?.fields.find((item) => item.id === id);
+        collection = field?.type === "reference" ? byId.get(field.sourceId) : undefined;
+      }
+      if (
+        field?.type === "datetime" &&
+        filter.value !== undefined &&
+        filter.value !== null &&
+        filter.operator !== "contains"
+      ) {
+        const value = filter.value;
+        if (
+          typeof value !== "string" ||
+          !Number.isFinite(Date.parse(value)) ||
+          new Date(value).toISOString() !== value
+        )
+          issue(
+            issues,
+            "query.filter.value",
+            "SPEC.VALUE_INVALID",
+            "Datetime comparisons require canonical UTC ISO-8601 values, e.g. 2026-01-01T00:00:00.000Z.",
+          );
+      }
+    };
+    checkDatetime(query.filter);
     for (const [fieldPath, fieldPathLabel] of queryPaths(query)) {
       validateSourcePath(root, fieldPath, byId, boundSourceIds, fieldPathLabel, issues);
     }
@@ -690,19 +735,27 @@ function requireLoopShape(
   issues: ValidationIssue[],
 ): void {
   optionalString(input, "as", path, issues);
-  if (input.max !== undefined && (!Number.isInteger(input.max) || Number(input.max) < 1))
-    issue(issues, `${path}.max`, "SPEC.TYPE_INVALID", "Loop max must be a positive integer.");
+  if (
+    input.max !== undefined &&
+    (!Number.isInteger(input.max) || Number(input.max) < 1 || Number(input.max) > 1000)
+  )
+    issue(
+      issues,
+      `${path}.max`,
+      "SPEC.TYPE_INVALID",
+      "Loop max must be an integer between 1 and 1000.",
+    );
   optionalEnum(input, "onItemFailure", ["stop", "continue"], path, issues);
 }
 
 function requireDurationShape(input: unknown, path: string, issues: ValidationIssue[]): void {
-  if (
-    !(
-      (typeof input === "number" && Number.isFinite(input) && input >= 0) ||
-      (typeof input === "string" && input.trim().length > 0)
-    )
-  )
-    issue(issues, path, "SPEC.TYPE_INVALID", "Duration must be a non-negative number or string.");
+  if (durationMilliseconds(input) === undefined)
+    issue(
+      issues,
+      path,
+      "SPEC.TYPE_INVALID",
+      "Duration must be non-negative seconds or a value with ms, s, m, h, or d units.",
+    );
 }
 
 function requireFormShape(
@@ -1464,14 +1517,7 @@ function propertyPath(path: string, property: string): string {
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isJsonValue(value: unknown): value is JsonValue {
-  if (value === null || typeof value === "boolean" || typeof value === "string") return true;
-  if (typeof value === "number") return Number.isFinite(value);
-  if (Array.isArray(value)) return value.every(isJsonValue);
-  return isRecord(value) && Object.values(value).every(isJsonValue);
+  return isPlainObject(value);
 }
 
 function isStringArrayUnknown(value: unknown): value is string[] {

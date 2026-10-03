@@ -1,4 +1,5 @@
 import { ERROR_CODES, FrameworkError, resourceNotFound } from "../errors/error.ts";
+import { setOwnValue } from "../spec/json.ts";
 import type { CatalogRepository } from "../persistence/catalog.ts";
 import type {
   JsonValue,
@@ -83,6 +84,8 @@ export type ActorBindingResolver = (request: ActorBindingRequest) => Promise<str
 export interface RuleServiceOptions {
   readonly maxSteps?: number;
   readonly maxDepth?: number;
+  /** Maximum serialized UTF-8 checkpoint size; defaults to 8 MiB. */
+  readonly maxCheckpointBytes?: number;
   readonly executionObserver?: import("./durable-rules.ts").RuleExecutionObserver;
 }
 
@@ -189,6 +192,16 @@ export class RuleService {
   ) {
     this.maxSteps = options.maxSteps ?? 1_000;
     this.maxDepth = options.maxDepth ?? 12;
+    if (
+      !Number.isSafeInteger(this.maxSteps) ||
+      this.maxSteps < 1 ||
+      !Number.isSafeInteger(this.maxDepth) ||
+      this.maxDepth < 1
+    )
+      throw new FrameworkError({
+        code: ERROR_CODES.validationInvalidInput,
+        message: "Rule step and depth budgets must be positive safe integers.",
+      });
   }
 
   actionKeys(): ReadonlySet<string> {
@@ -249,6 +262,7 @@ export class RuleService {
       this.assertContext,
       this.authorize,
       this.options.executionObserver,
+      this.options.maxCheckpointBytes,
     );
     this.durable = runner;
     this.durableSubscriptions = eventSubscriptions;
@@ -314,6 +328,16 @@ export class RuleService {
     });
     const workspace = await this.resolveWorkspace(context);
     return this.dispatchWithState(context, event, this.createState(), workspace);
+  }
+
+  async list(context: ExecutionContext): Promise<readonly RuleDefinition[]> {
+    await this.assertContext(context);
+    await this.authorize({
+      context,
+      operation: "rules.list",
+      resource: { kind: "workspace", id: context.workspaceId, workspaceId: context.workspaceId },
+    });
+    return structuredClone((await this.resolveWorkspace(context)).spec.rules);
   }
 
   private async dispatchWithState(
@@ -443,7 +467,7 @@ export class RuleService {
         );
       } else if ("compute" in step) {
         for (const [key, value] of Object.entries(step.compute.assign))
-          scope.vars[key] = resolveValue(value, scope);
+          setOwnValue(scope.vars, key, resolveValue(value, scope));
         state.trace.push({ stepId: step.id, kind, status: "completed" });
       } else if ("action" in step) {
         const resolved = resolveObject(step.action.input ?? {}, scope);
@@ -462,7 +486,7 @@ export class RuleService {
           step.id,
           state,
         );
-        if (step.action.as) scope.vars[step.action.as] = output;
+        if (step.action.as) setOwnValue(scope.vars, step.action.as, output);
         if (step.action.compensate)
           state.compensations.push({
             action: step.action.compensate,
@@ -497,8 +521,11 @@ export class RuleService {
           state,
         );
         if (step.invoke.as)
-          scope.vars[step.invoke.as] =
-            result.result === undefined ? { ...result.vars } : structuredClone(result.result);
+          setOwnValue(
+            scope.vars,
+            step.invoke.as,
+            result.result === undefined ? { ...result.vars } : structuredClone(result.result),
+          );
         state.trace.push({ stepId: step.id, kind, status: "completed" });
       } else if ("foreach" in step) {
         const items = resolveReference(step.foreach.source.$ref, scope);
@@ -512,7 +539,7 @@ export class RuleService {
         const runItem = async (item: JsonValue, index: number): Promise<void> => {
           const itemScope = structuredClone(scope);
           const itemState = itemStates[index]!;
-          itemScope.vars[name] = item;
+          setOwnValue(itemScope.vars, name, item);
           try {
             await this.runSteps(context, rule, step.foreach.steps, itemScope, itemState);
             if (step.foreach.collect)
@@ -544,7 +571,7 @@ export class RuleService {
           for (const itemState of itemStates) mergeState(state, itemState);
           closeForks(state);
         }
-        if (step.foreach.collect) scope.vars[step.foreach.collect.as] = values;
+        if (step.foreach.collect) setOwnValue(scope.vars, step.foreach.collect.as, values);
         state.trace.push({ stepId: step.id, kind, status: "completed" });
       } else if ("repeat" in step) {
         const resolved =
@@ -559,7 +586,8 @@ export class RuleService {
         if (resolved > maximum) throw executionLimit("repeat iterations", maximum);
         const name = step.repeat.as ?? "index";
         for (let index = 0; index < resolved; index += 1) {
-          scope.vars[name] = index;
+          spend(state, this.maxSteps);
+          setOwnValue(scope.vars, name, index);
           const compensationStart = state.compensations.length;
           try {
             await this.runSteps(context, rule, step.repeat.steps, scope, state);
@@ -613,7 +641,7 @@ export class RuleService {
     settled.forEach((result, index) => {
       if (result.status === "fulfilled") {
         const branch = step.parallel.branches[index]!;
-        scope.vars[branch.key ?? branch.id] = result.value;
+        setOwnValue(scope.vars, branch.key ?? branch.id, result.value);
       }
     });
   }
@@ -707,7 +735,7 @@ export class RuleService {
   ): Promise<Record<string, JsonValue>> {
     const values: Record<string, JsonValue> = {};
     for (const [name, definition] of Object.entries(rule.input ?? {})) {
-      let value = supplied[name];
+      let value = Object.hasOwn(supplied, name) ? supplied[name] : undefined;
       if (value === undefined && "default" in definition && definition.default !== undefined)
         value = resolveValue(definition.default, emptyScope(context, rule, this.clock.now()));
       if (value === undefined) {
@@ -715,12 +743,15 @@ export class RuleService {
           throw invalidExecution(`Rule input ${name} is required.`, { input: name });
         continue;
       }
-      values[name] =
+      setOwnValue(
+        values,
+        name,
         "sourceId" in definition
           ? await this.resolveSourceInput(context, definition.sourceId, value)
-          : assertInputKind(name, definition.value, value);
+          : assertInputKind(name, definition.value, value),
+      );
     }
-    const unknown = Object.keys(supplied).find((name) => !(name in (rule.input ?? {})));
+    const unknown = Object.keys(supplied).find((name) => !Object.hasOwn(rule.input ?? {}, name));
     if (unknown)
       throw invalidExecution(`Rule input ${unknown} is not declared.`, { input: unknown });
     return values;
@@ -851,7 +882,12 @@ export class RuleService {
       const action = (await this.workspaceConfigs.get(context.workspaceId)).actions.find(
         (item) => item.key === key,
       );
-      if (!action) throw resourceNotFound("Action", key);
+      if (!action)
+        throw new FrameworkError({
+          code: ERROR_CODES.actionUnknown,
+          message: "The requested Action is not installed.",
+          details: { action: key },
+        });
       const executor = this.actionExecutors.get(action.implementation.kind);
       if (!executor)
         throw new FrameworkError({
@@ -928,7 +964,10 @@ function resolveValue(value: RuleValue, scope: RuleScope): JsonValue {
               .split(".")
               .reduce<JsonValue | undefined>(
                 (current, part) =>
-                  current && typeof current === "object" && !Array.isArray(current)
+                  current &&
+                  typeof current === "object" &&
+                  !Array.isArray(current) &&
+                  Object.hasOwn(current, part)
                     ? current[part]
                     : undefined,
                 item,
@@ -946,7 +985,7 @@ function resolveValue(value: RuleValue, scope: RuleScope): JsonValue {
         });
       if ("fieldId" in value && typeof value.fieldId === "string") {
         const fields = recordFields(resolved);
-        if (!fields || !(value.fieldId in fields))
+        if (!fields || !Object.hasOwn(fields, value.fieldId))
           throw invalidExecution(`Rule binding ${value.$ref} has no Field ${value.fieldId}.`, {
             binding: value.$ref,
             fieldId: value.fieldId,
@@ -974,7 +1013,8 @@ function resolveReference(path: string, scope: RuleScope): JsonValue | undefined
   if (!root || !["trigger", "actor", "vars", "meta"].includes(root)) return undefined;
   let value: JsonValue | undefined = scope[root as keyof RuleScope];
   for (const part of parts) {
-    if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+    if (!value || typeof value !== "object" || Array.isArray(value) || !Object.hasOwn(value, part))
+      return undefined;
     value = value[part];
   }
   return value;

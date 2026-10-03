@@ -4,8 +4,11 @@ import {
   invalidInput,
   resourceConflict,
   resourceNotFound,
+  asFrameworkError,
 } from "../errors/error.ts";
 import type { ExecutionStore, RuleExecution } from "../persistence/executions.ts";
+import { setOwnValue } from "../spec/json.ts";
+import { durationMilliseconds } from "../spec/duration.ts";
 import type {
   FieldDefinition,
   JsonValue,
@@ -241,7 +244,11 @@ export class DurableRuleService {
       request: import("./authorization.ts").AuthorizationRequest,
     ) => Promise<void>,
     private readonly observer?: RuleExecutionObserver,
-  ) {}
+    private readonly maxCheckpointBytes = 8 * 1024 * 1024,
+  ) {
+    if (!Number.isSafeInteger(maxCheckpointBytes) || maxCheckpointBytes < 1)
+      throw invalidInput("Checkpoint byte budget must be a positive safe integer.");
+  }
 
   profile(enabled = true): RuleRuntimeProfile {
     const base = this.hooks.profile();
@@ -300,7 +307,7 @@ export class DurableRuleService {
       rule: rules[rule.id]!,
       revision: 0,
       status: "running",
-      checkpoint: encode(checkpoint),
+      checkpoint: encode(checkpoint, this.maxCheckpointBytes),
       createdAt: stamp,
       updatedAt: stamp,
     };
@@ -327,7 +334,7 @@ export class DurableRuleService {
     const byId = new Map(definitions.map((definition) => [definition.id, definition]));
     const snapshot: Record<string, RuleDefinition> = {};
     const collect = (definition: RuleDefinition): void => {
-      if (snapshot[definition.id]) return;
+      if (Object.hasOwn(snapshot, definition.id)) return;
       const compatibility = checkRuleCompatibility(definition, {
         ...profile,
         actions,
@@ -335,7 +342,7 @@ export class DurableRuleService {
       });
       if (!compatibility.compatible)
         throw unsupported("The Rule is not compatible with durable execution.");
-      snapshot[definition.id] = structuredClone(definition);
+      setOwnValue(snapshot, definition.id, structuredClone(definition));
       visitSteps(definition.steps, (step) => {
         if ("delay" in step) deadline(this.clock.now(), step.delay.duration);
         if ("wait" in step && step.wait.timeout !== undefined)
@@ -602,7 +609,7 @@ export class DurableRuleService {
     const scope = checkpoint.scopes[pending.scope]!;
     if ("wait" in pending.step) {
       const wait = pending.step.wait;
-      if (wait.as) scope.vars[wait.as] = { ...payload };
+      if (wait.as) setOwnValue(scope.vars, wait.as, { ...payload });
       const steps = timeout ? (wait.onTimeout ?? []) : (wait.onSignal ?? []);
       lane.frames.push({
         kind: "steps",
@@ -648,7 +655,8 @@ export class DurableRuleService {
       return await this.save(run.execution, checkpoint, "completed");
     } catch (error) {
       if (run.saving) throw error;
-      checkpoint.failure = error instanceof Error ? error.message : String(error);
+      const fault = asFrameworkError(error);
+      checkpoint.failure = `[${fault.code}] ${fault.message}${fault.errorId ? ` (${fault.errorId})` : ""}`;
       for (const request of checkpoint.requests)
         if (request.status === "pending") request.status = "cancelled";
       for (const fork of checkpoint.forks)
@@ -665,7 +673,8 @@ export class DurableRuleService {
       try {
         await this.hooks.compensate(checkpoint.state);
       } catch (compensationError) {
-        checkpoint.failure += `; compensation failed: ${String(compensationError)}`;
+        const compensationFault = asFrameworkError(compensationError);
+        checkpoint.failure += `; compensation failed: [${compensationFault.code}] ${compensationFault.message}`;
       }
       await this.save(run.execution, checkpoint, "failed");
       throw error;
@@ -696,8 +705,11 @@ export class DurableRuleService {
             message: `Rule ${nested.key} returned an invalid result: ${mismatch}`,
           });
         if (frame.as) {
-          scope.vars[frame.as] =
-            nestedResult === undefined ? { ...nestedScope.vars } : nestedResult;
+          setOwnValue(
+            scope.vars,
+            frame.as,
+            nestedResult === undefined ? { ...nestedScope.vars } : nestedResult,
+          );
         }
         checkpoint.state.trace.push({
           stepId: frame.stepId,
@@ -720,7 +732,7 @@ export class DurableRuleService {
         }
         if (frame.index >= frame.items.length) {
           if ("foreach" in frame.step && frame.step.foreach.collect)
-            scope.vars[frame.step.foreach.collect.as] = frame.collected ?? [];
+            setOwnValue(scope.vars, frame.step.foreach.collect.as, frame.collected ?? []);
           checkpoint.state.trace.push({
             stepId: frame.step.id,
             kind: "foreach" in frame.step ? "foreach" : "repeat",
@@ -730,8 +742,13 @@ export class DurableRuleService {
         } else {
           const config = "foreach" in frame.step ? frame.step.foreach : frame.step.repeat;
           const itemScope = "foreach" in frame.step ? structuredClone(scope) : scope;
-          itemScope.vars[config.as ?? ("foreach" in frame.step ? "item" : "index")] =
-            frame.items[frame.index++]!;
+          if (--checkpoint.state.remaining < 0)
+            throw resourceConflict("Durable Rule step budget exceeded.");
+          setOwnValue(
+            itemScope.vars,
+            config.as ?? ("foreach" in frame.step ? "item" : "index"),
+            frame.items[frame.index++]!,
+          );
           frame.itemScope =
             "foreach" in frame.step ? checkpoint.scopes.push(itemScope) - 1 : frame.scope;
           lane.frames.push({
@@ -800,7 +817,7 @@ export class DurableRuleService {
             )
               throw resourceConflict("Repeat count must be a non-negative integer.");
             const count = Array.isArray(raw) ? raw.length : typeof raw === "number" ? raw : -1;
-            if (count < 0 || count > (config.max ?? 100))
+            if (count < 0 || count > Math.min(config.max ?? 100, 1000, checkpoint.state.remaining))
               throw resourceConflict("Durable loop exceeds its bound or has an invalid source.");
             const items =
               "foreach" in step ? raw : Array.from({ length: count }, (_, index) => index);
@@ -933,7 +950,8 @@ export class DurableRuleService {
       } catch (error) {
         if (run.saving) throw error;
         branch.status = "failed";
-        branch.failure = error instanceof Error ? error.message : String(error);
+        const fault = asFrameworkError(error);
+        branch.failure = `[${fault.code}] ${fault.message}`;
         if ("foreach" in fork.step || fork.step.parallel.join !== "any") throw error;
         await this.hooks.compensateBranch(checkpoint.state, branch.laneId);
       } finally {
@@ -956,13 +974,21 @@ export class DurableRuleService {
     if ("foreach" in fork.step) {
       const collection = fork.step.foreach.collect;
       if (collection)
-        parent.vars[collection.as] = fork.branches.map((branch) =>
-          this.hooks.value(collection.value, checkpoint.scopes[branch.scope]!),
+        setOwnValue(
+          parent.vars,
+          collection.as,
+          fork.branches.map((branch) =>
+            this.hooks.value(collection.value, checkpoint.scopes[branch.scope]!),
+          ),
         );
     } else {
       for (const branch of fork.branches)
         if (branch.status === "completed")
-          parent.vars[branch.key] = structuredClone(checkpoint.scopes[branch.scope]!.vars);
+          setOwnValue(
+            parent.vars,
+            branch.key,
+            structuredClone(checkpoint.scopes[branch.scope]!.vars),
+          );
     }
     checkpoint.state.trace.push({
       stepId: fork.step.id,
@@ -983,7 +1009,11 @@ export class DurableRuleService {
     const items = "foreach" in step ? this.hooks.read(step.foreach.source.$ref, scope) : undefined;
     if ("foreach" in step && !Array.isArray(items))
       throw resourceConflict("Parallel foreach source must be an array.");
-    if ("foreach" in step && (items as JsonValue[]).length > (step.foreach.max ?? 100))
+    if (
+      "foreach" in step &&
+      (items as JsonValue[]).length >
+        Math.min(step.foreach.max ?? 100, 1000, checkpoint.state.remaining)
+    )
       throw resourceConflict("Parallel foreach exceeds its bound.");
     const branches: ForkBranch[] =
       "parallel" in step
@@ -1002,7 +1032,7 @@ export class DurableRuleService {
           })
         : (items as JsonValue[]).map((item, ordinal) => {
             const index = checkpoint.scopes.push(structuredClone(scope)) - 1;
-            checkpoint.scopes[index]!.vars[step.foreach.as ?? "item"] = item;
+            setOwnValue(checkpoint.scopes[index]!.vars, step.foreach.as ?? "item", item);
             return {
               id: `${step.id}:${ordinal}`,
               laneId: `${checkpoint.state.activeBranch ? `${checkpoint.state.activeBranch}/` : ""}${checkpoint.forks.length}:${step.id}:${ordinal}`,
@@ -1032,7 +1062,7 @@ export class DurableRuleService {
     const next: RuleExecution = {
       ...execution,
       revision: execution.revision + 1,
-      checkpoint: encode(checkpoint),
+      checkpoint: encode(checkpoint, this.maxCheckpointBytes),
       status,
       updatedAt: this.clock.now(),
     };
@@ -1075,7 +1105,13 @@ export class DurableRuleService {
   }
 }
 
-function encode(checkpoint: Checkpoint): Readonly<Record<string, JsonValue>> {
+function encode(checkpoint: Checkpoint, maxBytes: number): Readonly<Record<string, JsonValue>> {
+  if (new TextEncoder().encode(JSON.stringify(checkpoint)).byteLength > maxBytes)
+    throw new FrameworkError({
+      code: ERROR_CODES.ruleCheckpointLimit,
+      message: "The Workflow exceeded its checkpoint storage budget.",
+      details: { maxBytes },
+    });
   return structuredClone(checkpoint) as unknown as Readonly<Record<string, JsonValue>>;
 }
 function pendingLanes(checkpoint: Checkpoint): Array<{ lane: Lane; pending: Pending }> {
@@ -1165,17 +1201,7 @@ function decode(execution: RuleExecution): Checkpoint {
   return structuredClone(execution.checkpoint) as unknown as Checkpoint;
 }
 function deadline(now: string, duration: number | string): string {
-  const match =
-    typeof duration === "string" ? /^(\d+(?:\.\d+)?)\s*(ms|s|m|h|d)$/.exec(duration.trim()) : null;
-  const milliseconds =
-    typeof duration === "number"
-      ? duration * 1000
-      : match
-        ? Number(match[1]) *
-          { ms: 1, s: 1000, m: 60000, h: 3600000, d: 86400000 }[
-            match[2] as "ms" | "s" | "m" | "h" | "d"
-          ]
-        : NaN;
+  const milliseconds = durationMilliseconds(duration) ?? NaN;
   const timestamp = Date.parse(now) + milliseconds;
   if (
     !Number.isFinite(milliseconds) ||

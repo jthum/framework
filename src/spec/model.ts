@@ -243,6 +243,8 @@ export interface ViewParameterDefinition {
 
 export interface ViewQueryInput {
   readonly parameters?: Readonly<Record<string, JsonValue>>;
+  readonly limit?: number;
+  readonly offset?: number;
 }
 
 export interface ViewDefinition extends DefinitionIdentity {

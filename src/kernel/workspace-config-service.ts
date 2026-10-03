@@ -7,6 +7,7 @@ import {
 import type { WorkspaceConfigStore } from "../persistence/workspace-config.ts";
 import type { JsonValue } from "../spec/model.ts";
 import { assertValidRuleOutputContract } from "../spec/validate.ts";
+import { semanticKeyPattern } from "../spec/identity.ts";
 import type { AuthorizationRequest } from "./authorization.ts";
 import type { ActionRegistry } from "./action-registry.ts";
 import type { ExecutionContext } from "./model.ts";
@@ -224,7 +225,7 @@ function requiredKey(value: string, label: string): string {
 
 function semanticKey(value: string, label: string): string {
   const key = requiredKey(value, label);
-  if (!/^[a-z][a-z0-9_]*$/.test(key))
+  if (!semanticKeyPattern.test(key))
     throw invalid(
       `${label} must begin with a lowercase letter and use letters, numbers, or underscores.`,
     );

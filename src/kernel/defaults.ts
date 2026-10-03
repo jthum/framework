@@ -1,4 +1,5 @@
 import { nanoid } from "nanoid";
+import { keyFromLabel } from "../spec/identity.ts";
 
 export type IdKind =
   | "actor"
@@ -34,11 +35,5 @@ export class SystemClock implements Clock {
 }
 
 export function semanticKey(value: string, fallback = "workspace"): string {
-  const key = value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .replace(/_+/g, "_");
-  return key || fallback;
+  return keyFromLabel(value, fallback);
 }

@@ -1,4 +1,5 @@
 import { ERROR_CODES, FrameworkError, resourceNotFound } from "../errors/error.ts";
+import { boundedQuery } from "./query-limits.ts";
 import type {
   CollectionRecord,
   RecordQueryRelation,
@@ -142,6 +143,7 @@ export class SourceService implements SourceProvider {
     query: SourceQueryDefinition = {},
   ): Promise<SourceResult> {
     await this.assertContext(context);
+    query = boundedQuery(query);
     const workspace = await this.resolveWorkspace(context);
     const local = workspace.spec.collections.find((collection) => collection.key === key);
     if (local) {

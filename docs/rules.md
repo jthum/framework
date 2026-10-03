@@ -16,6 +16,16 @@ its adapter never persists those terms as a second Spec format.
 
 ## Host execution projections
 
+Loop `max` is bounded to 1,000 by Spec validation. Every repeat iteration spends the shared
+execution budget, including an empty body; durable loops check their count before allocating.
+Durations use non-negative numeric seconds or explicit `ms`, `s`, `m`, `h`, `d` units.
+
+`ruleExecution.maxCheckpointBytes` defaults to 8 MiB of serialized UTF-8 JSON. Oversized initial
+checkpoints are rejected before creating an execution. If a later final checkpoint exceeds its
+budget, the run is left at its last committed running checkpoint and can be explicitly failed;
+effects are never automatically replayed or compensated after an uncertain final save. Increasing
+the budget is an explicit trusted host decision, not something a Rule or model can request.
+
 `KernelOptions.ruleExecution.executionObserver` is an optional trusted host seam for associating
 durable runs with module entities. `created` is awaited after execution creation and before the
 first effect; a rejected association leaves a failed execution without starting effects. `changed`

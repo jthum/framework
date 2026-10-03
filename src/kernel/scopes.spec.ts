@@ -153,6 +153,10 @@ describe.each([
         ],
       });
       await kernel.dispatchEvent(scoped, { event: "message.posted", payload: { text: "Hello" } });
+      const client = await createWorkspaceClient(kernel, scoped);
+      expect((await client.listRules()).map((rule) => rule.key)).toEqual(["on_post"]);
+      expect(await kernel.listRules(root)).toEqual([]);
+      expect(await client.executeAction("rules.list")).toMatchObject([{ key: "on_post" }]);
       expect(seen).toEqual([scoped]);
       await kernel.dispatchEvent(root, { event: "message.posted", payload: { text: "Outside" } });
       expect(seen).toHaveLength(1);

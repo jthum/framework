@@ -114,6 +114,13 @@ Keep the base set small. Add a code only when a caller, UI, agent, test, support
 
 These codes define the initial shared meanings. Add narrower codes as implementation creates a real handling need.
 
+`asFrameworkError` preserves expected Framework failures and wraps unexpected faults with a
+friendly `INTERNAL.UNEXPECTED` envelope and an occurrence `errorId`. The original fault lives
+only in `cause` for trusted host reporting; never serialize that cause to clients. Actions and
+the secret cipher use this boundary. Durable failure summaries preserve the semantic code.
+The catalog below includes reserved meanings as well as current runtime codes; it is not a
+promise that every listed scenario is implemented by every environment.
+
 | Code                                 | Meaning                                                         |
 | ------------------------------------ | --------------------------------------------------------------- |
 | `SPEC.INVALID`                       | The portable Spec is structurally or semantically invalid       |

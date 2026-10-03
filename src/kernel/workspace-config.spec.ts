@@ -194,7 +194,7 @@ describe("Workspace settings and runtime Actions", () => {
       expect((await kernel.runRule(context, "bound_actor")).vars.actorId).toBe(created.actor.id);
       await kernel.deleteActorBinding(context, "researcher");
       await expect(kernel.runRule(context, "bound_actor")).rejects.toMatchObject({
-        code: ERROR_CODES.persistenceUnsupported,
+        code: ERROR_CODES.specBindingRequired,
       });
     } finally {
       await kernel.close();

@@ -6,6 +6,10 @@ import type {
 } from "../spec/model.ts";
 
 export type RecordValues = Readonly<Record<string, JsonValue>>;
+export interface RecordListPage {
+  readonly limit: number;
+  readonly offset?: number;
+}
 
 export interface CollectionRecord {
   readonly id: string;
@@ -50,12 +54,17 @@ export interface RecordStore {
     recordIds: readonly string[],
   ): Promise<CollectionRecord[]>;
   /** List records in stable createdAt/id order. */
-  list(workspaceId: string, collection: CollectionDefinition): Promise<CollectionRecord[]>;
+  list(
+    workspaceId: string,
+    collection: CollectionDefinition,
+    page?: RecordListPage,
+  ): Promise<CollectionRecord[]>;
   /** List visible rows with a storage-executed restriction. */
   listFiltered?(
     workspaceId: string,
     collection: CollectionDefinition,
     filter: SourceFilter,
+    page?: RecordListPage,
   ): Promise<CollectionRecord[]>;
   /** A storage-executed query. Adapters that implement this must not materialize the Collection. */
   query?(

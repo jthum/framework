@@ -326,11 +326,18 @@ export async function routeDatabases(
       schedule(async () =>
         (await store(workspaceId, collection.id)).getMany(workspaceId, collection, ids),
       ),
-    list: (workspaceId, collection) =>
-      schedule(async () => (await store(workspaceId, collection.id)).list(workspaceId, collection)),
-    listFiltered: (workspaceId, collection, filter) =>
+    list: (workspaceId, collection, page) =>
       schedule(async () =>
-        (await store(workspaceId, collection.id)).listFiltered!(workspaceId, collection, filter),
+        (await store(workspaceId, collection.id)).list(workspaceId, collection, page),
+      ),
+    listFiltered: (workspaceId, collection, filter, page) =>
+      schedule(async () =>
+        (await store(workspaceId, collection.id)).listFiltered!(
+          workspaceId,
+          collection,
+          filter,
+          page,
+        ),
       ),
     query: (workspaceId, collection, query) =>
       schedule(async () =>

@@ -1,6 +1,13 @@
 import type { JsonValue } from "../spec/model.ts";
+import { nanoid } from "nanoid";
 
 export const ERROR_CODES = {
+  actionUnknown: "ACTION.UNKNOWN",
+  specUnsupportedVersion: "SPEC.UNSUPPORTED_VERSION",
+  specBindingRequired: "SPEC.BINDING_REQUIRED",
+  permissionRunAsDenied: "PERMISSION.RUN_AS_DENIED",
+  ruleWaitUnsupported: "RULE.WAIT_UNSUPPORTED",
+  ruleCheckpointLimit: "RULE.CHECKPOINT_LIMIT",
   inferenceCancelled: "INFERENCE.CANCELLED",
   inferenceInvalidStream: "INFERENCE.INVALID_STREAM",
   inferenceProviderError: "INFERENCE.PROVIDER_ERROR",
@@ -69,6 +76,27 @@ export function resourceNotFound(kind: string, id: string | number): FrameworkEr
     message: `${kind} was not found.`,
     details: { kind, id },
   });
+}
+
+/** Expected faults retain their code; unexpected details stay in the protected cause only. */
+export function asFrameworkError(error: unknown): FrameworkError {
+  if (error instanceof FrameworkError) return error;
+  return new FrameworkError(
+    {
+      code: ERROR_CODES.internalUnexpected,
+      message: "Something went wrong. Please try again.",
+      errorId: nanoid(16),
+    },
+    { cause: error },
+  );
+}
+
+export async function protectOperation<T>(operation: () => T | Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    throw asFrameworkError(error);
+  }
 }
 
 export function resourceConflict(message: string): FrameworkError {

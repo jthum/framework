@@ -382,6 +382,7 @@ function aggregateValue(
 function finiteNumber(value: JsonValue | undefined): number | null {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   if (typeof value !== "string" || value.trim() === "") return null;
+  if (!/^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(value.trim())) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 }

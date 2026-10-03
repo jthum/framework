@@ -390,7 +390,7 @@ class LocalWorkspaceClient implements WorkspaceClient {
   }
 
   async listRules(): Promise<readonly RuleDefinition[]> {
-    return (await this.getWorkspace()).spec.rules;
+    return this.kernel.listRules(this.context);
   }
   executeAction(key: string, input?: Readonly<Record<string, JsonValue>>) {
     return this.kernel.executeAction(this.context, key, input);

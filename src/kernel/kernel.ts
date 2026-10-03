@@ -3,6 +3,7 @@ import {
   FrameworkError,
   resourceConflict,
   resourceNotFound,
+  protectOperation,
 } from "../errors/error.ts";
 import type {
   CatalogRepository,
@@ -350,24 +351,24 @@ export class Kernel {
   }
 
   createAttachment(context: ExecutionContext, input: CreateAttachmentInput) {
-    return this.attachments.create(context, input);
+    return protectOperation(() => this.attachments.create(context, input));
   }
 
   reshareAttachment(context: ExecutionContext, input: ReshareAttachmentInput) {
-    return this.attachments.reshare(context, input);
+    return protectOperation(() => this.attachments.reshare(context, input));
   }
 
   listAttachmentsTo(context: ExecutionContext) {
-    return this.attachments.listTo(context);
+    return protectOperation(() => this.attachments.listTo(context));
   }
   listAttachmentsFrom(context: ExecutionContext) {
-    return this.attachments.listFrom(context);
+    return protectOperation(() => this.attachments.listFrom(context));
   }
   revokeAttachment(context: ExecutionContext, id: string) {
-    return this.attachments.revoke(context, id);
+    return protectOperation(() => this.attachments.revoke(context, id));
   }
   listSources(context: ExecutionContext) {
-    return this.sources.list(context);
+    return protectOperation(() => this.sources.list(context));
   }
   async getScopeConfig(context: ExecutionContext): Promise<ScopeConfig> {
     await this.assertContext(context);
@@ -434,13 +435,13 @@ export class Kernel {
     );
   }
   getSource(context: ExecutionContext, key: string) {
-    return this.sources.describe(context, key);
+    return protectOperation(() => this.sources.describe(context, key));
   }
   querySource(context: ExecutionContext, key: string, query?: SourceQueryDefinition) {
-    return this.sources.query(context, key, query);
+    return protectOperation(() => this.sources.query(context, key, query));
   }
   getSourceRecord(context: ExecutionContext, key: string, id: string) {
-    return this.sources.get(context, key, id);
+    return protectOperation(() => this.sources.get(context, key, id));
   }
   async getSourceRecords(context: ExecutionContext, key: string, ids: readonly string[]) {
     if (!Array.isArray(ids) || ids.length > 500 || ids.some((id) => typeof id !== "string" || !id))
@@ -500,30 +501,30 @@ export class Kernel {
     );
   }
   listViews(context: ExecutionContext) {
-    return this.views.list(context);
+    return protectOperation(() => this.views.list(context));
   }
   getView(context: ExecutionContext, key: string) {
-    return this.views.get(context, key);
+    return protectOperation(() => this.views.get(context, key));
   }
   queryView(
     context: ExecutionContext,
     key: string,
     input?: import("../spec/model.ts").ViewQueryInput,
   ) {
-    return this.views.query(context, key, input);
+    return protectOperation(() => this.views.query(context, key, input));
   }
   previewView(
     context: ExecutionContext,
     view: import("../spec/model.ts").ViewDefinition,
     input?: import("../spec/model.ts").ViewQueryInput,
   ) {
-    return this.views.preview(context, view, input);
+    return protectOperation(() => this.views.preview(context, view, input));
   }
   listForms(context: ExecutionContext) {
-    return this.forms.list(context);
+    return protectOperation(() => this.forms.list(context));
   }
   getForm(context: ExecutionContext, key: string) {
-    return this.forms.get(context, key);
+    return protectOperation(() => this.forms.get(context, key));
   }
   async submitForm(context: ExecutionContext, key: string, input: SubmitFormInput) {
     const submission = await this.forms.submit(context, key, input);
@@ -553,42 +554,45 @@ export class Kernel {
     return submission;
   }
   listPages(context: ExecutionContext) {
-    return this.pages.list(context);
+    return protectOperation(() => this.pages.list(context));
   }
   getPage(context: ExecutionContext, key: string) {
-    return this.pages.get(context, key);
+    return protectOperation(() => this.pages.get(context, key));
   }
   runRule(context: ExecutionContext, key: string, input?: RunRuleInput) {
-    return this.rules.run(context, key, input);
+    return protectOperation(() => this.rules.run(context, key, input));
   }
   startRule(context: ExecutionContext, key: string, input?: RunRuleInput) {
     this.assertDurableExecution();
-    return this.durableRules.start(context, key, input);
+    return protectOperation(() => this.durableRules.start(context, key, input));
   }
   resumeRule(context: ExecutionContext, id: string, input?: ResumeRuleInput) {
     this.assertDurableExecution();
-    return this.durableRules.resume(context, id, input);
+    return protectOperation(() => this.durableRules.resume(context, id, input));
   }
   getRuleExecution(context: ExecutionContext, id: string) {
-    return this.durableRules.get(context, id);
+    return protectOperation(() => this.durableRules.get(context, id));
+  }
+  listRules(context: ExecutionContext) {
+    return protectOperation(() => this.rules.list(context));
   }
   getRuleExecutionDetails(context: ExecutionContext, id: string) {
-    return this.durableRules.details(context, id);
+    return protectOperation(() => this.durableRules.details(context, id));
   }
   getRuleExecutionDetailsMany(context: ExecutionContext, ids: readonly string[]) {
-    return this.durableRules.detailsMany(context, ids);
+    return protectOperation(() => this.durableRules.detailsMany(context, ids));
   }
   listRuleExecutions(context: ExecutionContext, limit?: number, offset?: number) {
-    return this.durableRules.list(context, limit, offset);
+    return protectOperation(() => this.durableRules.list(context, limit, offset));
   }
   getActorRequest(context: ExecutionContext, executionId: string, requestId: string) {
-    return this.durableRules.getRequest(context, executionId, requestId);
+    return protectOperation(() => this.durableRules.getRequest(context, executionId, requestId));
   }
   listActorRequests(context: ExecutionContext, executionId: string) {
-    return this.durableRules.listRequests(context, executionId);
+    return protectOperation(() => this.durableRules.listRequests(context, executionId));
   }
   listPendingActorRequests(context: ExecutionContext, limit?: number, offset?: number) {
-    return this.durableRules.listPendingRequests(context, limit, offset);
+    return protectOperation(() => this.durableRules.listPendingRequests(context, limit, offset));
   }
   respondToActorRequest(
     context: ExecutionContext,
@@ -597,10 +601,12 @@ export class Kernel {
     values: Readonly<Record<string, JsonValue>>,
   ) {
     this.assertDurableExecution();
-    return this.durableRules.respond(context, executionId, requestId, values);
+    return protectOperation(() =>
+      this.durableRules.respond(context, executionId, requestId, values),
+    );
   }
   failRuleExecution(context: ExecutionContext, id: string) {
-    return this.durableRules.fail(context, id);
+    return protectOperation(() => this.durableRules.fail(context, id));
   }
   getDurableRuleRuntimeProfile() {
     return this.durableRules.profile(this.environment.durableRuleExecution);
@@ -608,7 +614,7 @@ export class Kernel {
   private assertDurableExecution(): void {
     if (!this.environment.durableRuleExecution)
       throw new FrameworkError({
-        code: ERROR_CODES.persistenceUnsupported,
+        code: ERROR_CODES.ruleWaitUnsupported,
         message: "This environment does not enable durable Rule execution.",
       });
   }
@@ -617,22 +623,22 @@ export class Kernel {
     key: string,
     input?: Readonly<Record<string, JsonValue>>,
   ) {
-    return this.rules.executeAction(context, key, input);
+    return protectOperation(() => this.rules.executeAction(context, key, input));
   }
   listSettings(context: ExecutionContext) {
-    return this.workspaceConfig.listSettings(context);
+    return protectOperation(() => this.workspaceConfig.listSettings(context));
   }
   getSetting(context: ExecutionContext, key: string) {
-    return this.workspaceConfig.getSetting(context, key);
+    return protectOperation(() => this.workspaceConfig.getSetting(context, key));
   }
   putSetting(context: ExecutionContext, input: SettingInput) {
-    return this.workspaceConfig.putSetting(context, input);
+    return protectOperation(() => this.workspaceConfig.putSetting(context, input));
   }
   deleteSetting(context: ExecutionContext, key: string) {
-    return this.workspaceConfig.deleteSetting(context, key);
+    return protectOperation(() => this.workspaceConfig.deleteSetting(context, key));
   }
   listActorBindings(context: ExecutionContext) {
-    return this.workspaceConfig.listActorBindings(context);
+    return protectOperation(() => this.workspaceConfig.listActorBindings(context));
   }
   async putActorBinding(context: ExecutionContext, input: ActorBinding) {
     await this.assertContext(context);
@@ -645,25 +651,25 @@ export class Kernel {
     return this.workspaceConfig.putActorBinding(context, input);
   }
   deleteActorBinding(context: ExecutionContext, key: string) {
-    return this.workspaceConfig.deleteActorBinding(context, key);
+    return protectOperation(() => this.workspaceConfig.deleteActorBinding(context, key));
   }
   listRuntimeActions(context: ExecutionContext) {
-    return this.workspaceConfig.listRuntimeActions(context);
+    return protectOperation(() => this.workspaceConfig.listRuntimeActions(context));
   }
   putRuntimeAction(context: ExecutionContext, input: RuntimeAction) {
-    return this.workspaceConfig.putRuntimeAction(context, input);
+    return protectOperation(() => this.workspaceConfig.putRuntimeAction(context, input));
   }
   deleteRuntimeAction(context: ExecutionContext, key: string) {
-    return this.workspaceConfig.deleteRuntimeAction(context, key);
+    return protectOperation(() => this.workspaceConfig.deleteRuntimeAction(context, key));
   }
   dispatchEvent(context: ExecutionContext, event: RuleEvent) {
-    return this.rules.dispatch(context, event);
+    return protectOperation(() => this.rules.dispatch(context, event));
   }
   listActionKeys() {
-    return this.rules.actionKeys();
+    return protectOperation(() => this.rules.actionKeys());
   }
   listConditionKeys() {
-    return this.rules.conditionKeys();
+    return protectOperation(() => this.rules.conditionKeys());
   }
   getRuleRuntimeProfile(events?: ReadonlySet<string>) {
     return this.rules.profile(events);
@@ -799,6 +805,7 @@ export class Kernel {
       createdAt: stamp,
       updatedAt: stamp,
     };
+    assertValidSpec(workspace.spec);
     const user: Actor = {
       id: userId,
       originId: workspaceId,
@@ -874,6 +881,7 @@ export class Kernel {
       createdAt: stamp,
       updatedAt: stamp,
     };
+    assertValidSpec(workspace.spec);
     const ownerMembership = membership(
       this.ids,
       stamp,
@@ -969,22 +977,22 @@ export class Kernel {
   }
 
   async createAgent(context: ExecutionContext, input: CreateAgentInput): Promise<AgentBootstrap> {
-    return this.agentConfigs.create(context, input);
+    return protectOperation(() => this.agentConfigs.create(context, input));
   }
 
   async createModelConfig(
     context: ExecutionContext,
     input: CreateModelConfigInput,
   ): Promise<ModelConfig> {
-    return this.agentConfigs.createModel(context, input);
+    return protectOperation(() => this.agentConfigs.createModel(context, input));
   }
 
   async listModelConfigs(context: ExecutionContext): Promise<readonly ModelConfig[]> {
-    return this.agentConfigs.listModels(context);
+    return protectOperation(() => this.agentConfigs.listModels(context));
   }
 
   async getModelConfig(context: ExecutionContext, id: string): Promise<ModelConfig | null> {
-    return this.agentConfigs.getModel(context, id);
+    return protectOperation(() => this.agentConfigs.getModel(context, id));
   }
 
   async updateModelConfig(
@@ -992,15 +1000,15 @@ export class Kernel {
     id: string,
     input: UpdateModelConfigInput,
   ): Promise<ModelConfig> {
-    return this.agentConfigs.updateModel(context, id, input);
+    return protectOperation(() => this.agentConfigs.updateModel(context, id, input));
   }
 
   async deleteModelConfig(context: ExecutionContext, id: string): Promise<void> {
-    return this.agentConfigs.deleteModel(context, id);
+    return protectOperation(() => this.agentConfigs.deleteModel(context, id));
   }
 
   async getAgentConfig(context: ExecutionContext, actorId: string): Promise<AgentConfig | null> {
-    return this.agentConfigs.get(context, actorId);
+    return protectOperation(() => this.agentConfigs.get(context, actorId));
   }
 
   async configureAgent(
@@ -1008,7 +1016,7 @@ export class Kernel {
     actorId: string,
     input: ConfigureAgentInput,
   ): Promise<AgentConfig> {
-    return this.agentConfigs.configure(context, actorId, input);
+    return protectOperation(() => this.agentConfigs.configure(context, actorId, input));
   }
 
   async updateActor(
@@ -1296,18 +1304,29 @@ export class Kernel {
     });
     if (this.persistence.records.listFiltered) {
       const restriction = await this.recordPolicies.readFilter(collection, context);
-      return this.persistence.records.listFiltered(
+      const rows = await this.persistence.records.listFiltered(
         context.workspaceId,
         collection,
         restriction ?? { all: [] },
+        { limit: 1001 },
       );
+      if (rows.length > 1000)
+        throw actionInputError(
+          "This Collection requires pagination. Use a Source query with limit and offset.",
+        );
+      return rows;
     }
-    return this.recordPolicies.filter(
+    const rows = await this.recordPolicies.filter(
       context,
       context.workspaceId,
       collection,
       await this.persistence.records.list(context.workspaceId, collection),
     );
+    if (rows.length > 1000)
+      throw actionInputError(
+        "This Collection requires pagination. Use a Source query with limit and offset.",
+      );
+    return rows;
   }
 
   async updateRecord(
@@ -1491,8 +1510,7 @@ export class Kernel {
           availability: "discoverable",
         },
         run: async ({ context }) => {
-          const workspace = await this.getWorkspace(context);
-          return structuredClone(workspace?.spec.rules ?? []) as unknown as JsonValue;
+          return (await this.listRules(context)) as unknown as JsonValue;
         },
       },
       {
@@ -1756,7 +1774,7 @@ export class Kernel {
             throw resourceConflict(`Collection key ${key} is already in use.`);
           const parameters = optionalActionObject(input.parameters, "parameters");
           const meta = optionalActionObject(input.meta, "meta");
-          const result = await this.views.query(
+          const result = await this.views.snapshot(
             context,
             view.key,
             parameters === undefined ? {} : { parameters },
@@ -1973,8 +1991,8 @@ export class Kernel {
       if (actorId && (await this.catalog.getMembership(actorId, request.context.workspaceId)))
         return actorId;
       throw new FrameworkError({
-        code: ERROR_CODES.persistenceUnsupported,
-        message: `The ${request.binding} Actor binding is not installed in this runtime.`,
+        code: actorId ? ERROR_CODES.permissionRunAsDenied : ERROR_CODES.specBindingRequired,
+        message: `The ${request.binding} Actor binding is unavailable in this Workspace.`,
         details: { binding: request.binding },
       });
     }

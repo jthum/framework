@@ -1,4 +1,5 @@
 import { resourceNotFound } from "../errors/error.ts";
+import { MAX_QUERY_LIMIT, MAX_SNAPSHOT_ROWS } from "./query-limits.ts";
 import type {
   JsonValue,
   SourceFilter,
@@ -58,11 +59,11 @@ export class ViewService {
   ): Promise<ViewQueryResult> {
     await this.workspace(context);
     await this.authorizeRead(context, "views.preview");
-    const data = await this.sources.query(
-      context,
-      view.source,
-      parameterizedQuery(view, input.parameters ?? {}),
-    );
+    const data = await this.sources.query(context, view.source, {
+      ...parameterizedQuery(view, input.parameters ?? {}),
+      ...(input.limit === undefined ? {} : { limit: input.limit }),
+      ...(input.offset === undefined ? {} : { offset: input.offset }),
+    });
     return {
       view,
       data,
@@ -75,6 +76,47 @@ export class ViewService {
   private async workspace(context: ExecutionContext) {
     await this.assertContext(context);
     return this.resolveWorkspace(context);
+  }
+
+  /** Copy a complete View result, never the public query's default first page. */
+  async snapshot(
+    context: ExecutionContext,
+    key: string,
+    input: ViewQueryInput = {},
+  ): Promise<ViewQueryResult> {
+    const view = await this.get(context, key);
+    if (!view) throw resourceNotFound("View", key);
+    const query = parameterizedQuery(view, input.parameters ?? {});
+    const offset = query?.offset ?? 0;
+    const requested = query?.limit;
+    const first = await this.preview(context, view, {
+      ...input,
+      offset,
+      limit: Math.min(requested ?? MAX_QUERY_LIMIT, MAX_QUERY_LIMIT),
+    });
+    const count = Math.min(requested ?? Infinity, Math.max(0, first.data.total - offset));
+    if (count > MAX_SNAPSHOT_ROWS)
+      throw invalidParameters(
+        `Snapshots are limited to ${MAX_SNAPSHOT_ROWS} rows. Narrow the View first.`,
+      );
+    const rows = [...first.data.rows];
+    const ids = new Set(rows.map((row) => row.id));
+    while (rows.length < count) {
+      const page = await this.preview(context, view, {
+        ...input,
+        offset: offset + rows.length,
+        limit: Math.min(MAX_QUERY_LIMIT, count - rows.length),
+      });
+      if (
+        page.data.total !== first.data.total ||
+        !page.data.rows.length ||
+        page.data.rows.some((row) => ids.has(row.id))
+      )
+        throw invalidParameters("The View changed while taking its snapshot. Please try again.");
+      for (const row of page.data.rows) ids.add(row.id);
+      rows.push(...page.data.rows);
+    }
+    return { ...first, data: { ...first.data, rows } };
   }
 
   private async authorizeRead(
@@ -101,7 +143,7 @@ function parameterizedQuery(view: ViewDefinition, values: Readonly<Record<string
   }
   const filters: SourceFilter[] = [];
   for (const parameter of view.parameters ?? []) {
-    if (!(parameter.key in values)) {
+    if (!Object.hasOwn(values, parameter.key)) {
       if (parameter.required)
         throw invalidParameters(`View parameter "${parameter.key}" is required.`);
       continue;

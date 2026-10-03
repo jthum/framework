@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vite-plus/test";
+import { ERROR_CODES, FrameworkError } from "../errors/error.ts";
 import { MemoryPersistenceAdapter } from "../persistence/memory.ts";
 import type { PersistenceAdapter } from "../persistence/catalog.ts";
 import { createEmptySpec, type RuleDefinition, type RuleStep } from "../spec/model.ts";
@@ -50,7 +51,10 @@ async function setup(
       {
         key: "test.fail",
         run: () => {
-          throw new Error("Review failed");
+          throw new FrameworkError({
+            code: ERROR_CODES.validationInvalidInput,
+            message: "Review failed",
+          });
         },
       },
     ],
@@ -99,9 +103,10 @@ describe("Durable Rules", () => {
           { ...capture, id: "after" },
         ]),
       ]);
-      await expect(app.kernel.startRule(app.context, "test")).rejects.toThrow(
-        "wait acknowledgement lost",
-      );
+      await expect(app.kernel.startRule(app.context, "test")).rejects.toMatchObject({
+        code: ERROR_CODES.internalUnexpected,
+        cause: expect.objectContaining({ message: "wait acknowledgement lost" }),
+      });
       expect(waitingWrites).toEqual(["waiting"]);
       expect(app.observed).toEqual([app.context.actorId]);
       const [paused] = await app.kernel.listRuleExecutions(app.context);
@@ -158,9 +163,10 @@ describe("Durable Rules", () => {
     });
     try {
       await blocked.install([rule([capture])]);
-      await expect(blocked.kernel.startRule(blocked.context, "test")).rejects.toThrow(
-        "Link unavailable",
-      );
+      await expect(blocked.kernel.startRule(blocked.context, "test")).rejects.toMatchObject({
+        code: ERROR_CODES.internalUnexpected,
+        cause: expect.objectContaining({ message: "Link unavailable" }),
+      });
       expect(blocked.observed).toEqual([]);
       expect((await blocked.kernel.listRuleExecutions(blocked.context))[0]?.status).toBe("failed");
     } finally {
@@ -876,7 +882,10 @@ describe("Durable Rules", () => {
     });
     const paused = await kernel.startRule(app.context, "test");
     app.advance();
-    await expect(kernel.resumeRule(app.context, paused.id)).rejects.toThrow("storage offline");
+    await expect(kernel.resumeRule(app.context, paused.id)).rejects.toMatchObject({
+      code: ERROR_CODES.internalUnexpected,
+      cause: expect.objectContaining({ message: "storage offline" }),
+    });
     expect(app.observed).toEqual(["effect"]);
     failWrites = false;
     expect((await kernel.getRuleExecution(app.context, paused.id))?.status).toBe("running");
@@ -887,8 +896,9 @@ describe("Durable Rules", () => {
 
   it("rejects unsupported duration strings before earlier effects", async () => {
     const app = await setup();
-    await app.install([rule([capture, { id: "delay", delay: { duration: "sometime" } }])]);
-    await expect(app.kernel.startRule(app.context, "test")).rejects.toThrow("wait duration");
+    await expect(
+      app.install([rule([capture, { id: "delay", delay: { duration: "sometime" } }])]),
+    ).rejects.toMatchObject({ code: ERROR_CODES.specInvalid });
     expect(app.observed).toHaveLength(0);
   });
 });

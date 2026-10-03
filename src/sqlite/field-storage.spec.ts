@@ -135,7 +135,7 @@ describe("SQLite native record fields", () => {
     expect(
       (
         await store.query("ws", collection, {
-          filter: { path: ["instant"], operator: "gte", value: "2026-09-19T05:00:00Z" },
+          filter: { path: ["instant"], operator: "gte", value: "2026-09-19T05:00:00.000Z" },
         })
       ).total,
     ).toBe(1);

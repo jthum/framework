@@ -159,7 +159,10 @@ function validateLifecycleTransition(
 function fieldById(collection: CollectionDefinition, id: string): FieldDefinition {
   const field = collection.fields.find((candidate) => candidate.id === id);
   if (!field)
-    throw new TypeError(`Collection ${collection.key} has an unresolved Field reference.`);
+    throw new FrameworkError({
+      code: ERROR_CODES.specInvalid,
+      message: `Collection ${collection.key} has an unresolved Field reference.`,
+    });
   return field;
 }
 

@@ -17,6 +17,21 @@ Source -> View -> Block
 
 ## Sources
 
+Runtime Source queries default to 100 rows and accept at most 1,000 per page; `total` is the
+full matching count. `ViewQueryInput.limit/offset` override the stored View paging for browsing.
+The convenience `listRecords` rejects results above 1,000 rather than silently truncating them;
+use Source queries to browse larger Collections. Provider-internal scans are still permitted
+for explicitly in-memory evaluation, not as a SQLite query fallback.
+
+`views.snapshot` fetches the complete View result in bounded pages (respecting its explicit
+limit/offset), with a maximum of 10,000 rows. Exceeding that budget fails before schema/data
+writes. Changed totals or duplicate rows during paging fail the snapshot. This is not a
+cross-provider point-in-time read transaction; concurrent value-only edits can still appear.
+
+Datetime comparisons require canonical UTC ISO-8601 strings, including milliseconds; record
+inputs are normalized to that representation. Numeric aggregates accept finite numbers and
+decimal/scientific numeric text; booleans, hexadecimal text and other JSON shapes are not numbers.
+
 A Source exposes structured rows, schema, and explicit capabilities. The built-in Workspace provider resolves both local Collections and semantic Source bindings backed by live Attachments. Consumers discover capabilities instead of assuming that every Source can filter, sort, traverse relationships, aggregate, paginate, or suggest values.
 
 Local Collection Sources currently support filtering, stable sorting, pagination, aggregation, and declared relationship traversal. A reference Field identifies its target by stable `sourceId`: either a local Collection definition ID or a declared Source-binding definition ID. Attached Sources support filtering, sorting, pagination, aggregation, and batched lookup for those explicit references, but deliberately do not expose origin relationships. Neither built-in Source advertises suggestions. A Source without suggestions is still a fully usable Source.

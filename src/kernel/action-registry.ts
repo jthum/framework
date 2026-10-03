@@ -1,4 +1,9 @@
-import { ERROR_CODES, FrameworkError, resourceConflict } from "../errors/error.ts";
+import {
+  ERROR_CODES,
+  FrameworkError,
+  resourceConflict,
+  asFrameworkError,
+} from "../errors/error.ts";
 import type { CollectionRecord, RecordValues } from "../persistence/records.ts";
 import type { JsonValue, RuleOutputContract } from "../spec/model.ts";
 import { ruleOutputMismatch } from "../spec/rule-output.ts";
@@ -116,11 +121,16 @@ export class ActionRegistry {
     const definition = this.definitions.get(key);
     if (!definition)
       throw new FrameworkError({
-        code: ERROR_CODES.persistenceUnsupported,
+        code: ERROR_CODES.actionUnknown,
         message: `The ${key} Action is not installed in this runtime.`,
         details: { action: key },
       });
-    const result = (await definition.run(execution)) ?? null;
+    let result: JsonValue;
+    try {
+      result = (await definition.run(execution)) ?? null;
+    } catch (error) {
+      throw asFrameworkError(error);
+    }
     const mismatch = definition.output && ruleOutputMismatch(definition.output, result);
     if (mismatch)
       throw new FrameworkError({
