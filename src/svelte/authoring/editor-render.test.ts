@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
 import { render } from "svelte/server";
 import CollectionEditor from "./collection-editor.svelte";
-import ViewFixture from "./view-fixture.svelte";
-import FormFixture from "./form-fixture.svelte";
-import RuleFixture from "./rule-fixture.svelte";
+import ViewFixture from "../../testing/svelte/view-fixture.svelte";
+import FormFixture from "../../testing/svelte/form-fixture.svelte";
+import RuleFixture from "../../testing/svelte/rule-fixture.svelte";
 import type { CollectionActions, CollectionDraft, EditorContext } from "./authoring.js";
 const collection: CollectionDraft = {
   id: "contact",

@@ -408,8 +408,12 @@ export class AttachmentService {
       if (visited.has(currentId)) throw resourceConflict("Attachment provenance contains a cycle.");
       visited.add(currentId);
       const attachment = await this.catalog.getAttachment(currentId);
-      if (!attachment || attachment.revokedAt !== undefined)
-        throw resourceNotFound("Attachment", currentId);
+      if (!attachment) throw resourceNotFound("Attachment", currentId);
+      if (attachment.revokedAt !== undefined)
+        throw new FrameworkError({
+          code: ERROR_CODES.attachmentRevoked,
+          message: "This Attachment is no longer active.",
+        });
       currentId = attachment.parentId;
     }
   }

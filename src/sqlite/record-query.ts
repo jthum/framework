@@ -1,3 +1,4 @@
+import { fieldColumn, quoteIdentifier } from "./identifiers.ts";
 import { ERROR_CODES, FrameworkError } from "../errors/error.ts";
 import type { RecordQueryResult } from "../persistence/records.ts";
 import type {
@@ -29,7 +30,7 @@ export async function querySqliteRecords(
   const where = query.filter
     ? compileFilter(query.filter, collection, parameters, "", options.nullColumns)
     : "1 = 1";
-  const quoted = options.tableExpression ?? quote(table);
+  const quoted = options.tableExpression ?? quoteIdentifier(table);
   if (query.aggregate)
     return aggregate(database, quoted, collection, query, where, parameters, options.nullColumns);
 
@@ -93,7 +94,7 @@ async function aggregate(
   const identity = isStructuredField(groupField)
     ? `json_quote(${valueExpression(groupField)})`
     : valueExpression(groupField);
-  const groupKey = quote(fieldColumn(groupField));
+  const groupKey = quoteIdentifier(fieldColumn(groupField));
   const labelField = definition.group.labelPath
     ? field(collection, definition.group.labelPath)
     : groupField;
@@ -103,15 +104,15 @@ async function aggregate(
   const syntheticNull = nullColumns?.[groupField.id];
   if (!syntheticNull) parameters.push(groupField.id);
   const nullGroup = syntheticNull
-    ? `COALESCE(${quote(syntheticNull)}, 0)`
+    ? `COALESCE(${quoteIdentifier(syntheticNull)}, 0)`
     : `CASE WHEN ${groupKey} IS NULL THEN EXISTS (SELECT 1 FROM json_each("_null_fields") WHERE json_each.value = ?) ELSE 0 END`;
   const measures = definition.measures.map((measure, index) => {
-    if (measure.operation === "count") return `COUNT(*) AS ${quote(`_measure_${index}`)}`;
+    if (measure.operation === "count") return `COUNT(*) AS ${quoteIdentifier(`_measure_${index}`)}`;
     const expression = measure.paths?.length
       ? `(${measure.paths.map((path) => numericExpression(field(collection, path))).join(" + ")}) / ${measure.paths.length}.0`
       : numericExpression(field(collection, measure.path ?? []));
     const fn = measure.operation.toUpperCase();
-    return `${fn}(${expression}) AS ${quote(`_measure_${index}`)}`;
+    return `${fn}(${expression}) AS ${quoteIdentifier(`_measure_${index}`)}`;
   });
   const grouped = `SELECT ${identity} AS "_identity", MIN(${label}) AS "_label", ${measures.join(", ")} FROM ${table} WHERE ${where} GROUP BY ${groupKey}, ${nullGroup}`;
   const count = await database.get<{ total: number }>(
@@ -122,7 +123,7 @@ async function aggregate(
     ? definition.sort
         .map((sort) => {
           const index = definition.measures.findIndex((measure) => measure.as === sort.key);
-          const column = index < 0 ? '"_label"' : quote(`_measure_${index}`);
+          const column = index < 0 ? '"_label"' : quoteIdentifier(`_measure_${index}`);
           return `${column} ${sort.direction.toUpperCase()}`;
         })
         .join(", ") + ', "_identity" ASC'
@@ -166,7 +167,7 @@ export function compileFilter(
   if ("not" in filter)
     return `NOT COALESCE((${compileFilter(filter.not, collection, parameters, qualifier, nullColumns)}), 0)`;
   const definition = field(collection, filter.path);
-  const column = `${qualifier}${quote(fieldColumn(definition))}`;
+  const column = `${qualifier}${quoteIdentifier(fieldColumn(definition))}`;
   const textLike =
     definition.type === "text" ||
     definition.type === "date" ||
@@ -219,8 +220,8 @@ export function compileFilter(
       const syntheticNull = nullColumns?.[definition.id];
       if (!syntheticNull) parameters.push(definition.id);
       const present = syntheticNull
-        ? `COALESCE(${qualifier}${quote(syntheticNull)}, 0) = 1`
-        : `EXISTS (SELECT 1 FROM json_each(${qualifier}${quote("_null_fields")}) WHERE json_each.value = ?)`;
+        ? `COALESCE(${qualifier}${quoteIdentifier(syntheticNull)}, 0) = 1`
+        : `EXISTS (SELECT 1 FROM json_each(${qualifier}${quoteIdentifier("_null_fields")}) WHERE json_each.value = ?)`;
       match =
         expected === undefined
           ? `(${column} IS NULL AND NOT ${present})`
@@ -337,12 +338,12 @@ function field(collection: CollectionDefinition, path: readonly string[]): Field
 }
 
 function valueExpression(definition: FieldDefinition, qualifier = ""): string {
-  const column = `${qualifier}${quote(fieldColumn(definition))}`;
+  const column = `${qualifier}${quoteIdentifier(fieldColumn(definition))}`;
   return isStructuredField(definition) ? `json_extract(${column}, '$')` : column;
 }
 
 function sortExpression(definition: FieldDefinition): string {
-  const column = quote(fieldColumn(definition));
+  const column = quoteIdentifier(fieldColumn(definition));
   // The portable evaluator sorts numeric NULL/unset as zero (between negatives
   // and positives) and text NULL/unset as the empty string. SQLite's native
   // NULLS FIRST/LAST cannot place them there while preserving ties, so keep
@@ -355,8 +356,8 @@ function sortExpression(definition: FieldDefinition): string {
 }
 
 function numericExpression(definition: FieldDefinition): string {
-  if (definition.type === "number") return quote(fieldColumn(definition));
-  const column = quote(fieldColumn(definition));
+  if (definition.type === "number") return quoteIdentifier(fieldColumn(definition));
+  const column = quoteIdentifier(fieldColumn(definition));
   const expression = isStructuredField(definition) ? `json_extract(${column}, '$')` : column;
   if (
     !isStructuredField(definition) &&
@@ -385,12 +386,4 @@ function readField(
     value,
     syntheticNull ? row[syntheticNull] === 1 : nulls.has(definition.id),
   );
-}
-
-function fieldColumn(field: FieldDefinition): string {
-  return `_field_${[...new TextEncoder().encode(field.id)].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`;
-}
-
-function quote(value: string): string {
-  return `"${value.replaceAll('"', '""')}"`;
 }

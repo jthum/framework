@@ -1,8 +1,8 @@
 <script lang="ts">
-  import RuleEditor from "./rule-editor.svelte";
-  import RuleSteps from "./automation-step-list.svelte";
-  import type { EditorContext } from "./authoring.js";
-  import type { RuleDraft, RuleStep } from "./rule-model.js";
+  import RuleEditor from "../../svelte/authoring/rule-editor.svelte";
+  import RuleSteps from "../../svelte/authoring/automation-step-list.svelte";
+  import type { EditorContext } from "../../svelte/authoring/authoring.js";
+  import type { RuleDraft, RuleStep } from "../../svelte/authoring/rule-model.js";
   let { context, rule, steps }: { context: EditorContext; rule: RuleDraft; steps?: RuleStep[] } = $props();
   const untouched = async () => { throw new Error("Rendering must not call host services"); };
   const effects = [{ key: "mail.send", label: "Send a message", input: { subject: "text" } }];

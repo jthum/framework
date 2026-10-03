@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 import { ERROR_CODES } from "../errors/error.ts";
 import { MemoryPersistenceAdapter } from "../persistence/memory.ts";
-import type { AuthorizationRequest, Authorizer } from "./authorization.ts";
+import {
+  WorkspaceAuthorizer,
+  type AuthorizationRequest,
+  type Authorizer,
+} from "./authorization.ts";
 import type { Clock, IdGenerator, IdKind } from "./defaults.ts";
 import { defineEnvironmentProfile, LOCAL_BROWSER_ENVIRONMENT } from "./environment.ts";
 import { Kernel } from "./kernel.ts";
@@ -9,7 +13,8 @@ import type { ExecutionContext } from "./model.ts";
 
 describe("Kernel catalog skeleton", () => {
   it("keeps privileged catalog discovery and Actor reads inside the active root", async () => {
-    const kernel = await Kernel.open({ persistence: new MemoryPersistenceAdapter() });
+    const persistence = new MemoryPersistenceAdapter();
+    const kernel = await Kernel.open({ persistence });
     try {
       const first = await kernel.createRootWorkspace({ name: "First", user: { name: "Jane" } });
       const second = await kernel.createRootWorkspace({ name: "Second", user: { name: "Other" } });
@@ -29,6 +34,30 @@ describe("Kernel catalog skeleton", () => {
       });
       expect(await kernel.getActor({ ...context, actorId: reader.id }, second.user.id)).toBeNull();
       expect(await kernel.getActor(context, first.user.id)).toMatchObject({ id: first.user.id });
+      await kernel.updateWorkspaceAccess(context, {
+        members: first.workspace.access.members,
+        others: ["read"],
+      });
+      const authorizer = new WorkspaceAuthorizer((await persistence.open()).catalog);
+      expect(
+        await authorizer.authorize({
+          context: { ...context, actorId: reader.id },
+          operation: "custom.read",
+          resource: { kind: "workspace", id: first.workspace.id },
+        }),
+      ).toMatchObject({ allowed: false });
+      expect(
+        await authorizer.authorize({
+          context: { workspaceId: second.workspace.id, actorId: second.user.id },
+          operation: "records.read",
+          resource: {
+            kind: "collection",
+            id: "data",
+            workspaceId: first.workspace.id,
+            attachmentId: "invented",
+          },
+        }),
+      ).toMatchObject({ allowed: false });
     } finally {
       await kernel.close();
     }
@@ -192,7 +221,7 @@ describe("Kernel catalog skeleton", () => {
         { workspaceId: workspace.id, actorId: user.id },
         { ...workspace.spec, collections: [collection] },
       ),
-    ).rejects.toBe(failure);
+    ).rejects.toMatchObject({ code: ERROR_CODES.internalUnexpected, cause: failure });
     expect(standaloneSchemaApplications).toBe(0);
     expect(await session.catalog.getWorkspace(workspace.id)).toEqual(workspace);
     await expect(session.records.list(workspace.id, collection)).rejects.toMatchObject({

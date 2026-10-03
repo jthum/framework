@@ -18,6 +18,13 @@ const inference = yair({
 });
 ```
 
+Requests reject redirects; configure the canonical endpoint URL. Client-visible failures contain
+a status-based/friendly message, semantic code and occurrence ID, never the provider's error body
+or a raw fetch exception. Optional `onError` receives the same protected `FrameworkError` for host
+diagnostics (including its occurrence ID and original `cause`). For HTTP failures that cause is
+the Response; synchronously clone/read it in the callback if needed, since the provider cancels an
+otherwise unused response body afterward. A diagnostic callback cannot alter inference lifecycle.
+
 Run the opt-in live contract against any compatible provider:
 
 ```bash

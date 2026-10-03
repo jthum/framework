@@ -1,6 +1,6 @@
 <script lang="ts">
-  import FormEditor from "./form-editor.svelte";
-  import type { EditorContext, FormDraft } from "./authoring.js";
+  import FormEditor from "../../svelte/authoring/form-editor.svelte";
+  import type { EditorContext, FormDraft } from "../../svelte/authoring/authoring.js";
   let { context, form }: { context: EditorContext; form: FormDraft } = $props();
   const untouched = async () => { throw new Error("Rendering must not call host services"); };
 </script>

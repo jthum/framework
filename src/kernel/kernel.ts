@@ -1,7 +1,44 @@
+import { WorkspaceLifecycleService } from "./workspace-lifecycle.ts";
+import { ActorLifecycleService } from "./actor-lifecycle.ts";
+import { SpecLifecycleService } from "./spec-lifecycle.ts";
+import type {
+  CreateRootWorkspaceInput,
+  WorkspaceBootstrap,
+  CreateWorkspaceInput,
+  CreateActorInput,
+  CreateMemberInput,
+  UpdateActorInput,
+  AddMembershipInput,
+  UpdateMembershipInput,
+  UpdateWorkspaceAccessInput,
+  UpdateWorkspacePolicyInput,
+  RenameWorkspaceInput,
+} from "./catalog-inputs.ts";
+export type {
+  CreateRootWorkspaceInput,
+  WorkspaceBootstrap,
+  CreateWorkspaceInput,
+  CreateActorInput,
+  CreateMemberInput,
+  UpdateActorInput,
+  AddMembershipInput,
+  UpdateMembershipInput,
+  UpdateWorkspaceAccessInput,
+  UpdateWorkspacePolicyInput,
+  RenameWorkspaceInput,
+} from "./catalog-inputs.ts";
+import { coreActions } from "./actions/index.ts";
+import {
+  actionRecord,
+  actionValues,
+  recordValue,
+  sourceRecordValue,
+  stableActionValues,
+  actionInputError,
+} from "./actions/values.ts";
 import {
   ERROR_CODES,
   FrameworkError,
-  resourceConflict,
   resourceNotFound,
   protectOperation,
 } from "../errors/error.ts";
@@ -14,17 +51,14 @@ import type {
 import type { CollectionRecord, RecordValues } from "../persistence/records.ts";
 import type { ModuleSchema, ModuleStore } from "../persistence/modules.ts";
 import type { ScopeConfig } from "./model.ts";
-import { assertScope, emptyScopeConfig, readScopeConfig } from "./scopes.ts";
+import { assertScope, emptyScopeConfig, mergeScopeConfig } from "./scopes.ts";
 import {
-  createEmptySpec,
   type CollectionDefinition,
   type FieldDefinition,
   type JsonValue,
   type SourceQueryDefinition,
-  type RuleDefinition,
   type Spec,
 } from "../spec/model.ts";
-import { assertValidSpec } from "../spec/validate.ts";
 import {
   WorkspaceAuthorizer,
   type AuthorizationRequest,
@@ -36,15 +70,8 @@ import {
   type ReshareAttachmentInput,
 } from "./attachments.ts";
 import { SourceService } from "./sources.ts";
-import type { SourceColumn, SourceRow } from "./sources.ts";
 import { ViewService } from "./views.ts";
-import {
-  NanoIdGenerator,
-  semanticKey,
-  SystemClock,
-  type Clock,
-  type IdGenerator,
-} from "./defaults.ts";
+import { NanoIdGenerator, SystemClock, type Clock, type IdGenerator } from "./defaults.ts";
 import { LOCAL_BROWSER_ENVIRONMENT, type EnvironmentProfile } from "./environment.ts";
 import { FormService, type SubmitFormInput } from "./forms.ts";
 import { PageService } from "./pages.ts";
@@ -65,14 +92,11 @@ import {
 import { WorkspaceConfigService, type SettingInput } from "./workspace-config-service.ts";
 import type { ActorBinding, RuntimeAction, SecretCipher } from "./workspace-config.ts";
 import {
-  collectInferenceRun,
   type InferenceInput,
   type InferenceEvent,
-  type InferenceMessage,
   type InferenceRuntime,
   type InferenceTool,
   type InferenceToolProvider,
-  type InferenceToolValueSchema,
 } from "./inference-runtime.ts";
 import {
   ConditionRegistry,
@@ -85,18 +109,13 @@ import {
   prepareUpdateValues,
 } from "./record-values.ts";
 import {
-  PERMISSIONS,
   type Actor,
-  type ActorKind,
   type AgentConfig,
   type AgentToolPolicy,
   type ExecutionContext,
   type Membership,
   type ModelConfig,
-  type Permission,
   type Workspace,
-  type WorkspaceAccess,
-  type WorkspacePolicy,
 } from "./model.ts";
 import {
   RuleService,
@@ -128,68 +147,6 @@ export interface KernelOptions {
   readonly recordPolicies?: readonly RecordPolicy[];
 }
 
-export interface CreateRootWorkspaceInput {
-  readonly name: string;
-  readonly user: {
-    readonly name: string;
-    readonly email?: string;
-  };
-}
-
-export interface WorkspaceBootstrap {
-  readonly workspace: Workspace;
-  readonly user: Actor;
-  readonly system: Actor;
-  readonly memberships: readonly [Membership, Membership];
-}
-
-export interface CreateWorkspaceInput {
-  readonly name: string;
-}
-
-export interface CreateActorInput {
-  readonly kind: Exclude<ActorKind, "system" | "agent">;
-  readonly name: string;
-  readonly email?: string;
-}
-
-export interface CreateMemberInput {
-  readonly name: string;
-  readonly email?: string;
-  readonly roles?: readonly string[];
-  readonly permissions?: readonly Permission[];
-}
-
-export interface UpdateActorInput {
-  readonly name: string;
-  readonly email?: string;
-}
-
-export interface AddMembershipInput {
-  readonly actorId: string;
-  readonly workspaceId: string;
-  readonly roles?: readonly string[];
-  readonly permissions?: readonly Permission[];
-}
-
-export interface UpdateMembershipInput {
-  readonly actorId: string;
-  readonly workspaceId: string;
-  readonly roles?: readonly string[];
-  readonly permissions: readonly Permission[];
-}
-
-export interface UpdateWorkspaceAccessInput {
-  readonly members: readonly Permission[];
-  readonly others: readonly Permission[];
-}
-
-export type UpdateWorkspacePolicyInput = WorkspacePolicy;
-
-export interface RenameWorkspaceInput {
-  readonly name: string;
-}
-
 export class Kernel {
   private readonly attachments: AttachmentService;
   private readonly sources: SourceService;
@@ -203,6 +160,9 @@ export class Kernel {
   private readonly actions: ActionRegistry;
   private readonly workspaceConfig: WorkspaceConfigService;
   private readonly recordPolicies: RecordPolicyService;
+  private readonly workspaceLifecycle: WorkspaceLifecycleService;
+  private readonly actorLifecycle: ActorLifecycleService;
+  private readonly specLifecycle: SpecLifecycleService;
   private constructor(
     private readonly persistence: PersistenceSession,
     private readonly catalog: CatalogRepository,
@@ -220,6 +180,23 @@ export class Kernel {
     ruleExecution: RuleServiceOptions | undefined,
     recordPolicies: readonly RecordPolicy[],
   ) {
+    const authority = {
+      assertContext: this.assertContext.bind(this),
+      assertAuthorized: this.assertAuthorized.bind(this),
+      requireWorkspace: this.requireWorkspace.bind(this),
+      requireActor: this.requireActor.bind(this),
+      resolveWorkspace: this.resolveWorkspace.bind(this),
+      assertSchemaCompatible: this.assertSchemaCompatible.bind(this),
+    };
+    this.workspaceLifecycle = new WorkspaceLifecycleService(
+      catalog,
+      persistence,
+      ids,
+      clock,
+      authority,
+    );
+    this.actorLifecycle = new ActorLifecycleService(catalog, ids, clock, authority);
+    this.specLifecycle = new SpecLifecycleService(persistence, clock, authority);
     this.recordPolicies = new RecordPolicyService(recordPolicies);
     this.attachments = new AttachmentService(
       catalog,
@@ -371,15 +348,20 @@ export class Kernel {
     return protectOperation(() => this.sources.list(context));
   }
   async getScopeConfig(context: ExecutionContext): Promise<ScopeConfig> {
-    await this.assertContext(context);
-    if (!context.scope) return emptyScopeConfig();
-    return (
-      (await this.persistence.scopes.get(context.workspaceId, context.scope)) ?? emptyScopeConfig()
-    );
+    return protectOperation(async () => {
+      await this.assertContext(context);
+      if (!context.scope) return emptyScopeConfig();
+      return (
+        (await this.persistence.scopes.get(context.workspaceId, context.scope)) ??
+        emptyScopeConfig()
+      );
+    });
   }
 
   async applyScopeConfig(context: ExecutionContext, input: unknown): Promise<ScopeConfig> {
-    return this.applyScopeConfigChange(context, input);
+    return protectOperation(async () => {
+      return this.applyScopeConfigChange(context, input);
+    });
   }
 
   private async applyScopeConfigChange(
@@ -387,52 +369,11 @@ export class Kernel {
     input: unknown,
     seeds: readonly CollectionSeed[] = [],
   ): Promise<ScopeConfig> {
-    await this.assertContext(context);
-    if (!context.scope)
-      throw new FrameworkError({
-        code: ERROR_CODES.validationInvalidInput,
-        message: "Scope configuration requires a scope context.",
-      });
-    await this.assertAuthorized({
-      context,
-      operation: "scopes.update",
-      resource: { kind: "workspace", id: context.workspaceId, workspaceId: context.workspaceId },
-    });
-    const workspace = await this.requireWorkspace(context.workspaceId);
-    const config = readScopeConfig(input);
-    assertDistinctScopeIds(config, workspace.spec);
-    assertValidSpec(mergeScopeConfig(workspace.spec, config));
-    for (const entry of await this.persistence.scopes.list(workspace.id)) {
-      if (entry.scope.kind === context.scope.kind && entry.scope.id === context.scope.id) continue;
-      assertDistinctScopeIds(config, entry.config);
-    }
-    const current = await this.resolveWorkspace(context);
-    await this.assertSchemaCompatible(context, current, mergeScopeConfig(workspace.spec, config));
-    await this.persistence.applyScopeConfig(workspace, context.scope, config, seeds);
-    return config;
+    return protectOperation(() => this.specLifecycle.applyScope(context, input, seeds));
   }
 
   async deleteScopeConfig(context: ExecutionContext): Promise<void> {
-    await this.assertContext(context);
-    if (!context.scope)
-      throw new FrameworkError({
-        code: ERROR_CODES.validationInvalidInput,
-        message: "Deleting scope configuration requires a scope context.",
-      });
-    await this.assertAuthorized({
-      context,
-      operation: "scopes.delete",
-      resource: { kind: "workspace", id: context.workspaceId, workspaceId: context.workspaceId },
-    });
-    if (await this.persistence.executions.hasActiveScope(context.workspaceId, context.scope))
-      throw new FrameworkError({
-        code: ERROR_CODES.resourceConflict,
-        message: "Scope has active Rule executions.",
-      });
-    await this.persistence.deleteScope(
-      await this.requireWorkspace(context.workspaceId),
-      context.scope,
-    );
+    return protectOperation(() => this.specLifecycle.deleteScope(context));
   }
   getSource(context: ExecutionContext, key: string) {
     return protectOperation(() => this.sources.describe(context, key));
@@ -444,12 +385,18 @@ export class Kernel {
     return protectOperation(() => this.sources.get(context, key, id));
   }
   async getSourceRecords(context: ExecutionContext, key: string, ids: readonly string[]) {
-    if (!Array.isArray(ids) || ids.length > 500 || ids.some((id) => typeof id !== "string" || !id))
-      throw new FrameworkError({
-        code: ERROR_CODES.validationInvalidInput,
-        message: "Choose up to 500 record IDs.",
-      });
-    return this.sources.getMany(context, key, [...new Set(ids)]);
+    return protectOperation(async () => {
+      if (
+        !Array.isArray(ids) ||
+        ids.length > 500 ||
+        ids.some((id) => typeof id !== "string" || !id)
+      )
+        throw new FrameworkError({
+          code: ERROR_CODES.validationInvalidInput,
+          message: "Choose up to 500 record IDs.",
+        });
+      return this.sources.getMany(context, key, [...new Set(ids)]);
+    });
   }
   async updateSourceRecord(
     context: ExecutionContext,
@@ -457,48 +404,52 @@ export class Kernel {
     id: string,
     patch: RecordValues,
   ): Promise<CollectionRecord> {
-    const workspace = await this.resolveWorkspace(context);
-    const local = workspace.spec.collections.find((collection) => collection.key === key);
-    if (local) return this.updateRecord(context, key, id, patch);
-    if (!workspace.spec.sources.some((source) => source.key === key))
-      throw resourceNotFound("Source", key);
-    const target = await this.attachments.resolveMutation(context, key, "update", id);
-    const values = prepareUpdateValues(target.collection, target.record.values, patch);
-    await this.assertAttachedReferences(
-      context,
-      target.attachment.originId,
-      target.collection,
-      values,
-    );
-    await this.recordPolicies.assert({
-      context,
-      workspaceId: target.attachment.originId,
-      collection: target.collection,
-      operation: "update",
-      current: target.record,
-      values,
+    return protectOperation(async () => {
+      const workspace = await this.resolveWorkspace(context);
+      const local = workspace.spec.collections.find((collection) => collection.key === key);
+      if (local) return this.updateRecord(context, key, id, patch);
+      if (!workspace.spec.sources.some((source) => source.key === key))
+        throw resourceNotFound("Source", key);
+      const target = await this.attachments.resolveMutation(context, key, "update", id);
+      const values = prepareUpdateValues(target.collection, target.record.values, patch);
+      await this.assertAttachedReferences(
+        context,
+        target.attachment.originId,
+        target.collection,
+        values,
+      );
+      await this.recordPolicies.assert({
+        context,
+        workspaceId: target.attachment.originId,
+        collection: target.collection,
+        operation: "update",
+        current: target.record,
+        values,
+      });
+      const record: CollectionRecord = {
+        ...target.record,
+        values,
+        updatedAt: this.clock.now(),
+        updatedBy: context.actorId,
+      };
+      await this.persistence.records.update(target.attachment.originId, target.collection, record);
+      return record;
     });
-    const record: CollectionRecord = {
-      ...target.record,
-      values,
-      updatedAt: this.clock.now(),
-      updatedBy: context.actorId,
-    };
-    await this.persistence.records.update(target.attachment.originId, target.collection, record);
-    return record;
   }
   async deleteSourceRecord(context: ExecutionContext, key: string, id: string): Promise<void> {
-    const workspace = await this.resolveWorkspace(context);
-    const local = workspace.spec.collections.find((collection) => collection.key === key);
-    if (local) return this.deleteRecord(context, key, id);
-    if (!workspace.spec.sources.some((source) => source.key === key))
-      throw resourceNotFound("Source", key);
-    const target = await this.attachments.resolveMutation(context, key, "delete", id);
-    await this.persistence.records.delete(
-      target.attachment.originId,
-      target.collection,
-      target.record.id,
-    );
+    return protectOperation(async () => {
+      const workspace = await this.resolveWorkspace(context);
+      const local = workspace.spec.collections.find((collection) => collection.key === key);
+      if (local) return this.deleteRecord(context, key, id);
+      if (!workspace.spec.sources.some((source) => source.key === key))
+        throw resourceNotFound("Source", key);
+      const target = await this.attachments.resolveMutation(context, key, "delete", id);
+      await this.persistence.records.delete(
+        target.attachment.originId,
+        target.collection,
+        target.record.id,
+      );
+    });
   }
   listViews(context: ExecutionContext) {
     return protectOperation(() => this.views.list(context));
@@ -527,31 +478,33 @@ export class Kernel {
     return protectOperation(() => this.forms.get(context, key));
   }
   async submitForm(context: ExecutionContext, key: string, input: SubmitFormInput) {
-    const submission = await this.forms.submit(context, key, input);
-    const workspace = await this.resolveWorkspace(context);
-    const collection =
-      submission.mode === "standalone"
-        ? undefined
-        : workspace.spec.collections.find(
-            (candidate) => candidate.id === submission.form.collectionId,
-          );
-    const record =
-      submission.mode === "standalone" || !collection
-        ? undefined
-        : recordValue(submission.record, collection);
-    await this.rules.dispatch(context, {
-      event: "form.submitted",
-      formId: submission.form.id,
-      ...(submission.mode === "standalone" ? {} : { sourceId: submission.form.collectionId }),
-      payload: {
-        mode: submission.mode,
-        values: {
-          ...(submission.mode === "standalone" ? submission.values : submission.record.values),
+    return protectOperation(async () => {
+      const submission = await this.forms.submit(context, key, input);
+      const workspace = await this.resolveWorkspace(context);
+      const collection =
+        submission.mode === "standalone"
+          ? undefined
+          : workspace.spec.collections.find(
+              (candidate) => candidate.id === submission.form.collectionId,
+            );
+      const record =
+        submission.mode === "standalone" || !collection
+          ? undefined
+          : recordValue(submission.record, collection);
+      await this.rules.dispatch(context, {
+        event: "form.submitted",
+        formId: submission.form.id,
+        ...(submission.mode === "standalone" ? {} : { sourceId: submission.form.collectionId }),
+        payload: {
+          mode: submission.mode,
+          values: {
+            ...(submission.mode === "standalone" ? submission.values : submission.record.values),
+          },
+          ...(record === undefined ? {} : { record }),
         },
-        ...(record === undefined ? {} : { record }),
-      },
+      });
+      return submission;
     });
-    return submission;
   }
   listPages(context: ExecutionContext) {
     return protectOperation(() => this.pages.list(context));
@@ -641,14 +594,16 @@ export class Kernel {
     return protectOperation(() => this.workspaceConfig.listActorBindings(context));
   }
   async putActorBinding(context: ExecutionContext, input: ActorBinding) {
-    await this.assertContext(context);
-    if (!(await this.catalog.getMembership(input.actorId, context.workspaceId)))
-      throw new FrameworkError({
-        code: ERROR_CODES.validationInvalidInput,
-        message: "An Actor binding must reference a member of this Workspace.",
-        details: { actorId: input.actorId, workspaceId: context.workspaceId },
-      });
-    return this.workspaceConfig.putActorBinding(context, input);
+    return protectOperation(async () => {
+      await this.assertContext(context);
+      if (!(await this.catalog.getMembership(input.actorId, context.workspaceId)))
+        throw new FrameworkError({
+          code: ERROR_CODES.validationInvalidInput,
+          message: "An Actor binding must reference a member of this Workspace.",
+          details: { actorId: input.actorId, workspaceId: context.workspaceId },
+        });
+      return this.workspaceConfig.putActorBinding(context, input);
+    });
   }
   deleteActorBinding(context: ExecutionContext, key: string) {
     return protectOperation(() => this.workspaceConfig.deleteActorBinding(context, key));
@@ -676,56 +631,60 @@ export class Kernel {
   }
 
   async listInferenceTools(context: ExecutionContext): Promise<readonly InferenceTool[]> {
-    const actor = await this.requireInferenceRuntimeContext(context);
-    await this.assertInferenceRuntime();
-    const policy = await this.agentPolicy(actor);
-    return (
-      await this.inferenceToolService.list(
-        context,
-        { execution: context, actor, messages: [], step: 1, activeToolIds: new Set() },
-        policy,
-      )
-    ).tools;
+    return protectOperation(async () => {
+      const actor = await this.requireInferenceRuntimeContext(context);
+      await this.assertInferenceRuntime();
+      const policy = await this.agentPolicy(actor);
+      return (
+        await this.inferenceToolService.list(
+          context,
+          { execution: context, actor, messages: [], step: 1, activeToolIds: new Set() },
+          policy,
+        )
+      ).tools;
+    });
   }
 
   async runInference(
     context: ExecutionContext,
     input: InferenceInput,
   ): Promise<AsyncIterable<InferenceEvent>> {
-    const actor = await this.requireInferenceRuntimeContext(context);
-    const runtime = await this.assertInferenceRuntime();
-    const configured = await this.agentExecution(actor);
-    const model = configured?.model ?? (await this.agentConfigs.selection(context, input.model));
-    const credentialRef = model?.credentialRef;
-    // A delegated Agent retains its origin-owned configuration, not the target's secrets.
-    const configurationWorkspaceId = configured ? actor.originId : context.workspaceId;
-    return runtime.run({
-      execution: { ...context },
-      actor,
-      messages: input.messages.map((message) => structuredClone(message)),
-      ...(configured?.instructions === undefined
-        ? input.instructions === undefined
-          ? {}
-          : { instructions: input.instructions }
-        : {
-            instructions:
-              input.instructions === undefined
-                ? configured.instructions
-                : `${configured.instructions}\n\n${input.instructions}`,
-          }),
-      ...(model === undefined ? {} : { model }),
-      ...(input.metadata === undefined ? {} : { metadata: structuredClone(input.metadata) }),
-      ...(input.signal === undefined ? {} : { signal: input.signal }),
-      tools: this.inferenceToolService.gateway(
-        context,
-        configured?.tools ?? defaultAgentToolPolicy(),
-      ),
-      resolveCredential: (settingKey) =>
-        settingKey === credentialRef
-          ? this.workspaceConfig.inferenceCredential(configurationWorkspaceId, settingKey)
-          : Promise.resolve(null),
-      getSetting: (settingKey) =>
-        this.workspaceConfig.inferenceSetting(configurationWorkspaceId, settingKey),
+    return protectOperation(async () => {
+      const actor = await this.requireInferenceRuntimeContext(context);
+      const runtime = await this.assertInferenceRuntime();
+      const configured = await this.agentExecution(actor);
+      const model = configured?.model ?? (await this.agentConfigs.selection(context, input.model));
+      const credentialRef = model?.credentialRef;
+      // A delegated Agent retains its origin-owned configuration, not the target's secrets.
+      const configurationWorkspaceId = configured ? actor.originId : context.workspaceId;
+      return runtime.run({
+        execution: { ...context },
+        actor,
+        messages: input.messages.map((message) => structuredClone(message)),
+        ...(configured?.instructions === undefined
+          ? input.instructions === undefined
+            ? {}
+            : { instructions: input.instructions }
+          : {
+              instructions:
+                input.instructions === undefined
+                  ? configured.instructions
+                  : `${configured.instructions}\n\n${input.instructions}`,
+            }),
+        ...(model === undefined ? {} : { model }),
+        ...(input.metadata === undefined ? {} : { metadata: structuredClone(input.metadata) }),
+        ...(input.signal === undefined ? {} : { signal: input.signal }),
+        tools: this.inferenceToolService.gateway(
+          context,
+          configured?.tools ?? defaultAgentToolPolicy(),
+        ),
+        resolveCredential: (settingKey) =>
+          settingKey === credentialRef
+            ? this.workspaceConfig.inferenceCredential(configurationWorkspaceId, settingKey)
+            : Promise.resolve(null),
+        getSetting: (settingKey) =>
+          this.workspaceConfig.inferenceSetting(configurationWorkspaceId, settingKey),
+      });
     });
   }
 
@@ -762,218 +721,53 @@ export class Kernel {
   }
 
   static async open(options: KernelOptions): Promise<Kernel> {
-    const persistence = await options.persistence.open();
-    return new Kernel(
-      persistence,
-      persistence.catalog,
-      options.authorizer ?? new WorkspaceAuthorizer(persistence.catalog),
-      options.ids ?? new NanoIdGenerator(),
-      options.clock ?? new SystemClock(),
-      options.environment ?? LOCAL_BROWSER_ENVIRONMENT,
-      options.actions ?? [],
-      options.actionExecutors ?? [],
-      options.secretCipher,
-      options.conditions ?? [],
-      options.inference,
-      options.inferenceTools ?? [],
-      options.resolveActorBinding,
-      options.ruleExecution,
-      options.recordPolicies ?? [],
-    );
+    return protectOperation(async () => {
+      const persistence = await options.persistence.open();
+      try {
+        return new Kernel(
+          persistence,
+          persistence.catalog,
+          options.authorizer ?? new WorkspaceAuthorizer(persistence.catalog),
+          options.ids ?? new NanoIdGenerator(),
+          options.clock ?? new SystemClock(),
+          options.environment ?? LOCAL_BROWSER_ENVIRONMENT,
+          options.actions ?? [],
+          options.actionExecutors ?? [],
+          options.secretCipher,
+          options.conditions ?? [],
+          options.inference,
+          options.inferenceTools ?? [],
+          options.resolveActorBinding,
+          options.ruleExecution,
+          options.recordPolicies ?? [],
+        );
+      } catch (error) {
+        await persistence.close().catch(() => undefined);
+        throw error;
+      }
+    });
   }
 
   async createRootWorkspace(input: CreateRootWorkspaceInput): Promise<WorkspaceBootstrap> {
-    const name = requiredName(input.name, "Workspace");
-    const userName = requiredName(input.user.name, "User");
-    const stamp = this.clock.now();
-    const workspaceId = this.ids.create("workspace");
-    const userId = this.ids.create("actor");
-    const systemId = this.ids.create("actor");
-    const workspace: Workspace = {
-      id: workspaceId,
-      isRoot: true,
-      parentId: null,
-      rootId: workspaceId,
-      name,
-      access: defaultAccess(),
-      policy: defaultPolicy(),
-      spec: createEmptySpec({
-        id: this.ids.create("spec"),
-        key: semanticKey(name),
-        label: name,
-      }),
-      createdAt: stamp,
-      updatedAt: stamp,
-    };
-    assertValidSpec(workspace.spec);
-    const user: Actor = {
-      id: userId,
-      originId: workspaceId,
-      rootId: workspaceId,
-      kind: "user",
-      name: userName,
-      ...(input.user.email === undefined ? {} : { email: input.user.email }),
-      createdAt: stamp,
-      updatedAt: stamp,
-    };
-    const system: Actor = {
-      id: systemId,
-      originId: workspaceId,
-      rootId: workspaceId,
-      kind: "system",
-      name: "System",
-      createdAt: stamp,
-      updatedAt: stamp,
-    };
-    const memberships = [
-      membership(this.ids, stamp, userId, workspaceId, ["owner"], PERMISSIONS),
-      membership(this.ids, stamp, systemId, workspaceId, ["system"], PERMISSIONS),
-    ] as const;
-
-    await this.catalog.transaction(async (transaction) => {
-      await transaction.insertWorkspace(workspace);
-      await transaction.insertActor(user);
-      await transaction.insertActor(system);
-      await transaction.insertMembership(memberships[0]);
-      await transaction.insertMembership(memberships[1]);
-    });
-
-    return { workspace, user, system, memberships };
+    return protectOperation(() => this.workspaceLifecycle.createRootWorkspace(input));
   }
 
   async createWorkspace(
     context: ExecutionContext,
     input: CreateWorkspaceInput,
   ): Promise<{ workspace: Workspace; membership: Membership }> {
-    await this.assertContext(context);
-    const parent = await this.requireWorkspace(context.workspaceId);
-    await this.assertAuthorized({
-      context,
-      operation: "workspaces.create",
-      resource: {
-        kind: "workspace",
-        id: context.workspaceId,
-        workspaceId: context.workspaceId,
-      },
-    });
-    if (!parent.policy.spawn)
-      throw new FrameworkError({
-        code: ERROR_CODES.permissionDenied,
-        message: "This Workspace does not permit spawning child Workspaces.",
-      });
-
-    const name = requiredName(input.name, "Workspace");
-    const stamp = this.clock.now();
-    const workspace: Workspace = {
-      id: this.ids.create("workspace"),
-      isRoot: false,
-      parentId: parent.id,
-      rootId: parent.rootId,
-      name,
-      createdBy: context.actorId,
-      access: defaultAccess(),
-      policy: defaultPolicy(),
-      spec: createEmptySpec({
-        id: this.ids.create("spec"),
-        key: semanticKey(name),
-        label: name,
-      }),
-      createdAt: stamp,
-      updatedAt: stamp,
-    };
-    assertValidSpec(workspace.spec);
-    const ownerMembership = membership(
-      this.ids,
-      stamp,
-      context.actorId,
-      workspace.id,
-      ["owner"],
-      PERMISSIONS,
-    );
-    await this.catalog.transaction(async (transaction) => {
-      await transaction.insertWorkspace(workspace);
-      await transaction.insertMembership(ownerMembership);
-    });
-    return { workspace, membership: ownerMembership };
+    return protectOperation(() => this.workspaceLifecycle.createWorkspace(context, input));
   }
 
   async createActor(context: ExecutionContext, input: CreateActorInput): Promise<Actor> {
-    await this.assertContext(context);
-    const origin = await this.requireWorkspace(context.workspaceId);
-    await this.assertAuthorized({
-      context,
-      operation: "actors.create",
-      resource: {
-        kind: "workspace",
-        id: origin.id,
-        workspaceId: origin.id,
-      },
-    });
-    if (!origin.policy.createActors)
-      throw new FrameworkError({
-        code: ERROR_CODES.permissionDenied,
-        message: "This Workspace does not permit creating local Actors.",
-      });
-    const stamp = this.clock.now();
-    const actor: Actor = {
-      id: this.ids.create("actor"),
-      originId: origin.id,
-      rootId: origin.rootId,
-      kind: input.kind,
-      name: requiredName(input.name, "Actor"),
-      ...(input.email === undefined ? {} : { email: input.email }),
-      createdAt: stamp,
-      updatedAt: stamp,
-    };
-    await this.catalog.transaction((transaction) => transaction.insertActor(actor));
-    return actor;
+    return protectOperation(() => this.actorLifecycle.createActor(context, input));
   }
 
   async createMember(
     context: ExecutionContext,
     input: CreateMemberInput,
   ): Promise<{ actor: Actor; membership: Membership }> {
-    await this.assertContext(context);
-    const workspace = await this.requireWorkspace(context.workspaceId);
-    await this.assertAuthorized({
-      context,
-      operation: "actors.create",
-      resource: { kind: "workspace", id: workspace.id, workspaceId: workspace.id },
-    });
-    await this.assertAuthorized({
-      context,
-      operation: "memberships.create",
-      resource: { kind: "workspace", id: workspace.id, workspaceId: workspace.id },
-    });
-    if (!workspace.policy.createActors)
-      throw new FrameworkError({
-        code: ERROR_CODES.permissionDenied,
-        message: "This Workspace does not permit creating local Actors.",
-      });
-    const stamp = this.clock.now();
-    const actor: Actor = {
-      id: this.ids.create("actor"),
-      originId: workspace.id,
-      rootId: workspace.rootId,
-      kind: "user",
-      name: requiredName(input.name, "Actor"),
-      ...(input.email === undefined ? {} : { email: input.email }),
-      createdAt: stamp,
-      updatedAt: stamp,
-    };
-    const next = membership(
-      this.ids,
-      stamp,
-      actor.id,
-      workspace.id,
-      input.roles ?? ["member"],
-      normalizePermissions(input.permissions ?? ["read"]),
-    );
-    await this.catalog.transaction(async (transaction) => {
-      await transaction.insertActor(actor);
-      await transaction.insertMembership(next);
-    });
-    return { actor, membership: next };
+    return protectOperation(() => this.actorLifecycle.createMember(context, input));
   }
 
   async createAgent(context: ExecutionContext, input: CreateAgentInput): Promise<AgentBootstrap> {
@@ -1024,186 +818,55 @@ export class Kernel {
     id: string,
     input: UpdateActorInput,
   ): Promise<Actor> {
-    await this.assertContext(context);
-    const current = await this.requireActor(id);
-    await this.assertAuthorized({
-      context,
-      operation: "actors.update",
-      resource: { kind: "actor", id: current.id, workspaceId: current.originId },
-    });
-    const { email: currentEmail, ...identity } = current;
-    const actor: Actor = {
-      ...identity,
-      name: requiredName(input.name, "Actor"),
-      ...(input.email === undefined
-        ? currentEmail === undefined
-          ? {}
-          : { email: currentEmail }
-        : input.email
-          ? { email: input.email }
-          : {}),
-      updatedAt: this.clock.now(),
-    };
-    await this.catalog.transaction((transaction) => transaction.updateActor(actor));
-    return actor;
+    return protectOperation(() => this.actorLifecycle.updateActor(context, id, input));
   }
 
   async addMembership(context: ExecutionContext, input: AddMembershipInput): Promise<Membership> {
-    await this.assertContext(context);
-    const actor = await this.requireActor(input.actorId);
-    const workspace = await this.requireWorkspace(input.workspaceId);
-    const active = await this.requireWorkspace(context.workspaceId);
-    if (actor.rootId !== workspace.rootId || active.rootId !== workspace.rootId) {
-      throw new FrameworkError({
-        code: ERROR_CODES.permissionDenied,
-        message: "Membership cannot cross root Workspace boundaries.",
-      });
-    }
-    await this.assertAuthorized({
-      context,
-      operation: "memberships.create",
-      resource: {
-        kind: "workspace",
-        id: workspace.id,
-        workspaceId: workspace.id,
-      },
-    });
-    if (await this.catalog.getMembership(actor.id, workspace.id)) {
-      throw resourceConflict("The Actor is already a member of this Workspace.");
-    }
-    const next = membership(
-      this.ids,
-      this.clock.now(),
-      actor.id,
-      workspace.id,
-      input.roles ?? ["member"],
-      input.permissions ?? ["read"],
-    );
-    await this.catalog.transaction((transaction) => transaction.insertMembership(next));
-    return next;
+    return protectOperation(() => this.actorLifecycle.addMembership(context, input));
   }
 
   async updateMembership(
     context: ExecutionContext,
     input: UpdateMembershipInput,
   ): Promise<Membership> {
-    await this.assertContext(context);
-    const current = await this.catalog.getMembership(input.actorId, input.workspaceId);
-    if (!current) throw resourceNotFound("Membership", `${input.actorId}:${input.workspaceId}`);
-    await this.assertAuthorized({
-      context,
-      operation: "memberships.update",
-      resource: {
-        kind: "membership",
-        id: current.id,
-        workspaceId: current.workspaceId,
-      },
-    });
-    const membership: Membership = {
-      ...current,
-      roles: input.roles === undefined ? current.roles : [...input.roles],
-      permissions: normalizePermissions(input.permissions),
-      updatedAt: this.clock.now(),
-    };
-    await this.catalog.transaction((transaction) => transaction.updateMembership(membership));
-    return membership;
+    return protectOperation(() => this.actorLifecycle.updateMembership(context, input));
   }
 
   async updateWorkspaceAccess(
     context: ExecutionContext,
     input: UpdateWorkspaceAccessInput,
   ): Promise<Workspace> {
-    await this.assertContext(context);
-    const current = await this.requireWorkspace(context.workspaceId);
-    await this.assertAuthorized({
-      context,
-      operation: "workspace.access.update",
-      resource: { kind: "workspace", id: current.id, workspaceId: current.id },
-    });
-    const workspace: Workspace = {
-      ...current,
-      access: {
-        members: normalizePermissions(input.members),
-        others: normalizePermissions(input.others),
-      },
-      updatedAt: this.clock.now(),
-    };
-    await this.catalog.transaction((transaction) => transaction.updateWorkspace(workspace));
-    return workspace;
+    return protectOperation(() => this.workspaceLifecycle.updateWorkspaceAccess(context, input));
   }
 
   async updateWorkspacePolicy(
     context: ExecutionContext,
     policy: UpdateWorkspacePolicyInput,
   ): Promise<Workspace> {
-    await this.assertContext(context);
-    const current = await this.requireWorkspace(context.workspaceId);
-    await this.assertAuthorized({
-      context,
-      operation: "workspace.policy.update",
-      resource: { kind: "workspace", id: current.id, workspaceId: current.id },
-    });
-    const workspace: Workspace = {
-      ...current,
-      policy: { ...policy },
-      updatedAt: this.clock.now(),
-    };
-    await this.catalog.transaction((transaction) => transaction.updateWorkspace(workspace));
-    return workspace;
+    return protectOperation(() => this.workspaceLifecycle.updateWorkspacePolicy(context, policy));
   }
 
   async renameWorkspace(
     context: ExecutionContext,
     input: RenameWorkspaceInput,
   ): Promise<Workspace> {
-    await this.assertContext(context);
-    const current = await this.requireWorkspace(context.workspaceId);
-    await this.assertAuthorized({
-      context,
-      operation: "workspace.update",
-      resource: { kind: "workspace", id: current.id, workspaceId: current.id },
-    });
-    const workspace: Workspace = {
-      ...current,
-      name: requiredName(input.name, "Workspace"),
-      updatedAt: this.clock.now(),
-    };
-    await this.catalog.transaction((transaction) => transaction.updateWorkspace(workspace));
-    return workspace;
+    return protectOperation(() => this.workspaceLifecycle.renameWorkspace(context, input));
   }
 
   /** Remove one leaf Workspace after proving it owns no identity or delegated descendants. */
   async deleteWorkspace(context: ExecutionContext): Promise<void> {
-    await this.assertContext(context);
-    const workspace = await this.requireWorkspace(context.workspaceId);
-    await this.assertAuthorized({
-      context,
-      operation: "workspace.delete",
-      resource: { kind: "workspace", id: workspace.id, workspaceId: workspace.id },
-    });
-    if (workspace.isRoot) throw resourceConflict("A root Workspace cannot be deleted.");
-    if ((await this.catalog.listChildWorkspaces(workspace.id)).length)
-      throw resourceConflict("A Workspace with child Workspaces cannot be deleted.");
-    if ((await this.catalog.listActorsByOrigin(workspace.id)).length)
-      throw resourceConflict("A Workspace that issued Actors cannot be deleted.");
-    if ((await this.catalog.listAttachmentsFrom(workspace.id)).length)
-      throw resourceConflict("A Workspace exposing Collections cannot be deleted.");
-    const incoming = await this.catalog.listAttachmentsTo(workspace.id);
-    const incomingIds = new Set(incoming.map((attachment) => attachment.id));
-    for (const candidate of await this.catalog.listWorkspacesByRoot(workspace.rootId))
-      for (const attachment of await this.catalog.listAttachmentsTo(candidate.id))
-        if (attachment.parentId && incomingIds.has(attachment.parentId))
-          throw resourceConflict("A Workspace with re-shared Attachments cannot be deleted.");
-    await this.persistence.deleteWorkspace(workspace.id);
+    return protectOperation(() => this.workspaceLifecycle.deleteWorkspace(context));
   }
 
   async applySpec(context: ExecutionContext, input: unknown): Promise<Workspace> {
-    if (context.scope)
-      throw new FrameworkError({
-        code: ERROR_CODES.validationInvalidInput,
-        message: "Portable Spec changes require an unscoped Workspace context.",
-      });
-    return this.applySpecChange(context, input);
+    return protectOperation(async () => {
+      if (context.scope)
+        throw new FrameworkError({
+          code: ERROR_CODES.validationInvalidInput,
+          message: "Portable Spec changes require an unscoped Workspace context.",
+        });
+      return this.applySpecChange(context, input);
+    });
   }
 
   private async applySpecChange(
@@ -1211,31 +874,7 @@ export class Kernel {
     input: unknown,
     seeds: readonly CollectionSeed[] = [],
   ): Promise<Workspace> {
-    await this.assertContext(context);
-    assertValidSpec(input);
-    const current = await this.requireWorkspace(context.workspaceId);
-    await this.assertAuthorized({
-      context,
-      operation: "spec.update",
-      resource: {
-        kind: "workspace",
-        id: context.workspaceId,
-        workspaceId: context.workspaceId,
-      },
-    });
-    const spec: Spec = structuredClone(input);
-    for (const entry of await this.persistence.scopes.list(current.id)) {
-      assertDistinctScopeIds(entry.config, spec);
-      assertValidSpec(mergeScopeConfig(spec, entry.config));
-    }
-    await this.assertSchemaCompatible(context, current, spec);
-    const workspace: Workspace = {
-      ...current,
-      spec,
-      updatedAt: this.clock.now(),
-    };
-    await this.persistence.applyWorkspaceSpec(workspace, seeds);
-    return workspace;
+    return protectOperation(() => this.specLifecycle.apply(context, input, seeds));
   }
 
   async createRecord(
@@ -1243,33 +882,35 @@ export class Kernel {
     collectionKey: string,
     input: RecordValues,
   ): Promise<CollectionRecord> {
-    const collection = await this.requireCollection(context, collectionKey);
-    await this.assertAuthorized({
-      context,
-      operation: "records.create",
-      resource: this.collectionResource(context, collection),
+    return protectOperation(async () => {
+      const collection = await this.requireCollection(context, collectionKey);
+      await this.assertAuthorized({
+        context,
+        operation: "records.create",
+        resource: this.collectionResource(context, collection),
+      });
+      const values = prepareCreateValues(collection, input);
+      await this.assertReferences(context, collection, values);
+      await this.recordPolicies.assert({
+        context,
+        workspaceId: context.workspaceId,
+        collection,
+        operation: "create",
+        values,
+      });
+      const stamp = this.clock.now();
+      const record: CollectionRecord = {
+        id: this.ids.create("record"),
+        collectionId: collection.id,
+        values,
+        createdAt: stamp,
+        updatedAt: stamp,
+        createdBy: context.actorId,
+        updatedBy: context.actorId,
+      };
+      await this.persistence.records.create(context.workspaceId, collection, record);
+      return record;
     });
-    const values = prepareCreateValues(collection, input);
-    await this.assertReferences(context, collection, values);
-    await this.recordPolicies.assert({
-      context,
-      workspaceId: context.workspaceId,
-      collection,
-      operation: "create",
-      values,
-    });
-    const stamp = this.clock.now();
-    const record: CollectionRecord = {
-      id: this.ids.create("record"),
-      collectionId: collection.id,
-      values,
-      createdAt: stamp,
-      updatedAt: stamp,
-      createdBy: context.actorId,
-      updatedBy: context.actorId,
-    };
-    await this.persistence.records.create(context.workspaceId, collection, record);
-    return record;
   }
 
   async getRecord(
@@ -1277,56 +918,60 @@ export class Kernel {
     collectionKey: string,
     recordId: string,
   ): Promise<CollectionRecord | null> {
-    const collection = await this.requireCollection(context, collectionKey);
-    await this.assertAuthorized({
-      context,
-      operation: "records.read",
-      resource: this.recordResource(context, collection, recordId),
-    });
-    const record = await this.persistence.records.get(context.workspaceId, collection, recordId);
-    if (record)
-      await this.recordPolicies.assert({
+    return protectOperation(async () => {
+      const collection = await this.requireCollection(context, collectionKey);
+      await this.assertAuthorized({
         context,
-        workspaceId: context.workspaceId,
-        collection,
-        operation: "read",
-        current: record,
+        operation: "records.read",
+        resource: this.recordResource(context, collection, recordId),
       });
-    return record;
+      const record = await this.persistence.records.get(context.workspaceId, collection, recordId);
+      if (record)
+        await this.recordPolicies.assert({
+          context,
+          workspaceId: context.workspaceId,
+          collection,
+          operation: "read",
+          current: record,
+        });
+      return record;
+    });
   }
 
   async listRecords(context: ExecutionContext, collectionKey: string): Promise<CollectionRecord[]> {
-    const collection = await this.requireCollection(context, collectionKey);
-    await this.assertAuthorized({
-      context,
-      operation: "records.list",
-      resource: this.collectionResource(context, collection),
-    });
-    if (this.persistence.records.listFiltered) {
-      const restriction = await this.recordPolicies.readFilter(collection, context);
-      const rows = await this.persistence.records.listFiltered(
+    return protectOperation(async () => {
+      const collection = await this.requireCollection(context, collectionKey);
+      await this.assertAuthorized({
+        context,
+        operation: "records.list",
+        resource: this.collectionResource(context, collection),
+      });
+      if (this.persistence.records.listFiltered) {
+        const restriction = await this.recordPolicies.readFilter(collection, context);
+        const rows = await this.persistence.records.listFiltered(
+          context.workspaceId,
+          collection,
+          restriction ?? { all: [] },
+          { limit: 1001 },
+        );
+        if (rows.length > 1000)
+          throw actionInputError(
+            "This Collection requires pagination. Use a Source query with limit and offset.",
+          );
+        return rows;
+      }
+      const rows = await this.recordPolicies.filter(
+        context,
         context.workspaceId,
         collection,
-        restriction ?? { all: [] },
-        { limit: 1001 },
+        await this.persistence.records.list(context.workspaceId, collection),
       );
       if (rows.length > 1000)
         throw actionInputError(
           "This Collection requires pagination. Use a Source query with limit and offset.",
         );
       return rows;
-    }
-    const rows = await this.recordPolicies.filter(
-      context,
-      context.workspaceId,
-      collection,
-      await this.persistence.records.list(context.workspaceId, collection),
-    );
-    if (rows.length > 1000)
-      throw actionInputError(
-        "This Collection requires pagination. Use a Source query with limit and offset.",
-      );
-    return rows;
+    });
   }
 
   async updateRecord(
@@ -1335,31 +980,33 @@ export class Kernel {
     recordId: string,
     patch: RecordValues,
   ): Promise<CollectionRecord> {
-    const collection = await this.requireCollection(context, collectionKey);
-    await this.assertAuthorized({
-      context,
-      operation: "records.update",
-      resource: this.recordResource(context, collection, recordId),
+    return protectOperation(async () => {
+      const collection = await this.requireCollection(context, collectionKey);
+      await this.assertAuthorized({
+        context,
+        operation: "records.update",
+        resource: this.recordResource(context, collection, recordId),
+      });
+      const current = await this.requireRecord(context.workspaceId, collection, recordId);
+      const values = prepareUpdateValues(collection, current.values, patch);
+      await this.assertReferences(context, collection, values);
+      await this.recordPolicies.assert({
+        context,
+        workspaceId: context.workspaceId,
+        collection,
+        operation: "update",
+        current,
+        values,
+      });
+      const record: CollectionRecord = {
+        ...current,
+        values,
+        updatedAt: this.clock.now(),
+        updatedBy: context.actorId,
+      };
+      await this.persistence.records.update(context.workspaceId, collection, record);
+      return record;
     });
-    const current = await this.requireRecord(context.workspaceId, collection, recordId);
-    const values = prepareUpdateValues(collection, current.values, patch);
-    await this.assertReferences(context, collection, values);
-    await this.recordPolicies.assert({
-      context,
-      workspaceId: context.workspaceId,
-      collection,
-      operation: "update",
-      current,
-      values,
-    });
-    const record: CollectionRecord = {
-      ...current,
-      values,
-      updatedAt: this.clock.now(),
-      updatedBy: context.actorId,
-    };
-    await this.persistence.records.update(context.workspaceId, collection, record);
-    return record;
   }
 
   async deleteRecord(
@@ -1367,121 +1014,145 @@ export class Kernel {
     collectionKey: string,
     recordId: string,
   ): Promise<void> {
-    const collection = await this.requireCollection(context, collectionKey);
-    await this.assertAuthorized({
-      context,
-      operation: "records.delete",
-      resource: this.recordResource(context, collection, recordId),
+    return protectOperation(async () => {
+      const collection = await this.requireCollection(context, collectionKey);
+      await this.assertAuthorized({
+        context,
+        operation: "records.delete",
+        resource: this.recordResource(context, collection, recordId),
+      });
+      const current = await this.requireRecord(context.workspaceId, collection, recordId);
+      await this.recordPolicies.assert({
+        context,
+        workspaceId: context.workspaceId,
+        collection,
+        operation: "delete",
+        current,
+      });
+      await this.persistence.records.delete(context.workspaceId, collection, recordId);
     });
-    const current = await this.requireRecord(context.workspaceId, collection, recordId);
-    await this.recordPolicies.assert({
-      context,
-      workspaceId: context.workspaceId,
-      collection,
-      operation: "delete",
-      current,
-    });
-    await this.persistence.records.delete(context.workspaceId, collection, recordId);
   }
 
   async getWorkspace(
     context: ExecutionContext,
     id = context.workspaceId,
   ): Promise<Workspace | null> {
-    await this.authorizeCatalogRead(context, "workspaces.read", id);
-    return this.catalog.getWorkspace(id);
+    return protectOperation(async () => {
+      await this.authorizeCatalogRead(context, "workspaces.read", id);
+      return this.catalog.getWorkspace(id);
+    });
   }
 
   async listRootWorkspaces(context: ExecutionContext): Promise<Workspace[]> {
-    await this.authorizeCatalogRead(context, "workspaces.listRoots");
-    const workspace = await this.requireWorkspace(context.workspaceId);
-    const root = await this.catalog.getWorkspace(workspace.rootId);
-    return root ? [root] : [];
+    return protectOperation(async () => {
+      await this.authorizeCatalogRead(context, "workspaces.listRoots");
+      const workspace = await this.requireWorkspace(context.workspaceId);
+      const root = await this.catalog.getWorkspace(workspace.rootId);
+      return root ? [root] : [];
+    });
   }
 
   async listChildWorkspaces(
     context: ExecutionContext,
     parentId = context.workspaceId,
   ): Promise<Workspace[]> {
-    await this.authorizeCatalogRead(context, "workspaces.listChildren", parentId);
-    return this.catalog.listChildWorkspaces(parentId);
+    return protectOperation(async () => {
+      await this.authorizeCatalogRead(context, "workspaces.listChildren", parentId);
+      return this.catalog.listChildWorkspaces(parentId);
+    });
   }
 
   async listWorkspacesByRoot(context: ExecutionContext): Promise<Workspace[]> {
-    await this.authorizeCatalogRead(context, "workspaces.listByRoot");
-    const workspace = await this.requireWorkspace(context.workspaceId);
-    return this.catalog.listWorkspacesByRoot(workspace.rootId);
+    return protectOperation(async () => {
+      await this.authorizeCatalogRead(context, "workspaces.listByRoot");
+      const workspace = await this.requireWorkspace(context.workspaceId);
+      return this.catalog.listWorkspacesByRoot(workspace.rootId);
+    });
   }
 
   async getActor(context: ExecutionContext, id: string): Promise<Actor | null> {
-    await this.authorizeActorRead(context, "actors.read", id);
-    const actor = await this.catalog.getActor(id);
-    const workspace = await this.requireWorkspace(context.workspaceId);
-    return actor?.rootId === workspace.rootId ? actor : null;
+    return protectOperation(async () => {
+      await this.authorizeActorRead(context, "actors.read", id);
+      const actor = await this.catalog.getActor(id);
+      const workspace = await this.requireWorkspace(context.workspaceId);
+      return actor?.rootId === workspace.rootId ? actor : null;
+    });
   }
 
   async listActorsByOrigin(
     context: ExecutionContext,
     originId = context.workspaceId,
   ): Promise<Actor[]> {
-    await this.authorizeCatalogRead(context, "actors.listByOrigin", originId);
-    return this.catalog.listActorsByOrigin(originId);
+    return protectOperation(async () => {
+      await this.authorizeCatalogRead(context, "actors.listByOrigin", originId);
+      return this.catalog.listActorsByOrigin(originId);
+    });
   }
 
   async listActorsByRoot(context: ExecutionContext): Promise<Actor[]> {
-    await this.assertContext(context);
-    await this.assertAuthorized({
-      context,
-      operation: "actors.listByRoot",
-      resource: { kind: "workspace", id: context.workspaceId, workspaceId: context.workspaceId },
+    return protectOperation(async () => {
+      await this.assertContext(context);
+      await this.assertAuthorized({
+        context,
+        operation: "actors.listByRoot",
+        resource: { kind: "workspace", id: context.workspaceId, workspaceId: context.workspaceId },
+      });
+      const workspace = await this.requireWorkspace(context.workspaceId);
+      return this.catalog.listActorsByRoot(workspace.rootId);
     });
-    const workspace = await this.requireWorkspace(context.workspaceId);
-    return this.catalog.listActorsByRoot(workspace.rootId);
   }
 
   async listMembers(
     context: ExecutionContext,
     workspaceId = context.workspaceId,
   ): Promise<Actor[]> {
-    await this.authorizeCatalogRead(context, "actors.listMembers", workspaceId);
-    return this.catalog.listMembers(workspaceId);
+    return protectOperation(async () => {
+      await this.authorizeCatalogRead(context, "actors.listMembers", workspaceId);
+      return this.catalog.listMembers(workspaceId);
+    });
   }
 
   async listMembershipsForActor(context: ExecutionContext, actorId: string): Promise<Membership[]> {
-    await this.authorizeActorRead(context, "memberships.listForActor", actorId);
-    const actor = await this.catalog.getActor(actorId);
-    const workspace = await this.requireWorkspace(context.workspaceId);
-    if (!actor || actor.rootId !== workspace.rootId) throw resourceNotFound("Actor", actorId);
-    return this.catalog.listMembershipsForActor(actorId);
+    return protectOperation(async () => {
+      await this.authorizeActorRead(context, "memberships.listForActor", actorId);
+      const actor = await this.catalog.getActor(actorId);
+      const workspace = await this.requireWorkspace(context.workspaceId);
+      if (!actor || actor.rootId !== workspace.rootId) throw resourceNotFound("Actor", actorId);
+      return this.catalog.listMembershipsForActor(actorId);
+    });
   }
 
   async listMembershipsForWorkspace(
     context: ExecutionContext,
     workspaceId = context.workspaceId,
   ): Promise<Membership[]> {
-    await this.authorizeCatalogRead(context, "memberships.listForWorkspace", workspaceId);
-    return this.catalog.listMembershipsForWorkspace(workspaceId);
+    return protectOperation(async () => {
+      await this.authorizeCatalogRead(context, "memberships.listForWorkspace", workspaceId);
+      return this.catalog.listMembershipsForWorkspace(workspaceId);
+    });
   }
 
   async resolveContext(context: ExecutionContext): Promise<ExecutionContext> {
-    await this.assertContext(context);
-    return Object.freeze({
-      ...context,
-      ...(context.scope === undefined ? {} : { scope: Object.freeze({ ...context.scope }) }),
+    return protectOperation(async () => {
+      await this.assertContext(context);
+      return Object.freeze({
+        ...context,
+        ...(context.scope === undefined ? {} : { scope: Object.freeze({ ...context.scope }) }),
+      });
     });
   }
 
   close(): Promise<void> {
-    return this.persistence.close();
+    return protectOperation(() => this.persistence.close());
   }
 
   /** Trusted host composition only. Modules must authorize their actor-facing operations. */
   openModuleStorage(schema: ModuleSchema): Promise<ModuleStore> {
-    return this.persistence.modules.open(schema);
+    return protectOperation(() => this.persistence.modules.open(schema));
   }
   /** Trusted maintenance only, never exposed on WorkspaceClient. Stop module workers first. */
   resetModuleStorage(moduleId: string): Promise<void> {
-    return this.persistence.modules.reset(moduleId);
+    return protectOperation(() => this.persistence.modules.reset(moduleId));
   }
 
   private async authorizeCatalogRead(
@@ -1498,354 +1169,27 @@ export class Kernel {
   }
 
   private coreActions(): readonly ActionDefinition[] {
-    return [
-      {
-        key: "rules.list",
-        tool: {
-          ...actionTool(
-            "List rules",
-            "Read canonical Rules, including stable IDs and steps, before editing one.",
-            {},
-          ),
-          availability: "discoverable",
-        },
-        run: async ({ context }) => {
-          return (await this.listRules(context)) as unknown as JsonValue;
-        },
-      },
-      {
-        key: "rules.save",
-        tool: {
-          ...actionTool(
-            "Save rule",
-            "Create or replace one canonical Rule. Preserve its stable ID when editing; step and branch IDs are generated when omitted. Validation and Spec permissions still apply.",
-            {
-              rule: {
-                type: "object",
-                description:
-                  "Canonical Rule definition with key, label, inputs, steps, and optional result.",
-                additionalProperties: true,
-              },
-            },
-            ["rule"],
-          ),
-          availability: "discoverable",
-        },
-        run: async ({ context, input }) => {
-          if (context.scope)
-            throw actionInputError(
-              "Rules in a scoped Spec cannot be saved through this Workspace Action.",
-            );
-          if (input.rule === undefined || !isJsonObject(input.rule))
-            throw actionInputError("Action input rule must be an object.");
-          const rule = withRuleIds(input.rule, this.ids) as unknown as RuleDefinition;
-          const workspace = await this.requireWorkspace(context.workspaceId);
-          const rules = workspace.spec.rules.some((candidate) => candidate.id === rule.id)
-            ? workspace.spec.rules.map((candidate) => (candidate.id === rule.id ? rule : candidate))
-            : [...workspace.spec.rules, rule];
-          await this.applySpec(context, { ...workspace.spec, rules });
-          return { id: rule.id, key: rule.key, label: rule.label };
-        },
-      },
-      {
-        key: "sources.list",
-        tool: actionTool(
-          "List sources",
-          "Discover available Sources, their stable IDs, and Field schemas before using record tools.",
-          {},
-        ),
-        run: async ({ context }) =>
-          (await this.sources.list(context)).map((source) => ({
-            id: source.schema.id,
-            key: source.key,
-            label: source.label,
-            kind: source.kind,
-            fields: source.schema.fields.map((field) => ({
-              id: field.id,
-              key: field.key,
-              label: field.label,
-              type: field.type,
-              required: field.required ?? false,
-            })),
-            capabilities: { ...source.capabilities },
-          })),
-      },
-      {
-        key: "views.list",
-        tool: actionTool(
-          "List views",
-          "Discover saved Views and their stable IDs before querying them.",
-          {},
-        ),
-        run: async ({ context }) =>
-          (await this.views.list(context)).map((view) => ({
-            id: view.id,
-            key: view.key,
-            label: view.label,
-            description: view.description ?? null,
-            source: view.source,
-            parameters: (view.parameters ?? []).map((parameter) => ({
-              key: parameter.key,
-              label: parameter.label ?? parameter.key,
-              required: parameter.required ?? false,
-            })),
-          })),
-      },
-      {
-        key: "records.create",
-        tool: actionTool(
-          "Create record",
-          "Create a record in a local Collection using stable Source and Field IDs.",
-          {
-            sourceId: { type: "string", description: "Stable local Collection ID." },
-            values: {
-              type: "object",
-              description: "Values keyed by stable Field ID.",
-              additionalProperties: true,
-            },
-          },
-          ["sourceId", "values"],
-        ),
-        run: async ({ context, input, publish }) => {
-          const result = await this.createActionRecord(context, input, publish);
-          return recordValue(result.record, result.collection);
-        },
-      },
-      {
-        key: "records.get",
-        tool: actionTool(
-          "Get record",
-          "Read one record from a local or attached Source.",
-          {
-            sourceId: { type: "string", description: "Stable Source ID." },
-            recordId: { type: "string", description: "Runtime record ID." },
-          },
-          ["sourceId", "recordId"],
-        ),
-        run: async ({ context, input, runtime }) => {
-          const target = await this.actionRecordTarget(context, input);
-          const record = await runtime.getSourceRecord(context, target.source.key, target.recordId);
-          return record
-            ? sourceRecordValue(record.id, target.source.id, target.source.schema, record.values)
-            : null;
-        },
-      },
-      {
-        key: "records.list",
-        tool: actionTool(
-          "List records",
-          "Query records from a local or attached Source.",
-          {
-            sourceId: { type: "string", description: "Stable Source ID." },
-            query: { type: "json", description: "Optional canonical Source query." },
-          },
-          ["sourceId"],
-        ),
-        run: async ({ context, input }) => {
-          const source = await this.actionSource(context, input);
-          const query = optionalActionObject(input.query, "query") as
-            | SourceQueryDefinition
-            | undefined;
-          return (await this.sources.query(context, source.key, query)).rows.map((record) =>
-            sourceRecordValue(record.id, source.id, source.schema, record.values),
-          );
-        },
-      },
-      {
-        key: "records.update",
-        tool: actionTool(
-          "Update record",
-          "Update one record in a local or writable attached Source.",
-          {
-            sourceId: { type: "string", description: "Stable Source ID." },
-            recordId: { type: "string", description: "Runtime record ID." },
-            values: {
-              type: "object",
-              description: "Values keyed by stable Field ID.",
-              additionalProperties: true,
-            },
-          },
-          ["sourceId", "recordId", "values"],
-        ),
-        run: async ({ context, input, publish }) => {
-          const result = await this.updateActionRecord(context, input, publish);
-          return recordValue(result.record, result.schema, result.sourceId);
-        },
-      },
-      {
-        key: "records.delete",
-        tool: actionTool(
-          "Delete record",
-          "Delete one record from a local or writable attached Source.",
-          {
-            sourceId: { type: "string", description: "Stable Source ID." },
-            recordId: { type: "string", description: "Runtime record ID." },
-          },
-          ["sourceId", "recordId"],
-        ),
-        run: async ({ context, input, runtime, publish }) => {
-          const target = await this.actionRecordTarget(context, input);
-          const record = await runtime.getSourceRecord(context, target.source.key, target.recordId);
-          if (!record) throw resourceNotFound("Record", target.recordId);
-          await runtime.deleteSourceRecord(context, target.source.key, target.recordId);
-          await publish({
-            event: "record.deleted",
-            sourceId: target.source.id,
-            payload: {
-              record: sourceRecordValue(
-                record.id,
-                target.source.id,
-                target.source.schema,
-                record.values,
-              ),
-              recordId: record.id,
-            },
-          });
-          return { id: target.recordId };
-        },
-      },
-      {
-        key: "views.query",
-        tool: actionTool(
-          "Query view",
-          "Run a saved View using its stable ID and declared parameters.",
-          {
-            viewId: { type: "string", description: "Stable View ID." },
-            parameters: {
-              type: "object",
-              description: "Values for parameters declared by the View.",
-              additionalProperties: true,
-            },
-          },
-          ["viewId"],
-        ),
-        run: async ({ context, input }) => {
-          const workspace = await this.resolveWorkspace(context);
-          const viewId = requiredActionString(input.viewId, "viewId");
-          const view = workspace.spec.views.find((candidate) => candidate.id === viewId);
-          if (!view) throw resourceNotFound("View", viewId);
-          const parameters = optionalActionObject(input.parameters, "parameters");
-          const result = await this.views.query(
-            context,
-            view.key,
-            parameters === undefined ? {} : { parameters },
-          );
-          const source = [...workspace.spec.collections, ...workspace.spec.sources].find(
-            (candidate) => candidate.key === view.source,
-          );
-          if (!source) throw resourceNotFound("Source", view.source);
-          const descriptor = await this.sources.describe(context, source.key);
-          if (!descriptor) throw resourceNotFound("Source", view.source);
-          return result.data.rows.map((record) =>
-            sourceRecordValue(record.id, source.id, descriptor.schema, record.values),
-          );
-        },
-      },
-      {
-        key: "views.snapshot",
-        tool: actionTool(
-          "Snapshot view",
-          "Create an independent local Collection from the current result of a View.",
-          {
-            viewId: { type: "string", description: "Stable View ID." },
-            label: { type: "string", description: "Label for the new Collection." },
-            key: { type: "string", description: "Optional semantic Collection key." },
-            description: { type: "string" },
-            parameters: {
-              type: "object",
-              description: "Values for parameters declared by the View.",
-              additionalProperties: true,
-            },
-            meta: { type: "json", description: "Optional Collection metadata." },
-          },
-          ["viewId", "label"],
-        ),
-        run: async ({ context, input, publish }) => {
-          const workspace = await this.resolveWorkspace(context);
-          const viewId = requiredActionString(input.viewId, "viewId");
-          const view = workspace.spec.views.find((candidate) => candidate.id === viewId);
-          if (!view) throw resourceNotFound("View", viewId);
-          const label = requiredActionString(input.label, "label");
-          const key =
-            input.key === undefined
-              ? semanticKey(label, "snapshot")
-              : requiredActionString(input.key, "key");
-          if (workspace.spec.collections.some((collection) => collection.key === key))
-            throw resourceConflict(`Collection key ${key} is already in use.`);
-          const parameters = optionalActionObject(input.parameters, "parameters");
-          const meta = optionalActionObject(input.meta, "meta");
-          const result = await this.views.snapshot(
-            context,
-            view.key,
-            parameters === undefined ? {} : { parameters },
-          );
-          const fields = snapshotFields(result.data.columns, result.data.rows, this.ids);
-          const titleFieldId = firstTextFieldId(fields);
-          const collection: CollectionDefinition = {
-            id: this.ids.create("definition"),
-            key,
-            label,
-            ...(typeof input.description === "string" && input.description.trim()
-              ? { description: input.description.trim() }
-              : {}),
-            ...(meta === undefined ? {} : { meta: structuredClone(meta) }),
-            fields,
-            ...(titleFieldId === undefined ? {} : { titleFieldId }),
-          };
-          await this.assertAuthorized({
-            context,
-            operation: "records.create",
-            resource: this.collectionResource(context, collection),
-          });
-          const stamp = this.clock.now();
-          const records: CollectionRecord[] = [];
-          for (const row of result.data.rows) {
-            const values = prepareCreateValues(collection, row.values);
-            await this.assertReferences(context, collection, values);
-            records.push({
-              id: this.ids.create("record"),
-              collectionId: collection.id,
-              values,
-              createdAt: stamp,
-              updatedAt: stamp,
-              createdBy: context.actorId,
-              updatedBy: context.actorId,
-            });
-          }
-          if (context.scope) {
-            const config = await this.getScopeConfig(context);
-            await this.applyScopeConfigChange(
-              context,
-              { ...config, collections: [...config.collections, collection] },
-              [{ collection, records }],
-            );
-          } else {
-            await this.applySpecChange(
-              context,
-              { ...workspace.spec, collections: [...workspace.spec.collections, collection] },
-              [{ collection, records }],
-            );
-          }
-          const output: JsonValue = {
-            collectionId: collection.id,
-            collectionKey: collection.key,
-            recordIds: records.map((record) => record.id),
-            count: records.length,
-          };
-          await publish({
-            event: "snapshot.created",
-            sourceId: collection.id,
-            payload: { snapshot: output, viewId },
-          });
-          return output;
-        },
-      },
-      {
-        key: "inference.run",
-        run: async ({ context, input }) =>
-          collectInferenceRun(await this.runInference(context, actionInferenceInput(input))),
-      },
-    ];
+    return coreActions({
+      listRules: this.listRules.bind(this),
+      ids: this.ids,
+      requireWorkspace: this.requireWorkspace.bind(this),
+      applySpec: this.applySpec.bind(this),
+      sources: this.sources,
+      views: this.views,
+      resolveWorkspace: this.resolveWorkspace.bind(this),
+      assertAuthorized: this.assertAuthorized.bind(this),
+      collectionResource: this.collectionResource.bind(this),
+      clock: this.clock,
+      assertReferences: this.assertReferences.bind(this),
+      getScopeConfig: this.getScopeConfig.bind(this),
+      applyScopeConfigChange: this.applyScopeConfigChange.bind(this),
+      applySpecChange: this.applySpecChange.bind(this),
+      createActionRecord: this.createActionRecord.bind(this),
+      actionRecordTarget: this.actionRecordTarget.bind(this),
+      actionSource: this.actionSource.bind(this),
+      updateActionRecord: this.updateActionRecord.bind(this),
+      runInference: this.runInference.bind(this),
+    });
   }
 
   /** Actions and Form intake share mutation publication; low-level CRUD stays quiet. */
@@ -2270,300 +1614,4 @@ function recordShapeChanged(previous: CollectionDefinition, next: CollectionDefi
 function recordFieldShape(field: FieldDefinition) {
   const { label: _label, description: _description, meta: _meta, ...shape } = field;
   return shape;
-}
-
-function membership(
-  ids: IdGenerator,
-  stamp: string,
-  actorId: string,
-  workspaceId: string,
-  roles: readonly string[],
-  permissions: readonly Permission[],
-): Membership {
-  return {
-    id: ids.create("membership"),
-    actorId,
-    workspaceId,
-    roles: [...roles],
-    permissions: [...permissions],
-    createdAt: stamp,
-    updatedAt: stamp,
-  };
-}
-
-function defaultAccess(): WorkspaceAccess {
-  return { members: [...PERMISSIONS], others: [] };
-}
-
-function defaultPolicy(): WorkspacePolicy {
-  return { spawn: true, createActors: true, reshare: false };
-}
-
-function normalizePermissions(permissions: readonly Permission[]): Permission[] {
-  if (permissions.some((permission) => !PERMISSIONS.includes(permission)))
-    throw new FrameworkError({
-      code: ERROR_CODES.validationInvalidInput,
-      message: "Workspace access contains an unsupported permission.",
-    });
-  return PERMISSIONS.filter((permission) => permissions.includes(permission));
-}
-
-function requiredName(value: string, kind: string): string {
-  const name = value.trim();
-  if (!name) throw resourceConflict(`${kind} name is required.`);
-  return name;
-}
-
-function actionRecord(
-  value: JsonValue | undefined,
-): { id?: string; sourceId?: string } | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  return {
-    ...(typeof value.id === "string" ? { id: value.id } : {}),
-    ...(typeof value.sourceId === "string" ? { sourceId: value.sourceId } : {}),
-  };
-}
-
-function actionValues(
-  value: JsonValue | undefined,
-  name: string,
-  collection: CollectionDefinition,
-): RecordValues {
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    throw actionInputError(`A record Action requires an object at ${name}.`);
-  const fields = new Map(collection.fields.map((field) => [field.id, field.key]));
-  return Object.fromEntries(
-    Object.entries(value).map(([fieldId, fieldValue]) => {
-      const key = fields.get(fieldId);
-      if (!key) throw actionInputError(`Record Action Field ${fieldId} is unavailable.`);
-      return [key, fieldValue];
-    }),
-  );
-}
-
-function recordValue(
-  record: CollectionRecord,
-  collection: CollectionDefinition,
-  sourceId = record.collectionId,
-): JsonValue {
-  return {
-    id: record.id,
-    sourceId,
-    values: { ...record.values },
-    ...record.values,
-    $fields: stableFieldValues(collection, record.values),
-    createdAt: record.createdAt,
-    updatedAt: record.updatedAt,
-    createdBy: record.createdBy,
-    updatedBy: record.updatedBy,
-  };
-}
-
-function sourceRecordValue(
-  id: string,
-  sourceId: string,
-  collection: CollectionDefinition,
-  values: RecordValues,
-): JsonValue {
-  return {
-    ...values,
-    id,
-    sourceId,
-    values: { ...values },
-    $fields: stableFieldValues(collection, values),
-  };
-}
-
-function stableFieldValues(
-  collection: CollectionDefinition,
-  values: RecordValues,
-): Record<string, JsonValue> {
-  return Object.fromEntries(
-    collection.fields.map((field) => [field.id, values[field.key] ?? null]),
-  );
-}
-
-function stableActionValues(
-  collection: CollectionDefinition,
-  values: RecordValues,
-): Record<string, JsonValue> {
-  return Object.fromEntries(
-    Object.entries(values).map(([key, value]) => {
-      const field = collection.fields.find((candidate) => candidate.key === key);
-      if (!field) throw actionInputError(`Record Field ${key} is unavailable.`);
-      return [field.id, value];
-    }),
-  );
-}
-
-function actionTool(
-  label: string,
-  description: string,
-  properties: Readonly<Record<string, InferenceToolValueSchema>>,
-  required: readonly string[] = [],
-): NonNullable<ActionDefinition["tool"]> {
-  return {
-    label,
-    description,
-    input: {
-      type: "object",
-      properties,
-      ...(required.length ? { required } : {}),
-      additionalProperties: false,
-    },
-  };
-}
-
-/** Assign identities only to new authored nodes; preserve every supplied stable ID. */
-function withRuleIds(
-  value: Readonly<Record<string, JsonValue>>,
-  ids: IdGenerator,
-): Record<string, JsonValue> {
-  const rule = structuredClone(value) as Record<string, JsonValue>;
-  if (rule.id === undefined) rule.id = ids.create("definition");
-  const visit = (steps: JsonValue | undefined): void => {
-    if (!Array.isArray(steps)) return;
-    for (const item of steps) {
-      if (!isJsonObject(item)) continue;
-      const step = item as Record<string, JsonValue>;
-      if (step.id === undefined) step.id = ids.create("definition");
-      for (const kind of ["gate", "wait", "foreach", "repeat", "parallel"]) {
-        const config = step[kind];
-        if (!config || !isJsonObject(config)) continue;
-        if (kind === "gate") {
-          visit(config.pass);
-          visit(config.fail);
-        }
-        if (kind === "wait") {
-          visit(config.onSignal);
-          visit(config.onTimeout);
-        }
-        if (kind === "foreach" || kind === "repeat") visit(config.steps);
-        if (kind === "parallel" && Array.isArray(config.branches))
-          for (const value of config.branches) {
-            if (!isJsonObject(value)) continue;
-            const branch = value as Record<string, JsonValue>;
-            if (branch.id === undefined) branch.id = ids.create("definition");
-            visit(branch.steps);
-          }
-      }
-    }
-  };
-  visit(rule.steps);
-  return rule;
-}
-
-function actionInferenceInput(input: Readonly<Record<string, JsonValue>>): InferenceInput {
-  if (!Array.isArray(input.messages))
-    throw actionInputError("Action input messages must be an array.");
-  const messages: InferenceMessage[] = input.messages.map((value, index) => {
-    if (!isJsonObject(value))
-      throw actionInputError(`Action input messages.${index} must be an object.`);
-    if (value.role !== "user" && value.role !== "assistant")
-      throw actionInputError(`Action input messages.${index}.role must be user or assistant.`);
-    if (typeof value.content !== "string" || !value.content.trim())
-      throw actionInputError(`Action input messages.${index}.content must be a non-empty string.`);
-    return value.role === "user"
-      ? { role: "user", content: value.content }
-      : { role: "assistant", content: value.content };
-  });
-  if (typeof input.instructions !== "undefined" && typeof input.instructions !== "string")
-    throw actionInputError("Action input instructions must be a string.");
-  const metadata = optionalActionObject(input.metadata, "metadata");
-  return {
-    messages,
-    ...(input.instructions === undefined ? {} : { instructions: input.instructions as string }),
-    ...(metadata === undefined ? {} : { metadata }),
-  };
-}
-
-function actionInputError(message: string): FrameworkError {
-  return new FrameworkError({ code: ERROR_CODES.validationInvalidInput, message });
-}
-
-function requiredActionString(value: JsonValue | undefined, name: string): string {
-  if (typeof value !== "string" || !value.trim())
-    throw actionInputError(`Action input ${name} must be a non-empty string.`);
-  return value.trim();
-}
-
-function optionalActionObject(
-  value: JsonValue | undefined,
-  name: string,
-): Readonly<Record<string, JsonValue>> | undefined {
-  if (value === undefined) return undefined;
-  if (!isJsonObject(value)) throw actionInputError(`Action input ${name} must be an object.`);
-  return value;
-}
-
-function isJsonObject(value: JsonValue): value is Readonly<Record<string, JsonValue>> {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value));
-}
-
-function snapshotFields(
-  columns: readonly SourceColumn[],
-  rows: readonly SourceRow[],
-  ids: IdGenerator,
-): FieldDefinition[] {
-  const keys = new Set<string>();
-  return columns.map((column) => {
-    const base = semanticKey(column.key || column.label, "field");
-    let key = base;
-    for (let suffix = 2; keys.has(key); suffix += 1) key = `${base}_${suffix}`;
-    keys.add(key);
-    return {
-      id: ids.create("definition"),
-      key,
-      label: column.label,
-      type: snapshotFieldType(column, rows),
-    } as FieldDefinition;
-  });
-}
-
-function snapshotFieldType(
-  column: SourceColumn,
-  rows: readonly SourceRow[],
-): FieldDefinition["type"] {
-  if (column.type === "json" || column.type === "reference") return "json";
-  if (
-    rows.some((row) => {
-      const value = row.values[column.key];
-      return Boolean(value && typeof value === "object");
-    })
-  )
-    return "json";
-  if (column.type === "choice") return "text";
-  return column.type;
-}
-
-function firstTextFieldId(fields: readonly FieldDefinition[]): string | undefined {
-  return fields.find((field) => field.type === "text")?.id;
-}
-
-function mergeScopeConfig(spec: Spec, config: ScopeConfig): Spec {
-  return {
-    ...spec,
-    collections: [...spec.collections, ...config.collections],
-    views: [...spec.views, ...config.views],
-    forms: [...spec.forms, ...config.forms],
-    pages: [...spec.pages, ...config.pages],
-    rules: [...spec.rules, ...config.rules],
-  };
-}
-
-function assertDistinctScopeIds(left: ScopeConfig, right: ScopeConfig): void {
-  const definitions = (config: ScopeConfig) => [
-    ...config.collections,
-    ...config.views,
-    ...config.forms,
-    ...config.pages,
-    ...config.rules,
-    ...config.collections.flatMap((collection) => collection.fields),
-  ];
-  const ids = new Set(definitions(right).map((item) => item.id));
-  if (definitions(left).some((item) => ids.has(item.id)))
-    throw new FrameworkError({
-      code: ERROR_CODES.validationInvalidInput,
-      message: "Scope definitions must not reuse identities owned by another scope.",
-    });
 }

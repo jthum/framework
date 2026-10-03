@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { PageDefinition } from "../../spec/model.ts";
-  import PageEditor from "./page-editor.svelte";
-  import PageList from "./page-list.svelte";
+  import PageEditor from "../../svelte/authoring/page-editor.svelte";
+  import PageList from "../../svelte/authoring/page-list.svelte";
 
   let { page, listing = false }: { page: PageDefinition; listing?: boolean } = $props();
   const blocks = [{ key: "custom", label: "Custom Block", category: "custom" }];

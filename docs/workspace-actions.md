@@ -7,10 +7,19 @@ Settings and runtime Actions are instance state scoped to one Workspace. They ar
 - Data contracts: [`src/kernel/workspace-config.ts`](../src/kernel/workspace-config.ts)
 - Kernel operations: [`src/kernel/workspace-config-service.ts`](../src/kernel/workspace-config-service.ts)
 - Action execution and delegation: [`src/kernel/action-registry.ts`](../src/kernel/action-registry.ts), [`src/kernel/rules.ts`](../src/kernel/rules.ts)
+- Built-in Action groups: [`src/kernel/actions`](../src/kernel/actions), with composition-only,
+  resource-specific ports rather than a dependency on the whole Kernel.
 - Persistence ports: [`src/persistence/workspace-config.ts`](../src/persistence/workspace-config.ts)
 - Behavior: [`src/kernel/workspace-config.spec.ts`](../src/kernel/workspace-config.spec.ts)
 
 ## Settings
+
+Catalog lifecycle operations live in `WorkspaceLifecycleService` and `ActorLifecycleService`;
+atomic Workspace/scope definition changes live in `SpecLifecycleService`. Kernel retains the
+public facade, service composition and cross-cutting policy seams. SQLite physical naming and
+quoting are adapter-private in `src/sqlite/identifiers.ts`. The default authorizer uses an explicit
+operation-to-permission table, with unknown operations requiring manage instead of inferring
+authority from a suffix. Read-only View preview uses read permission and still authorizes its Source.
 
 `putSetting` stores a keyed, optionally categorized value. `listSettings` and `getSetting` are suitable for a settings UI. They return a `configured` flag, ordinary values, and an optional masked secret hint, but never return plaintext or ciphertext. Secret values are encrypted into the Workspace configuration record; the host supplies `KernelOptions.secretCipher` with an environment-owned key. `createAesGcmSecretCipher` is the reference cipher and binds ciphertext to its Workspace and setting key. The host chooses how to load and protect the key (for example, a server environment variable or a browser-local key). A lost key makes saved secrets unreadable; replacing it requires re-entering them.
 

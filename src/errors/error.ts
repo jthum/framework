@@ -3,6 +3,7 @@ import { nanoid } from "nanoid";
 
 export const ERROR_CODES = {
   actionUnknown: "ACTION.UNKNOWN",
+  attachmentRevoked: "ATTACHMENT.REVOKED",
   specUnsupportedVersion: "SPEC.UNSUPPORTED_VERSION",
   specBindingRequired: "SPEC.BINDING_REQUIRED",
   permissionRunAsDenied: "PERMISSION.RUN_AS_DENIED",
@@ -85,10 +86,14 @@ export function asFrameworkError(error: unknown): FrameworkError {
     {
       code: ERROR_CODES.internalUnexpected,
       message: "Something went wrong. Please try again.",
-      errorId: nanoid(16),
+      errorId: createErrorId(),
     },
     { cause: error },
   );
+}
+
+export function createErrorId(): string {
+  return nanoid(16);
 }
 
 export async function protectOperation<T>(operation: () => T | Promise<T>): Promise<T> {

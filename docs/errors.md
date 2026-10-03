@@ -116,8 +116,10 @@ These codes define the initial shared meanings. Add narrower codes as implementa
 
 `asFrameworkError` preserves expected Framework failures and wraps unexpected faults with a
 friendly `INTERNAL.UNEXPECTED` envelope and an occurrence `errorId`. The original fault lives
-only in `cause` for trusted host reporting; never serialize that cause to clients. Actions and
-the secret cipher use this boundary. Durable failure summaries preserve the semantic code.
+only in `cause` for trusted host reporting; never serialize that cause to clients. Kernel async
+API boundaries, Actions and the secret cipher use this boundary. Durable failure summaries
+preserve the semantic code. Known Attachment IDs expose `ATTACHMENT.REVOKED`; semantic Source
+lookups omit revoked bindings, so a key with no active binding remains `RESOURCE.NOT_FOUND`.
 The catalog below includes reserved meanings as well as current runtime codes; it is not a
 promise that every listed scenario is implemented by every environment.
 
@@ -142,6 +144,7 @@ promise that every listed scenario is implemented by every environment.
 | `RULE.INVALID`                       | The Rule definition is invalid                                  |
 | `RULE.EXECUTION_FAILED`              | Rule execution failed without a more precise preserved code     |
 | `RULE.WAIT_UNSUPPORTED`              | The environment cannot durably suspend this Rule                |
+| `RULE.CHECKPOINT_LIMIT`              | The Workflow exceeded its checkpoint byte budget                |
 | `PERSISTENCE.UNAVAILABLE`            | The persistence adapter cannot currently serve the operation    |
 | `PERSISTENCE.CONFLICT`               | Persistence rejected the operation because state changed        |
 | `PERSISTENCE.UNSUPPORTED`            | The adapter cannot provide a required capability                |

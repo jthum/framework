@@ -1,3 +1,4 @@
+import type { Spec } from "../spec/model.ts";
 import { ERROR_CODES, FrameworkError } from "../errors/error.ts";
 import type { ScopeConfig, ScopeHandle } from "./model.ts";
 
@@ -40,4 +41,32 @@ function invalidConfig(): FrameworkError {
     code: ERROR_CODES.validationInvalidInput,
     message: "Scope configuration must contain collections, views, forms, pages, and rules arrays.",
   });
+}
+
+export function mergeScopeConfig(spec: Spec, config: ScopeConfig): Spec {
+  return {
+    ...spec,
+    collections: [...spec.collections, ...config.collections],
+    views: [...spec.views, ...config.views],
+    forms: [...spec.forms, ...config.forms],
+    pages: [...spec.pages, ...config.pages],
+    rules: [...spec.rules, ...config.rules],
+  };
+}
+
+export function assertDistinctScopeIds(left: ScopeConfig, right: ScopeConfig): void {
+  const definitions = (config: ScopeConfig) => [
+    ...config.collections,
+    ...config.views,
+    ...config.forms,
+    ...config.pages,
+    ...config.rules,
+    ...config.collections.flatMap((collection) => collection.fields),
+  ];
+  const ids = new Set(definitions(right).map((item) => item.id));
+  if (definitions(left).some((item) => ids.has(item.id)))
+    throw new FrameworkError({
+      code: ERROR_CODES.validationInvalidInput,
+      message: "Scope definitions must not reuse identities owned by another scope.",
+    });
 }

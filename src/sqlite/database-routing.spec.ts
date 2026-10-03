@@ -517,7 +517,10 @@ describe("SQLite record database routing", () => {
       await rm(app.path(location), { force: true });
       throw new Error("Interrupted cleanup");
     });
-    await expect(app.kernel.deleteScopeConfig(app.alpha)).rejects.toThrow("Interrupted cleanup");
+    await expect(app.kernel.deleteScopeConfig(app.alpha)).rejects.toMatchObject({
+      code: ERROR_CODES.internalUnexpected,
+      cause: expect.objectContaining({ message: "Interrupted cleanup" }),
+    });
     await app.kernel.close();
     const kernel = await Kernel.open({ persistence: app.adapter() });
     try {
@@ -684,7 +687,10 @@ describe("SQLite Workspace databases", () => {
           { ...collection, key: "memo", fields: [{ ...collection.fields[0]!, key: "heading" }] },
         ],
       }),
-    ).rejects.toThrow("Injected metadata failure");
+    ).rejects.toMatchObject({
+      code: ERROR_CODES.internalUnexpected,
+      cause: expect.objectContaining({ message: "Injected metadata failure" }),
+    });
     await expect(app.kernel.listRecords(app.root, "notes")).rejects.toMatchObject({
       code: ERROR_CODES.resourceConflict,
     });

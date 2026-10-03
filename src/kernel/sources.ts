@@ -121,7 +121,11 @@ export class SourceService implements SourceProvider {
       try {
         attached.push(await this.describeAttached(context, binding.key));
       } catch (error) {
-        if (!(error instanceof FrameworkError) || error.code !== ERROR_CODES.resourceNotFound)
+        if (
+          !(error instanceof FrameworkError) ||
+          (error.code !== ERROR_CODES.resourceNotFound &&
+            error.code !== ERROR_CODES.attachmentRevoked)
+        )
           throw error;
       }
     }

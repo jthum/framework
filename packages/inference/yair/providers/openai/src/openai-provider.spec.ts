@@ -85,6 +85,7 @@ describe("OpenAIProvider", () => {
     const events = await collect(provider.infer(request()));
 
     expect(sentUrl).toBe("https://api.openai.com/v1/chat/completions");
+    expect(sentInit?.redirect).toBe("error");
     expect(new Headers(sentInit?.headers).get("authorization")).toBe("Bearer test-key");
     const body = JSON.parse(requestBody(sentInit));
     expect(body).toMatchObject({
@@ -236,8 +237,13 @@ describe("OpenAIProvider", () => {
   });
 
   it("normalizes provider errors and cancellation", async () => {
+    const diagnostics: unknown[] = [];
     const failed = openAI({
       defaultModel: "model-test",
+      onError: (error) => {
+        diagnostics.push(error);
+        throw new Error("Logging failed");
+      },
       fetch: async () =>
         Response.json({ error: { message: "Capacity exhausted." } }, { status: 429 }),
     });
@@ -251,17 +257,24 @@ describe("OpenAIProvider", () => {
       },
     });
 
-    expect(await collect(failed.infer({ messages: [], tools: [] }))).toEqual([
+    const failedEvents = await collect(failed.infer({ messages: [], tools: [] }));
+    expect(failedEvents).toEqual([
       {
         type: "failed",
         error: {
           code: ERROR_CODES.inferenceProviderError,
-          message: "Capacity exhausted.",
+          message: "Provider request failed with HTTP 429.",
+          errorId: expect.any(String),
           retryable: true,
           details: { status: 429 },
         },
       },
     ]);
+    const failure = failedEvents.find((event) => event.type === "failed")!;
+    expect(diagnostics).toEqual([
+      expect.objectContaining({ errorId: failure.error.errorId, cause: expect.any(Response) }),
+    ]);
+    expect(JSON.stringify(failedEvents)).not.toContain("Capacity exhausted");
     expect(
       await collect(cancelled.infer({ messages: [], tools: [], signal: controller.signal })),
     ).toEqual([{ type: "cancelled" }]);

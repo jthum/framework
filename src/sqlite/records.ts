@@ -1,3 +1,4 @@
+import { fieldColumn, physicalTableName, quoteIdentifier } from "./identifiers.ts";
 import {
   ERROR_CODES,
   FrameworkError,
@@ -7,7 +8,6 @@ import {
 import type { CollectionRecord, RecordQueryRelation, RecordStore } from "../persistence/records.ts";
 import type {
   CollectionDefinition,
-  FieldDefinition,
   JsonValue,
   SourceFilter,
   SourceQueryDefinition,
@@ -534,24 +534,6 @@ function decodeRecord(row: DataRow, collection: CollectionDefinition): Collectio
     createdBy: requireString(row._created_by),
     updatedBy: requireString(row._updated_by),
   };
-}
-
-function fieldColumn(field: FieldDefinition): string {
-  return `_field_${toHex(field.id)}`;
-}
-
-function physicalTableName(workspaceId: string, collectionId: string): string {
-  return `_records_${toHex(workspaceId)}_${toHex(collectionId)}`;
-}
-
-function toHex(value: string): string {
-  return [...new TextEncoder().encode(value)]
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-function quoteIdentifier(value: string): string {
-  return `"${value.replaceAll('"', '""')}"`;
 }
 
 function requireString(value: DataRow[string] | undefined): string {

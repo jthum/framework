@@ -1,6 +1,6 @@
 <script lang="ts">
-  import ViewEditor from "./view-editor.svelte";
-  import type { EditorContext, ViewDraft } from "./authoring.js";
+  import ViewEditor from "../../svelte/authoring/view-editor.svelte";
+  import type { EditorContext, ViewDraft } from "../../svelte/authoring/authoring.js";
   let { context, view }: { context: EditorContext; view: ViewDraft } = $props();
   const untouched = async () => { throw new Error("Rendering must not call host services"); };
 </script>

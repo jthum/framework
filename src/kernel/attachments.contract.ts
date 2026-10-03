@@ -34,7 +34,7 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
       await kernel.createRecord(origin, collection.key, { title: "Engineer", status: "open" });
       revokeDuringRead = () => kernel.revokeAttachment(origin, attachment.id);
       await expect(sourceRows(kernel, target, "shared_jobs")).rejects.toMatchObject({
-        code: ERROR_CODES.resourceNotFound,
+        code: ERROR_CODES.attachmentRevoked,
       });
       await kernel.close();
     });
@@ -266,7 +266,7 @@ export function attachmentContract(name: string, createAdapter: () => Persistenc
       expect(await sourceRows(kernel, secondTarget, "shared_jobs")).toHaveLength(1);
       await kernel.revokeAttachment(origin, parent.id);
       await expect(sourceRows(kernel, secondTarget, "shared_jobs")).rejects.toMatchObject({
-        code: ERROR_CODES.resourceNotFound,
+        code: ERROR_CODES.attachmentRevoked,
       });
       await kernel.close();
     });

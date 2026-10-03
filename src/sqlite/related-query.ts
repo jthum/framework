@@ -1,3 +1,4 @@
+import { fieldColumn, quoteIdentifier } from "./identifiers.ts";
 import { ERROR_CODES, FrameworkError } from "../errors/error.ts";
 import type { RecordQueryRelation, RecordQueryResult } from "../persistence/records.ts";
 import type {
@@ -80,12 +81,12 @@ export async function queryRelatedSqliteRecords(
   };
   const projected = `SELECT root.*, ${synthetic
     .flatMap((item) => [
-      `${item.expression} AS ${quote(fieldColumn(item.field))}`,
+      `${item.expression} AS ${quoteIdentifier(fieldColumn(item.field))}`,
       ...(item.nullExpression
-        ? [`${item.nullExpression} AS ${quote(`_null_${item.field.id}`)}`]
+        ? [`${item.nullExpression} AS ${quoteIdentifier(`_null_${item.field.id}`)}`]
         : []),
     ])
-    .join(", ")} FROM ${quote(rootTable)} AS root`;
+    .join(", ")} FROM ${quoteIdentifier(rootTable)} AS root`;
   const result = await querySqliteRecords(
     database,
     rootTable,
@@ -135,8 +136,8 @@ function relationExpression(
     const relation = relations.find((item) => key(item.path) === key(prefix));
     if (!reference || reference.type !== "reference" || !relation) throw invalidPath();
     const alias = `r${index}`;
-    const table = `${relation.schema ? `${quote(relation.schema)}.` : ""}${quote(relation.table)}`;
-    const referenceColumn = `${previousAlias}.${quote(fieldColumn(reference))}`;
+    const table = `${relation.schema ? `${quoteIdentifier(relation.schema)}.` : ""}${quoteIdentifier(relation.table)}`;
+    const referenceColumn = `${previousAlias}.${quoteIdentifier(fieldColumn(reference))}`;
     if (reference.multiple) {
       plural = true;
       const jsonAlias = `j${index}`;
@@ -157,7 +158,7 @@ function relationExpression(
   }
   const terminal = current.fields.find((field) => field.id === path.at(-1));
   if (!terminal) throw invalidPath();
-  const value = `${previousAlias}.${quote(fieldColumn(terminal))}`;
+  const value = `${previousAlias}.${quoteIdentifier(fieldColumn(terminal))}`;
   const where = conditions.length ? ` WHERE ${conditions.join(" AND ")}` : "";
   if (!plural) {
     const filterParameters = parameters.slice(parameterStart);
@@ -221,14 +222,6 @@ function uniqueFieldId(collection: CollectionDefinition, index: number): string 
 
 function key(path: readonly string[]): string {
   return path.join("\0");
-}
-
-function fieldColumn(field: FieldDefinition): string {
-  return `_field_${[...new TextEncoder().encode(field.id)].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`;
-}
-
-function quote(value: string): string {
-  return `"${value.replaceAll('"', '""')}"`;
 }
 
 function invalidPath(): FrameworkError {

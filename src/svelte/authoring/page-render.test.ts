@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import { render } from "svelte/server";
 import type { PageDefinition } from "../../spec/model.ts";
-import Fixture from "./page-fixture.svelte";
+import Fixture from "../../testing/svelte/page-fixture.svelte";
 
 const page: PageDefinition = {
   id: "page",

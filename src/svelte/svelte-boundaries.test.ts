@@ -2,7 +2,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { describe, expect, it } from "vite-plus/test";
 
-const roots = ["authoring", "operations", "settings", "internal"] as const;
+const roots = ["authoring", "operations", "settings", "internal", "ui", "hooks"] as const;
 
 function sourceFiles(directory: URL): URL[] {
   return readdirSync(directory).flatMap((name) => {
@@ -23,12 +23,18 @@ describe("Svelte integration boundaries", () => {
     })),
   );
 
-  it.each(sources)("$name stays independent of host globals and adapters", ({ file }) => {
-    const source = readFileSync(file, "utf8");
-    const runtimeSource = source.replace(/import\s+type\s+[^;]+;/g, "");
-    expect(source).not.toMatch(/from\s+["']\$(?:app|lib)\//);
-    expect(source).not.toMatch(/from\s+["'][^"']*(?:\/runtime\/|\/sqlite\/|session\.svelte)/);
-    expect(runtimeSource).not.toMatch(/from\s+["']\.\.\/\.\.\/kernel\//);
+  it("keeps all Svelte production surfaces independent of host globals and adapters", () => {
+    for (const { file, name } of sources) {
+      const source = readFileSync(file, "utf8");
+      const runtimeSource = source.replace(/import\s+type\s+[^;]+;/g, "");
+      expect(source, name).not.toMatch(/from\s+["']\$(?:app|lib)\//);
+      expect(source, name).not.toMatch(
+        /from\s+["'][^"']*(?:\/runtime\/|\/sqlite\/|session\.svelte)/,
+      );
+      expect(runtimeSource, name).not.toMatch(
+        /(?:from\s*|import\s*\()\s*["'](?:@jthum\/framework\/(?:kernel|persistence|sqlite)|[^"']*(?:\/kernel\/|\/persistence\/|\/sqlite\/))/,
+      );
+    }
   });
 
   it("keeps internal implementation private and removes the old Studio namespace", () => {

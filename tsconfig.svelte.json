@@ -3,5 +3,5 @@
   "compilerOptions": {
     "exactOptionalPropertyTypes": false
   },
-  "include": ["src/svelte/**/*.svelte", "src/svelte/**/*.ts"]
+  "include": ["src/svelte/**/*.svelte", "src/svelte/**/*.ts", "src/testing/svelte/*.svelte"]
 }

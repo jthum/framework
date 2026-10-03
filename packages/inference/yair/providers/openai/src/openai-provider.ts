@@ -1,5 +1,4 @@
 import type {
-  ErrorEnvelope,
   InferenceFinishReason,
   InferenceMessage,
   InferenceTool,
@@ -7,7 +6,7 @@ import type {
   InferenceToolValueSchema,
   JsonValue,
 } from "@jthum/framework";
-import { ERROR_CODES } from "@jthum/framework/errors";
+import { ERROR_CODES, FrameworkError, createErrorId } from "@jthum/framework/errors";
 import type { ModelEvent, ModelProvider, ModelRequest } from "@jthum/yair";
 
 type MaybePromise<T> = T | Promise<T>;
@@ -26,6 +25,8 @@ export interface OpenAIProviderOptions {
   /** `system` is the most widely supported instruction role among compatible providers. */
   readonly instructionRole?: "system" | "developer";
   readonly fetch?: typeof globalThis.fetch;
+  /** Protected host diagnostics only; never forward the original fault/body to clients. */
+  readonly onError?: (error: unknown) => void;
 }
 
 /** Create a YAIR provider for OpenAI or an OpenAI-compatible Chat Completions endpoint. */
@@ -47,7 +48,10 @@ export class OpenAIProvider implements ModelProvider {
     try {
       const response = await this.request(request);
       if (!response.ok) {
-        yield { type: "failed", error: await responseError(response) };
+        const fault = responseError(response);
+        reportError(this.options.onError, fault);
+        void response.body?.cancel().catch(() => undefined);
+        yield { type: "failed", error: fault.toEnvelope() };
         return;
       }
       if (this.options.stream === false) {
@@ -55,7 +59,9 @@ export class OpenAIProvider implements ModelProvider {
         return;
       }
       if (!response.body) {
-        yield { type: "failed", error: providerError("Provider returned an empty stream.") };
+        const fault = providerError("Provider returned an empty stream.");
+        reportError(this.options.onError, fault);
+        yield { type: "failed", error: fault.toEnvelope() };
         return;
       }
       yield* readCompletionStream(response.body, request);
@@ -64,9 +70,16 @@ export class OpenAIProvider implements ModelProvider {
         yield { type: "cancelled" };
         return;
       }
+      const fault = providerError(
+        "The model provider request failed. Please try again.",
+        undefined,
+        undefined,
+        error,
+      );
+      reportError(this.options.onError, fault);
       yield {
         type: "failed",
-        error: providerError(error instanceof Error ? error.message : "Provider request failed."),
+        error: fault.toEnvelope(),
       };
     }
   }
@@ -102,6 +115,7 @@ export class OpenAIProvider implements ModelProvider {
 
     return this.fetch(`${this.baseUrl}/chat/completions`, {
       method: "POST",
+      redirect: "error",
       headers,
       body: JSON.stringify(body),
       ...(request.signal === undefined ? {} : { signal: request.signal }),
@@ -538,25 +552,39 @@ async function* sseData(body: ReadableStream<Uint8Array>): AsyncIterable<string>
   yield* consume("");
 }
 
-async function responseError(response: Response): Promise<ErrorEnvelope> {
-  let message = `Provider request failed with HTTP ${response.status}.`;
-  try {
-    const body = asObject(await response.json());
-    const error = asObject(body.error);
-    if (typeof error.message === "string") message = error.message;
-  } catch {
-    // Preserve the status-based message for non-JSON compatible endpoints.
-  }
-  return providerError(message, response.status === 429 || response.status >= 500, response.status);
+function responseError(response: Response): FrameworkError {
+  return providerError(
+    `Provider request failed with HTTP ${response.status}.`,
+    response.status === 429 || response.status >= 500,
+    response.status,
+    response,
+  );
 }
 
-function providerError(message: string, retryable?: boolean, status?: number): ErrorEnvelope {
-  return {
-    code: ERROR_CODES.inferenceProviderError,
-    message,
-    ...(retryable === undefined ? {} : { retryable }),
-    ...(status === undefined ? {} : { details: { status } }),
-  };
+function reportError(report: OpenAIProviderOptions["onError"], error: unknown): void {
+  try {
+    report?.(error);
+  } catch {
+    /* Diagnostics must not affect provider lifecycle. */
+  }
+}
+
+function providerError(
+  message: string,
+  retryable?: boolean,
+  status?: number,
+  cause?: unknown,
+): FrameworkError {
+  return new FrameworkError(
+    {
+      code: ERROR_CODES.inferenceProviderError,
+      errorId: createErrorId(),
+      message,
+      ...(retryable === undefined ? {} : { retryable }),
+      ...(status === undefined ? {} : { details: { status } }),
+    },
+    { cause },
+  );
 }
 
 function isAbortError(error: unknown): boolean {
