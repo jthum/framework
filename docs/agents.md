@@ -97,6 +97,14 @@ const planner = await kernel.createAgent(context, {
 Agent configuration is instance state rather than portable Spec. Exporting Spec does not export
 identities, credentials, or deployment choices.
 
+For User/System inference, a selection with `configId` resolves the persisted ModelConfig in the
+active Workspace; caller-supplied provider/model/settings/credential overrides are ignored. Ad hoc
+models without `configId` remain possible but cannot name a Workspace `credentialRef`. Agent
+execution always uses its persisted origin-Workspace configuration, including credential and
+non-secret setting resolution, even when the Agent has Membership in another Workspace. Agent
+configuration cannot select a model belonging to a different issuing Workspace. These checks do
+not grant tool or data access in either Workspace.
+
 ## Dynamic tools
 
 `InferenceToolGateway.resolve()` returns a stable executable snapshot for one model step. A runtime

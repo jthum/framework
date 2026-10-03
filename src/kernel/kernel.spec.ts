@@ -8,6 +8,32 @@ import { Kernel } from "./kernel.ts";
 import type { ExecutionContext } from "./model.ts";
 
 describe("Kernel catalog skeleton", () => {
+  it("keeps privileged catalog discovery and Actor reads inside the active root", async () => {
+    const kernel = await Kernel.open({ persistence: new MemoryPersistenceAdapter() });
+    try {
+      const first = await kernel.createRootWorkspace({ name: "First", user: { name: "Jane" } });
+      const second = await kernel.createRootWorkspace({ name: "Second", user: { name: "Other" } });
+      const context = { workspaceId: first.workspace.id, actorId: first.user.id };
+      expect((await kernel.listRootWorkspaces(context)).map((root) => root.id)).toEqual([
+        first.workspace.id,
+      ]);
+      expect(await kernel.getActor(context, second.user.id)).toBeNull();
+      await expect(kernel.listMembershipsForActor(context, second.user.id)).rejects.toMatchObject({
+        code: ERROR_CODES.resourceNotFound,
+      });
+      const reader = await kernel.createActor(context, { name: "Reader", kind: "user" });
+      await kernel.addMembership(context, {
+        actorId: reader.id,
+        workspaceId: first.workspace.id,
+        permissions: ["read"],
+      });
+      expect(await kernel.getActor({ ...context, actorId: reader.id }, second.user.id)).toBeNull();
+      expect(await kernel.getActor(context, first.user.id)).toMatchObject({ id: first.user.id });
+    } finally {
+      await kernel.close();
+    }
+  });
+
   it("updates an Actor profile through the authorization boundary", async () => {
     const kernel = await Kernel.open({
       persistence: new MemoryPersistenceAdapter(),

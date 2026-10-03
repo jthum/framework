@@ -144,7 +144,7 @@ export class AgentConfigService {
   async getModel(context: ExecutionContext, id: string): Promise<ModelConfig | null> {
     await this.assertContext(context);
     const config = await this.catalog.getModelConfig(id);
-    if (!config) return null;
+    if (!config || config.workspaceId !== context.workspaceId) return null;
     await this.authorizeWorkspace(context, "model_configs.manage", config.workspaceId, false);
     return config;
   }
@@ -156,7 +156,8 @@ export class AgentConfigService {
   ): Promise<ModelConfig> {
     await this.assertContext(context);
     const current = await this.catalog.getModelConfig(id);
-    if (!current) throw resourceNotFound("ModelConfig", id);
+    if (!current || current.workspaceId !== context.workspaceId)
+      throw resourceNotFound("ModelConfig", id);
     await this.authorizeWorkspace(context, "model_configs.update", current.workspaceId, false);
     const config: ModelConfig = {
       id: current.id,
@@ -172,7 +173,8 @@ export class AgentConfigService {
   async deleteModel(context: ExecutionContext, id: string): Promise<void> {
     await this.assertContext(context);
     const current = await this.catalog.getModelConfig(id);
-    if (!current) throw resourceNotFound("ModelConfig", id);
+    if (!current || current.workspaceId !== context.workspaceId)
+      throw resourceNotFound("ModelConfig", id);
     await this.authorizeWorkspace(context, "model_configs.delete", current.workspaceId, false);
     await this.catalog.transaction((transaction) => transaction.deleteModelConfig(id));
   }
@@ -210,9 +212,13 @@ export class AgentConfigService {
       createdAt: current?.createdAt ?? stamp,
       updatedAt: stamp,
     };
-    await this.catalog.transaction((transaction) =>
-      current ? transaction.updateAgentConfig(config) : transaction.insertAgentConfig(config),
-    );
+    await this.catalog.transaction(async (transaction) => {
+      const model = await transaction.getModelConfig(input.modelConfigId);
+      if (!model || model.workspaceId !== actor.originId)
+        throw resourceNotFound("ModelConfig", input.modelConfigId);
+      if (current) await transaction.updateAgentConfig(config);
+      else await transaction.insertAgentConfig(config);
+    });
     return config;
   }
 
@@ -221,18 +227,33 @@ export class AgentConfigService {
     const config = await this.catalog.getAgentConfig(actor.id);
     if (!config) throw resourceNotFound("AgentConfig", actor.id);
     const model = await this.catalog.getModelConfig(config.modelConfigId);
-    if (!model) throw resourceNotFound("ModelConfig", config.modelConfigId);
+    if (!model || model.workspaceId !== actor.originId)
+      throw resourceNotFound("ModelConfig", config.modelConfigId);
     return {
       instructions: config.instructions,
-      model: {
-        configId: model.id,
-        provider: model.provider,
-        model: model.model,
-        ...(model.credentialRef === undefined ? {} : { credentialRef: model.credentialRef }),
-        ...(model.settings === undefined ? {} : { settings: structuredClone(model.settings) }),
-      },
+      model: modelSelection(model),
       tools: config.tools,
     };
+  }
+
+  /** Only persisted Workspace selections can release secrets to inference. */
+  async selection(
+    context: ExecutionContext,
+    input?: ModelSelection,
+  ): Promise<ModelSelection | undefined> {
+    if (!input) return undefined;
+    if (input.configId !== undefined) {
+      const model = await this.catalog.getModelConfig(input.configId);
+      if (!model || model.workspaceId !== context.workspaceId)
+        throw resourceNotFound("ModelConfig", input.configId);
+      return modelSelection(model);
+    }
+    if (input.credentialRef !== undefined)
+      throw new FrameworkError({
+        code: ERROR_CODES.permissionDenied,
+        message: "Select a configured model to use a Workspace credential.",
+      });
+    return structuredClone(input);
   }
 
   private async authorizeWorkspace(
@@ -254,6 +275,16 @@ export class AgentConfigService {
     if (!actor) throw resourceNotFound("Actor", id);
     return actor;
   }
+}
+
+function modelSelection(model: ModelConfig): ModelSelection {
+  return {
+    configId: model.id,
+    provider: model.provider,
+    model: model.model,
+    ...(model.credentialRef === undefined ? {} : { credentialRef: model.credentialRef }),
+    ...(model.settings === undefined ? {} : { settings: structuredClone(model.settings) }),
+  };
 }
 
 export function defaultAgentToolPolicy(): AgentToolPolicy {

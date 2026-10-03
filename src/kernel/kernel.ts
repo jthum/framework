@@ -689,7 +689,10 @@ export class Kernel {
     const actor = await this.requireInferenceRuntimeContext(context);
     const runtime = await this.assertInferenceRuntime();
     const configured = await this.agentExecution(actor);
-    const credentialRef = (configured?.model ?? input.model)?.credentialRef;
+    const model = configured?.model ?? (await this.agentConfigs.selection(context, input.model));
+    const credentialRef = model?.credentialRef;
+    // A delegated Agent retains its origin-owned configuration, not the target's secrets.
+    const configurationWorkspaceId = configured ? actor.originId : context.workspaceId;
     return runtime.run({
       execution: { ...context },
       actor,
@@ -704,11 +707,7 @@ export class Kernel {
                 ? configured.instructions
                 : `${configured.instructions}\n\n${input.instructions}`,
           }),
-      ...(configured?.model === undefined
-        ? input.model === undefined
-          ? {}
-          : { model: structuredClone(input.model) }
-        : { model: configured.model }),
+      ...(model === undefined ? {} : { model }),
       ...(input.metadata === undefined ? {} : { metadata: structuredClone(input.metadata) }),
       ...(input.signal === undefined ? {} : { signal: input.signal }),
       tools: this.inferenceToolService.gateway(
@@ -717,10 +716,10 @@ export class Kernel {
       ),
       resolveCredential: (settingKey) =>
         settingKey === credentialRef
-          ? this.workspaceConfig.inferenceCredential(context.workspaceId, settingKey)
+          ? this.workspaceConfig.inferenceCredential(configurationWorkspaceId, settingKey)
           : Promise.resolve(null),
       getSetting: (settingKey) =>
-        this.workspaceConfig.inferenceSetting(context.workspaceId, settingKey),
+        this.workspaceConfig.inferenceSetting(configurationWorkspaceId, settingKey),
     });
   }
 
@@ -1376,7 +1375,9 @@ export class Kernel {
 
   async listRootWorkspaces(context: ExecutionContext): Promise<Workspace[]> {
     await this.authorizeCatalogRead(context, "workspaces.listRoots");
-    return this.catalog.listRootWorkspaces();
+    const workspace = await this.requireWorkspace(context.workspaceId);
+    const root = await this.catalog.getWorkspace(workspace.rootId);
+    return root ? [root] : [];
   }
 
   async listChildWorkspaces(
@@ -1395,7 +1396,9 @@ export class Kernel {
 
   async getActor(context: ExecutionContext, id: string): Promise<Actor | null> {
     await this.authorizeActorRead(context, "actors.read", id);
-    return this.catalog.getActor(id);
+    const actor = await this.catalog.getActor(id);
+    const workspace = await this.requireWorkspace(context.workspaceId);
+    return actor?.rootId === workspace.rootId ? actor : null;
   }
 
   async listActorsByOrigin(
@@ -1427,6 +1430,9 @@ export class Kernel {
 
   async listMembershipsForActor(context: ExecutionContext, actorId: string): Promise<Membership[]> {
     await this.authorizeActorRead(context, "memberships.listForActor", actorId);
+    const actor = await this.catalog.getActor(actorId);
+    const workspace = await this.requireWorkspace(context.workspaceId);
+    if (!actor || actor.rootId !== workspace.rootId) throw resourceNotFound("Actor", actorId);
     return this.catalog.listMembershipsForActor(actorId);
   }
 

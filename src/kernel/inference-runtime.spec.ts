@@ -11,8 +11,124 @@ import {
 } from "./inference-runtime.ts";
 import { defineEnvironmentProfile, LOCAL_BROWSER_ENVIRONMENT } from "./environment.ts";
 import { Kernel } from "./kernel.ts";
+import { createAesGcmSecretCipher } from "./secret-cipher.ts";
 
 describe("InferenceRuntime", () => {
+  it("resolves only configured credentials, rejects foreign models, and retains a delegated Agent's origin configuration", async () => {
+    const runtime = new RecordingInferenceRuntime(async (context) => ({
+      selected: (await context.resolveCredential?.("model_key")) ?? null,
+      other: (await context.resolveCredential?.("unrelated_key")) ?? null,
+      setting: (await context.getSetting?.("connection")) ?? null,
+    }));
+    const kernel = await Kernel.open({
+      persistence: new MemoryPersistenceAdapter(),
+      environment: defineEnvironmentProfile({ ...LOCAL_BROWSER_ENVIRONMENT, inference: true }),
+      inference: runtime,
+      secretCipher: createAesGcmSecretCipher(() =>
+        crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]),
+      ),
+    });
+    try {
+      const root = await kernel.createRootWorkspace({ name: "Space", user: { name: "Jane" } });
+      const owner = { workspaceId: root.workspace.id, actorId: root.user.id };
+      await kernel.putSetting(owner, {
+        key: "model_key",
+        label: "Model",
+        secret: true,
+        value: "test-origin-key",
+      });
+      await kernel.putSetting(owner, {
+        key: "unrelated_key",
+        label: "Unrelated",
+        secret: true,
+        value: "test-unrelated-key",
+      });
+      await kernel.putSetting(owner, { key: "connection", label: "Connection", value: "origin" });
+      const model = await kernel.createModelConfig(owner, {
+        name: "Approved",
+        provider: "test",
+        model: "approved",
+        credentialRef: "model_key",
+      });
+      const reader = await kernel.createActor(owner, { name: "Reader", kind: "user" });
+      await kernel.addMembership(owner, {
+        actorId: reader.id,
+        workspaceId: root.workspace.id,
+        permissions: ["read"],
+      });
+      const context = { ...owner, actorId: reader.id };
+      await expect(
+        kernel.runInference(context, {
+          messages: [],
+          model: { provider: "test", model: "test", credentialRef: "unrelated_key" },
+        }),
+      ).rejects.toMatchObject({ code: ERROR_CODES.permissionDenied });
+      expect(runtime.requests).toHaveLength(0);
+      expect(
+        await collectInferenceRun(
+          await kernel.runInference(context, {
+            messages: [],
+            model: {
+              configId: model.id,
+              provider: "untrusted",
+              model: "untrusted",
+              credentialRef: "unrelated_key",
+            },
+          }),
+        ),
+      ).toEqual({ selected: "test-origin-key", other: null, setting: "origin" });
+      expect(runtime.requests[0]?.model).toMatchObject({
+        provider: "test",
+        model: "approved",
+        credentialRef: "model_key",
+      });
+      const child = await kernel.createWorkspace(owner, { name: "Child" });
+      const childContext = { ...owner, workspaceId: child.workspace.id };
+      const foreign = await kernel.createModelConfig(childContext, {
+        name: "Foreign",
+        provider: "test",
+        model: "foreign",
+      });
+      expect(await kernel.getModelConfig(owner, foreign.id)).toBeNull();
+      await expect(
+        kernel.runInference(context, {
+          messages: [],
+          model: { configId: foreign.id, provider: "test", model: "test" },
+        }),
+      ).rejects.toMatchObject({ code: ERROR_CODES.resourceNotFound });
+      const agent = await kernel.createAgent(owner, {
+        name: "Agent",
+        modelConfigId: model.id,
+        instructions: "Help.",
+      });
+      await expect(
+        kernel.configureAgent(owner, agent.actor.id, {
+          modelConfigId: foreign.id,
+          instructions: "Other.",
+        }),
+      ).rejects.toMatchObject({ code: ERROR_CODES.resourceNotFound });
+      expect((await kernel.getAgentConfig(owner, agent.actor.id))?.modelConfigId).toBe(model.id);
+      await kernel.addMembership(owner, {
+        actorId: agent.actor.id,
+        workspaceId: child.workspace.id,
+        permissions: ["read"],
+      });
+      await kernel.putSetting(childContext, {
+        key: "model_key",
+        label: "Model",
+        secret: true,
+        value: "test-target-key",
+      });
+      expect(
+        await collectInferenceRun(
+          await kernel.runInference({ ...childContext, actorId: agent.actor.id }, { messages: [] }),
+        ),
+      ).toEqual({ selected: "test-origin-key", other: null, setting: "origin" });
+    } finally {
+      await kernel.close();
+    }
+  });
+
   it("projects opted-in Actions and Rules and executes tools through the Kernel", async () => {
     const runtime = new RecordingInferenceRuntime(async (context) => {
       const tools = await context.tools.resolve({

@@ -121,7 +121,8 @@ export type InferenceEvent =
 export interface InferenceInput {
   readonly messages: readonly InferenceMessage[];
   readonly instructions?: string;
-  /** Model selection for User/System inference. Agent Actors use their persisted configuration. */
+  /** User/System selections with configId resolve their persisted Workspace model. Ad hoc models
+   * cannot name a Workspace credential. Agent Actors always use their origin-owned configuration. */
   readonly model?: ModelSelection;
   readonly metadata?: Readonly<Record<string, JsonValue>>;
   readonly signal?: AbortSignal;
