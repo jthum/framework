@@ -680,20 +680,20 @@
 		<Card.Content class="flex flex-col gap-5">
 			<Tabs.Root bind:value={section} class="gap-5">
 				<div class="flex flex-wrap items-center justify-between gap-2">
-					<Tabs.List class="h-auto max-w-full justify-start gap-1 overflow-x-auto p-1 group-data-horizontal/tabs:h-auto">
-						<Tabs.Trigger value="columns" class="h-8 flex-none gap-2 px-3">
+					<Tabs.List class="max-w-full justify-start overflow-x-auto">
+						<Tabs.Trigger value="columns" class="flex-none">
 							<Columns3Icon data-icon="inline-start" class="hidden sm:block" />
 							Columns
 							<span class="text-xs text-muted-foreground tabular-nums">{selected.length}</span>
 						</Tabs.Trigger>
-						<Tabs.Trigger value="filters" class="h-8 flex-none gap-2 px-3">
+						<Tabs.Trigger value="filters" class="flex-none">
 							<ListFilterIcon data-icon="inline-start" class="hidden sm:block" />
 							Filters
 							{#if filters.length}
 								<span class="text-xs text-muted-foreground tabular-nums">{filters.length}</span>
 							{/if}
 						</Tabs.Trigger>
-						<Tabs.Trigger value="sort" class="h-8 flex-none gap-2 px-3">
+						<Tabs.Trigger value="sort" class="flex-none">
 							<ArrowUpDownIcon data-icon="inline-start" class="hidden sm:block" />
 							Sort
 							{#if sorts.length}
@@ -701,14 +701,14 @@
 							{/if}
 						</Tabs.Trigger>
 						{#if queryMoreOpen}
-							<Tabs.Trigger value="summaries" class="h-8 flex-none gap-2 px-3">
+							<Tabs.Trigger value="summaries" class="flex-none">
 								<SigmaIcon data-icon="inline-start" class="hidden sm:block" />
 								Summaries
 								{#if summarize && measureRows.length}
 									<span class="text-xs text-muted-foreground tabular-nums">{measureRows.length}</span>
 								{/if}
 							</Tabs.Trigger>
-							<Tabs.Trigger value="advanced" class="h-8 flex-none gap-2 px-3">
+							<Tabs.Trigger value="advanced" class="flex-none">
 								<Settings2Icon data-icon="inline-start" class="hidden sm:block" />
 								Results
 							</Tabs.Trigger>

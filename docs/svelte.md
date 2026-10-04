@@ -55,6 +55,11 @@ collapse completely; Bits UI continues to own presence, keyboard interaction and
 
 ## Customization levels
 
+Ordinary `Tabs.List` and `Tabs.Trigger` use shared sizing, balanced insets, typography and icon
+spacing. Consumers should limit tab classes to surrounding layout (for example, wrapping or width),
+not repeat height, padding or line-height overrides per screen. Intentional alternate treatments use
+the named `line` or `rail` list variants; vertical tab alignment is handled by the primitive.
+
 Use the least powerful level that solves the requirement:
 
 1. Override semantic CSS variables for colour, radius, typography, chrome, and surfaces.
