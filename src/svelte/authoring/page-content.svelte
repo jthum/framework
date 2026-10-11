@@ -6,23 +6,40 @@
   import { cn } from "../utils.ts";
   import PageContent from "./page-content.svelte";
 
-  let { layout, blocks, renderBlock }: {
+  let {
+    layout,
+    blocks,
+    renderBlock,
+  }: {
     layout: readonly PageLayoutNode[];
     blocks: readonly BlockDefinition[];
     renderBlock: Snippet<[PageBlockNode]>;
   } = $props();
 </script>
 
-{#each layout as node (node.id)}
-  {#if node.kind === "group"}
-    <div class={cn(gridClass(node.columns ?? 1), "items-stretch", groupHeightClass(node, blocks))}>
-      {#each node.children as child (child.id)}
-        <div class={cn("flex h-full min-h-0 flex-col", groupHeightClass(node, blocks))}>
-          <PageContent layout={[child]} {blocks} {renderBlock} />
-        </div>
-      {/each}
-    </div>
-  {:else}
-    {@render renderBlock(node)}
-  {/if}
-{/each}
+<div class="@container flex min-w-0 flex-col gap-6">
+  {#each layout as node (node.id)}
+    {#if node.kind === "group"}
+      <div
+        class={cn(
+          gridClass(node.columns ?? 1),
+          "items-stretch",
+          groupHeightClass(node, blocks),
+        )}
+      >
+        {#each node.children as child (child.id)}
+          <div
+            class={cn(
+              "flex h-full min-h-0 flex-col",
+              groupHeightClass(node, blocks),
+            )}
+          >
+            <PageContent layout={[child]} {blocks} {renderBlock} />
+          </div>
+        {/each}
+      </div>
+    {:else}
+      {@render renderBlock(node)}
+    {/if}
+  {/each}
+</div>

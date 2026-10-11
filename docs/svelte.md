@@ -55,6 +55,11 @@ collapse completely; Bits UI continues to own presence, keyboard interaction and
 
 ## Customization levels
 
+Operational forms can reuse `FieldInputs` through the granular
+`@jthum/framework/svelte/authoring/field-inputs` default export, with `fieldInputDefaults` and
+`parseFieldInputs` from `@jthum/framework/svelte/authoring/data`. This keeps the eager authoring
+barrel out of a read-only surface and preserves lazy loading of heavier editors.
+
 Ordinary `Tabs.List` and `Tabs.Trigger` use shared sizing, balanced insets, typography and icon
 spacing. Consumers should limit tab classes to surrounding layout (for example, wrapping or width),
 not repeat height, padding or line-height overrides per screen. Intentional alternate treatments use
@@ -92,6 +97,9 @@ authoring exports or replace the relevant editor.
 `categories`. It never imports a host registry or loads renderer code. Hosts may provide
 `onPreview(key)` to preload renderers and `getIcon(block)` to customize catalog icons. Selection
 always comes from the currently visible results, so filtering cannot submit a hidden Block.
+`presentation="inline"` makes the picker a searchable inline list instead of a Dialog; the
+default Dialog remains available to standalone consumers. `BlockSettings` similarly accepts
+`presentation="inline"` instead of its default Sheet.
 
 `OptionSelect` is the shared single-choice UI control used by Framework surfaces. It accepts readonly option
 lists, a bound value, and an optional change callback; it has no app or session dependency.
@@ -101,12 +109,26 @@ lists, a bound value, and an optional change callback; it has no app or session 
 and navigation. Optional `getConfig`, `getInputs`, and `getOptions` callbacks customize
 catalog-driven configuration without putting application state into Framework.
 `onFinish()` lets the host remove an edit-mode URL or change its shell.
+The editor displays actual content beside an inline inspector, not a separate editing page.
+Previews are inert while editing, so selecting a Form/Workflow does not execute it. New Blocks
+are staged locally until **Apply changes** succeeds; rearrangements and layout settings save
+immediately. Names/descriptions are editable without changing the Page's key or ID.
+Pointer dragging moves nodes within/across nested Groups, with menu alternatives for moving
+earlier/later or out of a row. The shared drag helper's horizontal preview is opt-in; other
+vertical-list consumers retain their existing behavior.
 Groups and Blocks keep their IDs when moved or configured; Groups are layout nodes,
 not catalog entries. Saves are awaited, duplicate interactions are disabled while saving,
 and failed edits restore the previous layout. Configuration errors keep the settings panel open.
+`onUnsavedChange(dirty)` exposes unapplied settings/details to the host's navigation guard;
+Framework warns on closing its editor or unloading, while the host owns SPA/embedded navigation.
+Optional `getInputValue` and `setInputValue` callbacks adapt UI values to structured Block config
+without changing the persisted layout. `getOptions(input, config, definition)` receives the
+selected catalog definition, and `getIcon` supplies picker icons without importing host renderers.
 
 `PageContent` recursively renders canonical layout, passing only Block nodes to the
 host renderer snippet. It supports arbitrary Group nesting without importing renderer code.
+Layouts respond to their available container width, rather than the browser viewport, so the same
+Page can render in a wide canvas, editor preview or narrow drawer without forced skinny columns.
 
 `PageList` accepts canonical Page definitions and explicit create/update/delete/reorder
 callbacks. The host supplies `pageHref(page)` and may supply `onOpen(page, editing)` for

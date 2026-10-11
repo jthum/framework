@@ -65,6 +65,12 @@ for ordering, authorization, failure isolation and delivery limits.
 
 ## Behavioral sources of truth
 
+`@jthum/framework/svelte/authoring/field-inputs` exposes the native Field input component without
+loading the eager editor barrel. Its default export comes from
+[`field-inputs.svelte`](../src/svelte/internal/field-inputs.svelte); parsing/default helpers remain
+in the public authoring/data entry point. Validate with the Svelte boundary and Field input tests,
+then a consuming host build.
+
 - Module scope selection and isolation: [`ScopeHandle`](../src/kernel/model.ts),
   [`ScopeStore`](../src/persistence/scopes.ts), and [`src/kernel/scopes.spec.ts`](../src/kernel/scopes.spec.ts)
 - Optional shared-row authorization: [`RecordPolicy`](../src/kernel/record-policy.ts) and

@@ -9,7 +9,9 @@ type VerticalDragOptions = {
   event: PointerEvent;
   container: HTMLElement | null;
   item: HTMLElement | null;
-  onMove: (clientY: number) => void;
+  onMove: (clientY: number, clientX: number) => void;
+  /** Page grids may also move horizontally; existing list interactions stay vertical-only. */
+  horizontal?: boolean;
   onDrop: () => void | Promise<void>;
   onCancel?: () => void;
 };
@@ -27,6 +29,7 @@ export function startVerticalDrag({
   onMove,
   onDrop,
   onCancel,
+  horizontal = false,
 }: VerticalDragOptions): VerticalDragSession | null {
   if (event.button !== 0 || !container || !item) return null;
   event.preventDefault();
@@ -54,6 +57,7 @@ export function startVerticalDrag({
 
   const pointerId = event.pointerId;
   const offsetY = event.clientY - bounds.top;
+  const offsetX = event.clientX - bounds.left;
   let finished = false;
 
   const cleanup = () => {
@@ -77,7 +81,8 @@ export function startVerticalDrag({
   function handleMove(moveEvent: PointerEvent) {
     if (moveEvent.pointerId !== pointerId) return;
     preview.style.top = `${moveEvent.clientY - offsetY}px`;
-    onMove(moveEvent.clientY);
+    if (horizontal) preview.style.left = `${moveEvent.clientX - offsetX}px`;
+    onMove(moveEvent.clientY, moveEvent.clientX);
   }
 
   function handleDrop(upEvent: PointerEvent) {

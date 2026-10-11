@@ -28,6 +28,15 @@ const page: PageDefinition = {
 };
 
 describe("Standalone Page authoring", () => {
+  it("keeps nested previews in the editing canvas beside an inspector, with live actions inert", () => {
+    const result = render(Fixture, { props: { page, editing: true } }).body;
+    expect(result).toContain('aria-label="Page inspector"');
+    expect(result).toContain('data-page-node="nested"');
+    expect(result).toContain('data-block-id="custom-b"');
+    expect(result).toContain('aria-label="Configure Custom Block"');
+    expect(result).toMatch(/inert/);
+    expect(result).not.toContain('role="dialog"');
+  });
   it("renders custom Blocks and nested Groups without a host registry or SvelteKit", () => {
     const result = render(Fixture, { props: { page } }).body;
     expect(result).toContain("Overview");

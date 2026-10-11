@@ -10,6 +10,7 @@ import {
   insertBlock,
   moveInGroup,
   moveSibling,
+  moveLayoutNode,
   removeBlock,
   setBlock,
   setGroupColumns,
@@ -23,6 +24,24 @@ const tree: readonly PageLayoutNode[] = Object.freeze([
 ]);
 
 describe("Page authoring", () => {
+  it("moves blocks across nested layouts by identity, rejects cycles and retains empty drop targets", () => {
+    const layouts: readonly PageLayoutNode[] = [
+      ...tree,
+      { id: "other", kind: "group", children: [] },
+    ];
+    const moved = moveLayoutNode(layouts, "a", "other", false, true);
+    expect(nodePath(moved, "a")).toEqual([1, 0]);
+    expect(blockAt(moved, [1, 0])).toBe(a);
+    expect(blockAt(layouts, [0, 0])).toBe(a);
+    expect(moveLayoutNode(layouts, "group", "a")).toBe(layouts);
+    expect(moveLayoutNode(layouts, "missing", "a")).toBe(layouts);
+    const back = moveLayoutNode(moved, "a", "b");
+    expect(nodePath(back, "a")).toEqual([0, 0]);
+    expect(blockAt(back, [1])).toMatchObject({ id: "other", children: [] });
+    const outside = moveLayoutNode(tree, "a", "group", true);
+    expect(nodePath(outside, "a")).toEqual([1]);
+    expect(blockAt(outside, [0, 0])).toBe(b);
+  });
   it("creates stable distinct layout identities without changing catalog metadata", () => {
     const definition = {
       key: "stat",

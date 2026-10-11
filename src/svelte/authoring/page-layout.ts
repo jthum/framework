@@ -124,6 +124,34 @@ export function moveSibling(
   return next;
 }
 
+/** Move an existing node by identity, including between nested groups. Never copy IDs or create cycles. */
+export function moveLayoutNode(
+  layout: readonly PageLayoutNode[],
+  id: string,
+  targetId: string,
+  after = false,
+  intoGroup = false,
+): readonly PageLayoutNode[] {
+  const from = nodePath(layout, id),
+    target = nodePath(layout, targetId);
+  if (
+    !from ||
+    !target ||
+    id === targetId ||
+    (target.length > from.length && from.every((index, depth) => target[depth] === index))
+  )
+    return layout;
+  const node = blockAt(layout, from)!;
+  const remaining = removeBlock(layout, from);
+  const destination = nodePath(remaining, targetId)!;
+  const targetNode = blockAt(remaining, destination)!;
+  if (intoGroup && node.kind === "block" && targetNode.kind === "group")
+    return appendInGroup(remaining, destination, node);
+  const insertion = [...destination];
+  insertion[insertion.length - 1] = insertion[insertion.length - 1]! + (after ? 1 : 0);
+  return insertBlock(remaining, insertion, node);
+}
+
 export function moveInGroup(
   layout: readonly PageLayoutNode[],
   index: number,
@@ -161,9 +189,9 @@ export function setGroupMinHeight(
 export function gridClass(columns: number): string {
   const count = clampColumns(columns);
   if (count === 1) return "grid grid-cols-1 gap-4";
-  if (count === 2) return "grid grid-cols-1 gap-4 sm:grid-cols-2";
-  if (count === 3) return "grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3";
-  return "grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4";
+  if (count === 2) return "grid grid-cols-1 gap-4 @2xl:grid-cols-2";
+  if (count === 3) return "grid grid-cols-1 gap-4 @2xl:grid-cols-2 @4xl:grid-cols-3";
+  return "grid grid-cols-1 gap-4 @2xl:grid-cols-2 @6xl:grid-cols-4";
 }
 
 const heights: Record<PageHeight, string> = {

@@ -243,6 +243,11 @@ The values become the wait's `as` variable, and `onSignal` handles successful re
 `onTimeout` handles expiration. Requests are instance state co-located in the execution checkpoint,
 so request satisfaction and claiming the continuation commit in one atomic revision update.
 
+Public execution summaries and details retain the optional original module `scope` handle.
+Hosts can use it to associate a shared Rule's runs with the correct conversation or local surface.
+The workspace history remains Actor-authorized, not implicitly filtered by the caller's current
+scope. Placement metadata never grants inspection or resumption permission.
+
 The original execution Actor stays the Actor after a reviewer responds. Resume checks current
 membership and Rule authorization; Actions use ordinary current authorization and optional
 `runAs`. Inspection/resumption of another Actor's execution and explicit termination require

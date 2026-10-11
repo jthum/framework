@@ -22,7 +22,7 @@ import {
   type RuleRuntimeProfile,
 } from "./rule-compatibility.ts";
 import type { Clock, IdGenerator } from "./defaults.ts";
-import type { ExecutionContext } from "./model.ts";
+import type { ExecutionContext, ScopeHandle } from "./model.ts";
 import type { RunRuleInput, RuleStepTrace } from "./rules.ts";
 import { ruleOutputMismatch } from "../spec/rule-output.ts";
 
@@ -49,6 +49,8 @@ export interface ResumeRuleInput {
 export interface RuleExecutionDetails {
   readonly id: string;
   readonly actorId: string;
+  /** Original module placement. Informational, never an authorization grant. */
+  readonly scope?: ScopeHandle;
   readonly rule: { readonly id: string; readonly key: string; readonly label: string };
   readonly status: RuleExecution["status"];
   readonly createdAt: string;
@@ -78,7 +80,7 @@ export interface RuleExecutionDetails {
 
 export type RuleExecutionSummary = Pick<
   RuleExecutionDetails,
-  "id" | "actorId" | "rule" | "status" | "createdAt" | "updatedAt"
+  "id" | "actorId" | "scope" | "rule" | "status" | "createdAt" | "updatedAt"
 >;
 
 /** Trusted host projection notifications, not an Event outbox or an authorization shortcut. */
@@ -427,6 +429,7 @@ export class DurableRuleService {
       (execution) => ({
         id: execution.id,
         actorId: execution.context.actorId,
+        ...(execution.context.scope ? { scope: structuredClone(execution.context.scope) } : {}),
         rule: { id: execution.rule.id, key: execution.rule.key, label: execution.rule.label },
         status: execution.status,
         createdAt: execution.createdAt,
@@ -1168,6 +1171,7 @@ function describe(execution: RuleExecution): RuleExecutionDetails {
   return {
     id: execution.id,
     actorId: execution.context.actorId,
+    ...(execution.context.scope ? { scope: structuredClone(execution.context.scope) } : {}),
     rule: { id: execution.rule.id, key: execution.rule.key, label: execution.rule.label },
     status: execution.status,
     createdAt: execution.createdAt,

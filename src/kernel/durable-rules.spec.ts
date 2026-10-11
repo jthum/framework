@@ -81,6 +81,32 @@ async function setup(
 }
 
 describe("Durable Rules", () => {
+  it("retains original scope in public execution projections without filtering the Actor's workspace history", async () => {
+    const app = await setup();
+    try {
+      await app.install([rule([capture])]);
+      const scope = { kind: "topic", id: "launch" };
+      const scoped = await app.kernel.startRule({ ...app.context, scope }, "test");
+      const unscoped = await app.kernel.startRule(app.context, "test");
+      const details = await app.kernel.getRuleExecutionDetails(app.context, scoped.id);
+      expect(details?.scope).toEqual(scope);
+      expect(
+        (await app.kernel.getRuleExecutionDetails(app.context, unscoped.id))?.scope,
+      ).toBeUndefined();
+      const history = await app.kernel.listRuleExecutions(app.context);
+      expect(history.find((run) => run.id === scoped.id)?.scope).toEqual(scope);
+      expect((await app.kernel.getRuleExecutionDetails(app.context, scoped.id))?.scope).toEqual(
+        scope,
+      );
+      if (details?.scope) Object.assign(details.scope, { id: "changed" });
+      expect((await app.kernel.getRuleExecutionDetails(app.context, scoped.id))?.scope).toEqual(
+        scope,
+      );
+    } finally {
+      await app.kernel.close();
+    }
+  });
+
   it("commits a resumable wait atomically even when its acknowledgement is lost", async () => {
     const session = await new MemoryPersistenceAdapter().open();
     const original = session.executions.update.bind(session.executions);

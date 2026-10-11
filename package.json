@@ -84,6 +84,11 @@
       "types": "./src/svelte/authoring/data.ts",
       "import": "./src/svelte/authoring/data.ts"
     },
+    "./svelte/authoring/field-inputs": {
+      "types": "./src/svelte/internal/field-inputs.svelte",
+      "svelte": "./src/svelte/internal/field-inputs.svelte",
+      "import": "./src/svelte/internal/field-inputs.svelte"
+    },
     "./svelte/authoring/vertical-drag": {
       "types": "./src/svelte/authoring/vertical-drag.ts",
       "import": "./src/svelte/authoring/vertical-drag.ts"
@@ -142,7 +147,7 @@
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.0",
     "@types/node": "^26.4.0",
-    "svelte": "^5.57.0",
+    "svelte": "^5.57.1",
     "svelte-check": "^4.7.6",
     "typescript": "^6.0.3",
     "vite": "catalog:",
