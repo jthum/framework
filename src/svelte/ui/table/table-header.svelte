@@ -14,7 +14,7 @@
 	bind:this={ref}
 	data-slot="table-header"
 	class={cn(
-		"bg-muted/75 [&_tr]:border-b [&_tr]:border-border/80 [&_tr]:bg-transparent [&_tr]:hover:bg-transparent",
+		"bg-transparent [&_tr]:border-0",
 		className
 	)}
 	{...restProps}

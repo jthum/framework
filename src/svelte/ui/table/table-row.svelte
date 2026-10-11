@@ -14,7 +14,7 @@
 	bind:this={ref}
 	data-slot="table-row"
 	class={cn(
-		"border-b border-border/80 transition-colors hover:bg-muted/40 data-[state=selected]:bg-muted/50 data-[state=selected]:hover:bg-muted/60",
+		"[--table-row-surface:var(--card)] hover:[--table-row-surface:color-mix(in_oklab,var(--muted)_30%,var(--card))] data-[state=selected]:[--table-row-surface:color-mix(in_oklab,var(--primary)_8%,var(--card))] data-[state=selected]:hover:[--table-row-surface:color-mix(in_oklab,var(--primary)_12%,var(--card))] [&>td]:transition-colors",
 		className
 	)}
 	{...restProps}

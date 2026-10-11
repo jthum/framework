@@ -65,6 +65,16 @@ spacing. Consumers should limit tab classes to surrounding layout (for example, 
 not repeat height, padding or line-height overrides per screen. Intentional alternate treatments use
 the named `line` or `rail` list variants; vertical tab alignment is handled by the primitive.
 
+`Table.Root` supplies one horizontally scrollable chrome frame. Column headings and totals sit
+on the chrome, while `Table.Body` paints a continuous rounded content panel using native cells.
+Its row colours are opaque mixes over the card surface, so hover and selection do not expose
+the chrome through the body. Header, body and footer share one native column layout.
+Use `variant="inset"` when a host intentionally needs an unframed table inside an existing content
+surface. Shared primitives own spacing, panel edges and separators; consumers should not duplicate
+these styles. Selected rows use a subtle primary tint, and `aria-sort="ascending"` or `"descending"`
+on a sorted `Table.Head` emphasizes its label.
+Table colours inherit the host's semantic tokens in both light and dark themes.
+
 Use the least powerful level that solves the requirement:
 
 1. Override semantic CSS variables for colour, radius, typography, chrome, and surfaces.
