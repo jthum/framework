@@ -117,16 +117,7 @@ export function assertValidSourceQuery(
   else requireSourceQueryShape(input, "query", issues);
   if (issues.length === 0) {
     const query = input as SourceQueryDefinition;
-    const aliases = new Set<string>();
-    query.select?.forEach((selection, index) => {
-      const path = `query.select.${index}.as`;
-      if (!semanticKeyPattern.test(selection.as)) {
-        issue(issues, path, "SPEC.KEY_INVALID", "Selection alias must be a semantic key.");
-      } else if (aliases.has(selection.as)) {
-        issue(issues, path, "SPEC.KEY_DUPLICATE", "Selection alias is duplicated.");
-      }
-      aliases.add(selection.as);
-    });
+    validateSelectionOutputs(query, "query", issues);
     if (query.aggregate) {
       if (query.select)
         issue(
@@ -926,6 +917,36 @@ function requireViewShape(
   }
 }
 
+function validateSelectionOutputs(
+  query: SourceQueryDefinition,
+  path: string,
+  issues: ValidationIssue[],
+): void {
+  const leaves = new Set<string>();
+  const branches = new Set<string>();
+  query.select?.forEach((selection, index) => {
+    const address = typeof selection.as === "string" ? [selection.as] : selection.as;
+    const location = `${path}.select.${index}.as`;
+    if (!address.length || !address.every((key) => semanticKeyPattern.test(key))) {
+      issue(issues, location, "SPEC.KEY_INVALID", "Selection outputs must use semantic keys.");
+      return;
+    }
+    const key = address.join(".");
+    const prefixes = address.slice(0, -1).map((_, index) => address.slice(0, index + 1).join("."));
+    if (leaves.has(key))
+      issue(issues, location, "SPEC.KEY_DUPLICATE", "Selection output is duplicated.");
+    else if (branches.has(key) || prefixes.some((prefix) => leaves.has(prefix)))
+      issue(
+        issues,
+        location,
+        "SPEC.PROPERTY_CONFLICT",
+        "Selection outputs cannot overlap an object and its fields.",
+      );
+    leaves.add(key);
+    for (const prefix of prefixes) branches.add(prefix);
+  });
+}
+
 function requireSourceQueryShape(input: unknown, path: string, issues: ValidationIssue[]): void {
   if (!isRecord(input)) {
     issue(issues, path, "SPEC.TYPE_INVALID", "Source query must be an object.");
@@ -960,7 +981,15 @@ function requireSourceQueryShape(input: unknown, path: string, issues: Validatio
         if (!isRecord(selection))
           return issue(issues, itemPath, "SPEC.TYPE_INVALID", "Selection must be an object.");
         requireSourcePath(selection.path, `${itemPath}.path`, issues);
-        requireString(selection, "as", itemPath, issues);
+        if (Array.isArray(selection.as)) {
+          if (!selection.as.length || !selection.as.every((part) => typeof part === "string"))
+            issue(
+              issues,
+              `${itemPath}.as`,
+              "SPEC.TYPE_INVALID",
+              "Output path must be a non-empty array of semantic keys.",
+            );
+        } else requireString(selection, "as", itemPath, issues);
         optionalString(selection, "label", itemPath, issues);
       });
   }
@@ -1898,21 +1927,7 @@ function validateView(
     if (collection) validateViewParameterPaths(view, path, collection, spec, issues);
     return;
   }
-  const aliases = new Set<string>();
-  query.select?.forEach((selection, selectionIndex) => {
-    const selectionPath = `${path}.query.select.${selectionIndex}`;
-    if (!semanticKeyPattern.test(selection.as)) {
-      issue(
-        issues,
-        `${selectionPath}.as`,
-        "SPEC.KEY_INVALID",
-        "Selection alias must be a semantic key.",
-      );
-    } else if (aliases.has(selection.as)) {
-      issue(issues, `${selectionPath}.as`, "SPEC.KEY_DUPLICATE", "Selection alias is duplicated.");
-    }
-    aliases.add(selection.as);
-  });
+  validateSelectionOutputs(query, `${path}.query`, issues);
   if (query.aggregate) {
     if (query.select)
       issue(

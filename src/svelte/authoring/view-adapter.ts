@@ -32,7 +32,7 @@ export function viewDraftFromDefinition(
   schemas: ViewAuthoringSchemas,
 ): ViewDraft {
   const schema = requireSchema(schemas, view.source);
-  const aliases: Record<string, string> = {};
+  const aliases: NonNullable<ViewDraft["aliases"]> = {};
   const columnLabels: Record<string, string> = {};
   const fields =
     view.query?.select?.map((selection) => {

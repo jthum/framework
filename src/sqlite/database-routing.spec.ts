@@ -274,6 +274,16 @@ describe("SQLite record database routing", () => {
       })();
       expect(related.total).toBe(2);
       expect(related.rows).toEqual([{ id: invoice.id, values: { name: "Jane" } }]);
+      const nested = await app.kernel.querySource(scoped, "invoices", {
+        filter: { path: ["invoice-contact", "contact-name"], operator: "eq", value: "Jane" },
+        select: [
+          { path: ["invoice-contact"], as: ["contact", "id"] },
+          { path: ["invoice-contact", "contact-name"], as: ["contact", "name"] },
+        ],
+      });
+      expect(nested.rows).toEqual([
+        { id: invoice.id, values: { contact: { id: contact.id, name: "Jane" } } },
+      ]);
       const grouped = await app.kernel.querySource(scoped, "invoices", {
         aggregate: {
           group: {

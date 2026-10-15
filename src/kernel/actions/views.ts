@@ -1,5 +1,6 @@
 import { type ActionDefinition } from "../action-registry.ts";
 import { prepareCreateValues } from "../record-values.ts";
+import { readProjection } from "../../spec/projection.ts";
 import { type CoreActionPorts } from "./ports.ts";
 import { resourceConflict, resourceNotFound } from "../../errors/error.ts";
 import { semanticKey, type IdGenerator } from "../defaults.ts";
@@ -151,7 +152,15 @@ export function viewsActions(
         const stamp = ports.clock.now();
         const records: CollectionRecord[] = [];
         for (const row of result.data.rows) {
-          const values = prepareCreateValues(collection, row.values);
+          const values = prepareCreateValues(
+            collection,
+            Object.fromEntries(
+              result.data.columns.flatMap((column, index) => {
+                const value = readProjection(row.values, column.outputPath ?? column.key);
+                return value === undefined ? [] : [[fields[index]!.key, value]];
+              }),
+            ),
+          );
           await ports.assertReferences(context, collection, values);
           records.push({
             id: ports.ids.create("record"),
@@ -221,7 +230,7 @@ function snapshotFieldType(
   if (column.type === "json" || column.type === "reference") return "json";
   if (
     rows.some((row) => {
-      const value = row.values[column.key];
+      const value = readProjection(row.values, column.outputPath ?? column.key);
       return Boolean(value && typeof value === "object");
     })
   )

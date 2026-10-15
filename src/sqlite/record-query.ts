@@ -1,5 +1,6 @@
 import { fieldColumn, quoteIdentifier } from "./identifiers.ts";
 import { ERROR_CODES, FrameworkError } from "../errors/error.ts";
+import { projectValues } from "../spec/projection.ts";
 import type { RecordQueryResult } from "../persistence/records.ts";
 import type {
   CollectionDefinition,
@@ -58,16 +59,8 @@ export async function querySqliteRecords(
       return {
         id: String(row._id),
         values: query.select
-          ? Object.fromEntries(
-              query.select.flatMap((selection) => {
-                const value = readField(
-                  row,
-                  field(collection, selection.path),
-                  options.nullColumns,
-                  nulls,
-                );
-                return value === undefined ? [] : [[selection.as, value]];
-              }),
+          ? projectValues(query.select, (path) =>
+              readField(row, field(collection, path), options.nullColumns, nulls),
             )
           : Object.fromEntries(
               collection.fields.flatMap((definition) => {

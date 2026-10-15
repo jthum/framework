@@ -181,8 +181,8 @@ export interface SourceSort {
 
 export interface SourceSelection {
   readonly path: readonly string[];
-  /** Required output key; keeps the result stable when Field keys change. */
-  readonly as: string;
+  /** Stable output key, or an explicit path into a nested result object. */
+  readonly as: string | readonly string[];
   readonly label?: string;
 }
 
@@ -205,7 +205,8 @@ export interface SourceAggregateSort {
   readonly direction: "asc" | "desc";
 }
 
-export interface SourceAggregateGroup extends SourceSelection {
+export interface SourceAggregateGroup extends Omit<SourceSelection, "as"> {
+  readonly as: string;
   /** Optional display path while the grouping identity continues to use path. */
   readonly labelPath?: readonly string[];
 }

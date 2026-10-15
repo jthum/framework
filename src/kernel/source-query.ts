@@ -1,4 +1,5 @@
 import { ERROR_CODES, FrameworkError } from "../errors/error.ts";
+import { projectValues, projectionKey } from "../spec/projection.ts";
 import type { RecordQueryRelation, RecordValues } from "../persistence/records.ts";
 import type {
   CollectionDefinition,
@@ -73,12 +74,10 @@ export async function executeSourceQuery(
       values:
         query.select === undefined
           ? structuredClone(record.values)
-          : Object.fromEntries(
-              query.select.flatMap((selection) => {
-                const value = valueAt(record, selection.path);
-                return value === undefined ? [] : [[selection.as, structuredClone(value)]];
-              }),
-            ),
+          : projectValues(query.select, (path) => {
+              const value = valueAt(record, path);
+              return value === undefined ? undefined : structuredClone(value);
+            }),
     })),
     total,
   };
@@ -198,7 +197,8 @@ function columnsFor(
         : relations?.field(schema, selection.path);
     if (!field) throw unsupported("This Source does not support relationship traversal.");
     return {
-      key: selection.as,
+      key: projectionKey(selection.as),
+      ...(typeof selection.as === "string" ? {} : { outputPath: [...selection.as] }),
       label: selection.label ?? field.label,
       fieldId: field.id,
       path: [...selection.path],
@@ -249,7 +249,8 @@ function queryColumns(
     return query.select.map((selection) => {
       const field = fieldAt(selection.path);
       return {
-        key: selection.as,
+        key: projectionKey(selection.as),
+        ...(typeof selection.as === "string" ? {} : { outputPath: [...selection.as] }),
         label: selection.label ?? field.label,
         fieldId: field.id,
         path: [...selection.path],

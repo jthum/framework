@@ -40,6 +40,8 @@ export interface SourceDescriptor {
 
 export interface SourceColumn {
   readonly key: string;
+  /** Explicit address in row.values when this column is nested. */
+  readonly outputPath?: readonly string[];
   readonly label: string;
   readonly fieldId?: string;
   readonly path?: readonly string[];

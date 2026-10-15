@@ -54,8 +54,9 @@ surface rather than presenting opaque implementation kinds and configuration str
 
 The View adapter maps ordinary columns, flat filters, caller parameters, relationship paths,
 sorting, grouped measures, presentation, identity, and metadata to the canonical View contract.
-It rejects canonical options that the current editor cannot preserve—such as custom output aliases,
-nested boolean filters, and query offsets—instead of silently rewriting them. Aggregate View
+It preserves explicit flat and nested output aliases. It rejects canonical options that the
+current editor cannot preserve—such as nested boolean filters and query offsets—instead of
+silently rewriting them. Aggregate View
 authoring therefore has a complete portable Spec and Kernel path. The executable structured Rule
 model maps through a canonical Rule adapter. Portable Rules use Actions, stable Source/Form/Rule
 references, stable step identities, nested control flow, and optional run-as bindings. Authoring keeps

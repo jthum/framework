@@ -107,7 +107,7 @@ export interface ViewDraft extends DraftIdentity {
   source: string;
   fields: string[];
   /** Stable output contracts retained when they differ from key-derived defaults. */
-  aliases?: Record<string, string>;
+  aliases?: Record<string, string | readonly string[]>;
   column_labels?: Record<string, string>;
   where?: FilterClause[] | Record<string, unknown>;
   expose?: string[];

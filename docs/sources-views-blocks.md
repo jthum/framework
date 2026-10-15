@@ -54,6 +54,31 @@ Record lists and non-aggregate queries without an explicit sort use stable ascen
 `createdAt`, then record-ID order. Aggregate callers that need a stable presentation order should
 declare aggregate sorting; no semantic order is implied between otherwise unsorted groups.
 
+### Explicit nested projections
+
+A selection's `as` is either a flat semantic key or an array of semantic keys addressing a
+nested result. For example, selecting a reference Field as `["project", "id"]` and its name
+Field path as `["project", "name"]` produces `values.project = { id, name }`. This selects
+two values, not an entire related record. Flat output keys remain the ordinary default;
+aggregate aliases remain flat.
+
+Each nested leaf is independent: explicit nulls remain null, absent values remain absent,
+and containers exist only when a selected leaf is present. Multiple-reference paths retain
+their existing array-valued leaves; nesting does not zip them into record objects. Duplicate
+outputs and parent/child overlaps are rejected before execution.
+
+`SourceColumn.key` remains a stable column identifier, such as `project.name`; nested columns
+also expose `outputPath`. Use `readProjection(row.values, column.outputPath ?? column.key)`
+from `@jthum/framework/spec` to read either shape. These are plain JSON values, with no load
+methods or hidden requests. A host can use an explicitly selected reference ID to navigate
+or call `WorkspaceClient.getSourceRecords` for authorized details on demand.
+
+Snapshots copy the selected leaves into independent flat Collection fields. The View authoring
+adapter preserves nested aliases across edits. Source and SQLite behavior, authorization,
+Field renames and snapshot semantics are covered by the
+[projection tests](../src/kernel/projection.spec.ts); output validation and null/absence behavior
+are covered by [projection value tests](../src/spec/projection.spec.ts).
+
 Every hop except the terminal Field must be an explicitly declared reference Field. The Kernel rejects unrelated joins. Related records are fetched in batches through the Source contract and are separately authorized. Field, Collection, and Source-binding key renames therefore do not invalidate a query.
 
 A local relationship may cross one declared Attachment boundary, such as `invoice.contact.name`. The attached record must be visible through the Attachment filter, and revocation invalidates both new reference writes and subsequent traversal. A path such as `invoice.contact.company.name` is not inferred through the origin Workspace: deeper traversal requires a separately exposed relationship rather than turning one Attachment into ambient access to its origin graph.

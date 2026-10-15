@@ -33,6 +33,28 @@ const projects: CollectionDefinition = {
 const schemas = { client: clients, project: projects };
 
 describe("View authoring adapter", () => {
+  it("round-trips explicit nested output aliases", () => {
+    const view: ViewDefinition = {
+      id: "nested",
+      key: "nested",
+      label: "Nested",
+      source: "project",
+      query: {
+        select: [
+          { path: ["field-project-client"], as: ["client", "id"], label: "Client" },
+          {
+            path: ["field-project-client", "field-client-name"],
+            as: ["client", "name"],
+            label: "Name",
+          },
+        ],
+      },
+    };
+    const draft = viewDraftFromDefinition(view, schemas);
+    expect(draft.aliases).toEqual({ client: ["client", "id"], "client.name": ["client", "name"] });
+    expect(viewDefinitionFromDraft(draft, schemas)).toEqual(view);
+  });
+
   it("round-trips a parameterized relational View without losing stable identities", () => {
     const view: ViewDefinition = {
       id: "view-active-projects",
