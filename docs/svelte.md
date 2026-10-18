@@ -10,6 +10,7 @@ The portable Spec and Kernel do not depend on Svelte.
 - Authoring surfaces: [`src/svelte/authoring`](../src/svelte/authoring)
 - Operational surfaces: [`src/svelte/operations`](../src/svelte/operations)
 - Settings surfaces: [`src/svelte/settings`](../src/svelte/settings)
+- Record presentation: [`src/svelte/records`](../src/svelte/records)
 - Public hooks: [`src/svelte/hooks`](../src/svelte/hooks)
 - Private shared implementation: [`src/svelte/internal`](../src/svelte/internal)
 - Exact package exports: [`package.json`](../package.json)
@@ -22,6 +23,7 @@ The portable Spec and Kernel do not depend on Svelte.
 | `@jthum/framework/svelte/authoring`  | Portable-definition editors, working models, adapters, and authoring interactions           |
 | `@jthum/framework/svelte/operations` | Rule execution history, inspectors, launchers, and ActorRequest interaction                 |
 | `@jthum/framework/svelte/settings`   | Host-arranged and user-defined Workspace setting surfaces                                   |
+| `@jthum/framework/svelte/records`    | Host-fed record details and non-modal panels                                                |
 | Implementing app                     | Routes, product shell, navigation, app screens, product policy, and app-specific components |
 
 An implementing app does not move all of its Svelte code into Framework. A component belongs in
@@ -71,7 +73,9 @@ Its row colours are opaque mixes over the card surface, so hover and selection d
 the chrome through the body. Header, body and footer share one native column layout.
 Use `variant="inset"` when a host intentionally needs an unframed table inside an existing content
 surface. Shared primitives own spacing, panel edges and separators; consumers should not duplicate
-these styles. Selected rows use a subtle primary tint, and `aria-sort="ascending"` or `"descending"`
+these styles. Selected rows use a very light neutral foreground/card mix with a faint diagonal
+pattern, independent of the accent colour. Ordinary hover remains unpatterned.
+`aria-sort="ascending"` or `"descending"`
 on a sorted `Table.Head` emphasizes its label.
 Table colours inherit the host's semantic tokens in both light and dark themes.
 
@@ -100,6 +104,36 @@ authoring exports or replace the relevant editor.
   {/snippet}
 </PageHeader>
 ```
+
+## Record presentation
+
+`RecordDetails` presents an identity header, optional description/status summary, labelled properties,
+long-form text and optional host actions, related content and metadata. Hosts supply `RecordProperty`
+values and may replace value rendering with the `renderValue` snippet. Optional `highlight` hints
+promote up to three properties on full pages into an at-a-glance strip; additional highlights remain in the
+property list. Properties retain the supplied order rather than being categorized by field type.
+Each property appears once. Long-form content and properties share a responsive reading layout
+on wide containers and stack on narrower ones. `compact` keeps all facts together in a responsive
+two-column grid, with labels above values. Facts, Summary, longer text, related content and
+timestamps share one continuous card-colour surface.
+It omits numeric promotion, field dividers and the visible Details heading; full pages retain the framed Details section.
+`showHeader={false}` avoids repeating the enclosing panel's title. No field selection,
+querying, routing or record mutations happen inside this component.
+
+`RecordPanel` is a focusable complementary region with a title, close control, optional full-page
+link, a navigation snippet and a `summary` snippet beside the title for status or identity metadata.
+The panel provides a neutral Chrome header and footer around an unpadded, rounded card-colour
+scrolling body. Its title uses medium weight. Navigation and the full-page link sit
+at the bottom, leaving the header for identity and closing.
+The panel focuses itself on mount, supports Escape within the panel, and
+does not trap focus, lock scrolling or create a modal backdrop. It leads with the item title and
+supports an optional subtitle. The host owns floating/docked/mobile layout,
+selection, lazy loading, previous/next order, transitions and return focus after closing.
+
+Use granular imports such as `@jthum/framework/svelte/records/record-details` and
+`@jthum/framework/svelte/records/record-panel`. Presentation types are available separately from
+`@jthum/framework/svelte/records/data`. Rendering contracts are covered in
+[`records.spec.ts`](../src/svelte/records/records.spec.ts).
 
 ## Editor contract
 

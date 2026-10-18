@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import { render } from "svelte/server";
 import Fixture from "../../../testing/svelte/table-fixture.svelte";
+import TableRow from "./table-row.svelte";
 
 describe("Table composition", () => {
   it("renders one container and preserves native table semantics and host attributes", () => {
@@ -23,5 +24,21 @@ describe("Table composition", () => {
     expect(body.match(/data-slot="table-container"/gu)).toHaveLength(1);
     expect(body).toContain("INV-001");
     expect(body).toContain("Total 120");
+  });
+
+  it("uses a faint neutral selection pattern independently of the accent colour", () => {
+    const selectedRow = render(TableRow, { props: { "data-state": "selected" } }).body;
+    expect(selectedRow).toContain('data-state="selected"');
+    expect(selectedRow).toContain(
+      "data-[state=selected]:[--table-row-surface:color-mix(in_oklab,var(--foreground)_1.5%,var(--card))]",
+    );
+    expect(selectedRow).toContain(
+      "data-[state=selected]:hover:[--table-row-surface:color-mix(in_oklab,var(--foreground)_2.5%,var(--card))]",
+    );
+    expect(selectedRow).toContain("[--table-row-pattern:none]");
+    expect(selectedRow).toContain(
+      "data-[state=selected]:[--table-row-pattern:repeating-linear-gradient(135deg,color-mix(in_oklab,var(--foreground)_2%,transparent)_0_1px,transparent_1px_8px)]",
+    );
+    expect(selectedRow).not.toContain("var(--primary)");
   });
 });

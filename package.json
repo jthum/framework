@@ -108,6 +108,20 @@
       "svelte": "./src/svelte/operations/*.svelte",
       "import": "./src/svelte/operations/*.svelte"
     },
+    "./svelte/records": {
+      "types": "./src/svelte/records/index.ts",
+      "svelte": "./src/svelte/records/index.ts",
+      "import": "./src/svelte/records/index.ts"
+    },
+    "./svelte/records/data": {
+      "types": "./src/svelte/records/data.ts",
+      "import": "./src/svelte/records/data.ts"
+    },
+    "./svelte/records/*": {
+      "types": "./src/svelte/records/*.svelte",
+      "svelte": "./src/svelte/records/*.svelte",
+      "import": "./src/svelte/records/*.svelte"
+    },
     "./svelte/settings": {
       "types": "./src/svelte/settings/index.ts",
       "svelte": "./src/svelte/settings/index.ts",

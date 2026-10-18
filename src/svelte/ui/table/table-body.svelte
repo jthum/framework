@@ -24,6 +24,7 @@
 	   continuous body panel; the shared primitive owns this, not individual screens. */
 	tbody > :global(tr > td) {
 		background-color: var(--table-row-surface, var(--card));
+		background-image: var(--table-row-pattern, none);
 		border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
 	}
 	tbody > :global(tr:first-child > td) {

@@ -2,7 +2,15 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { describe, expect, it } from "vite-plus/test";
 
-const roots = ["authoring", "operations", "settings", "internal", "ui", "hooks"] as const;
+const roots = [
+  "authoring",
+  "operations",
+  "records",
+  "settings",
+  "internal",
+  "ui",
+  "hooks",
+] as const;
 
 function sourceFiles(directory: URL): URL[] {
   return readdirSync(directory).flatMap((name) => {
