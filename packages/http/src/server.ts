@@ -34,18 +34,30 @@ export function createWorkspaceHandler(
           signal: AbortSignal.any([request.signal, controller.signal]),
         });
         const iterator = events[Symbol.asyncIterator]();
+        let cancelled = false;
+        let finished = false;
+        const finish = async () => {
+          if (!finished) {
+            finished = true;
+            await options.onCall?.(method, request);
+          }
+        };
         const encoder = new TextEncoder();
         const body = new ReadableStream<Uint8Array>({
           async pull(stream) {
             try {
               const next = await iterator.next();
+              if (cancelled) return;
               if (next.done) {
-                await options.onCall?.(method, request);
+                await finish();
                 stream.enqueue(encoder.encode(`${JSON.stringify({ done: true })}\n`));
                 stream.close();
               } else stream.enqueue(encoder.encode(`${JSON.stringify({ event: next.value })}\n`));
             } catch (error) {
+              if (cancelled) return;
+              await finish();
               options.onError?.(error, request);
+              await iterator.return?.();
               stream.enqueue(
                 encoder.encode(
                   `${JSON.stringify({ error: asFrameworkError(error).toEnvelope() })}\n`,
@@ -55,8 +67,13 @@ export function createWorkspaceHandler(
             }
           },
           async cancel() {
+            cancelled = true;
             controller.abort();
-            await iterator.return?.();
+            try {
+              await iterator.return?.();
+            } finally {
+              await finish();
+            }
           },
         });
         return new Response(body, {
@@ -67,8 +84,12 @@ export function createWorkspaceHandler(
           },
         });
       }
-      const result: unknown = await Reflect.apply(client[method], client, args);
-      await options.onCall?.(method, request);
+      let result: unknown;
+      try {
+        result = await Reflect.apply(client[method], client, args);
+      } finally {
+        await options.onCall?.(method, request);
+      }
       return jsonResponse({ result: result ?? null });
     } catch (error) {
       options.onError?.(error, request);

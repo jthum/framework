@@ -43,6 +43,24 @@ async function fixture() {
 }
 
 describe("HTTP Workspace transport", () => {
+  it("notifies the host after failed calls that may already have committed partial effects", async () => {
+    const { owner } = await fixture();
+    const client = Object.create(owner) as typeof owner;
+    client.executeAction = async () => {
+      throw new FrameworkError({ code: "ACTION.FAILED", message: "Failed after an effect." });
+    };
+    const onCall = vi.fn();
+    const handler = createWorkspaceHandler({ resolveClient: async () => client, onCall });
+    const response = await handler(
+      new Request("https://example.test/rpc", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ method: "executeAction", args: ["example"] }),
+      }),
+    );
+    expect(response.status).toBe(500);
+    expect(onCall).toHaveBeenCalledExactlyOnceWith("executeAction", expect.any(Request));
+  });
   it("round-trips logical values, query results and void operations through the real Kernel", async () => {
     const { fetch } = await fixture();
     const client = createHttpWorkspaceClient({ url: "https://example.test/rpc", fetch });

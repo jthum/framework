@@ -21,7 +21,8 @@ bounded, including chunked bodies. Inference uses pull-based NDJSON with cancell
 explicit end marker so broken connections cannot appear to finish successfully. Optional
 `fetch` and `headers` support server clients, tests and non-cookie authentication.
 
-`onCall` lets a host invalidate its screens after operations; it is not a durable Event feed.
+`onCall` lets a host invalidate its screens after operations, including failed calls (which may
+have committed partial effects) and cancelled streams; it is not a durable Event feed.
 `onError` is for protected server diagnostics. Neither callback should throw.
 
 No Node, SvelteKit, SQLite, authentication library or inference SDK dependency is introduced.
