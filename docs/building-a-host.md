@@ -99,8 +99,9 @@ the linked Svelte source when exact signatures matter.
 ### 6. Keep local and remote implementations interchangeable
 
 Local clients call an in-process Kernel or module store. Remote clients implement the same
-transport-safe contracts over the host's protocol. Streaming module behavior belongs on the module
-client. Framework does not prescribe HTTP, WebSocket, RPC, authentication, or server topology.
+transport-safe contracts. The optional `@jthum/framework-http` package implements the Framework
+client over Fetch; hosts select its routes and authentication. Streaming module behavior belongs
+on the module client. Other transports and server topologies remain possible.
 
 ## Simple and advanced paths
 

@@ -14,8 +14,11 @@ remote
 interface -> remote WorkspaceClient -> authenticated server -> Kernel -> server persistence
 ```
 
-`createWorkspaceClient(kernel, context)` is the local implementation. A remote implementation
-provides the same client capabilities over a host-selected transport. Authentication on the server
+`createWorkspaceClient(kernel, context)` is the local implementation. The optional
+[`@jthum/framework-http`](../packages/http/README.md) package supplies `createHttpWorkspaceClient`
+and a Fetch-based `createWorkspaceHandler` for the same capabilities, including inference streaming.
+Hosts mount the handler and authenticate/bind a client in `resolveClient` on every request. Other
+transports may implement the same contract. Authentication on the server
 derives the Actor; a remote caller never supplies a trusted Actor identity.
 
 Server rendering is independent of this choice. A client-rendered interface may use a remote
@@ -60,7 +63,7 @@ The host owns:
 
 - authentication and login-identity-to-Actor resolution;
 - Kernel and persistence lifetime;
-- transport, request routing, streaming, and live module updates;
+- endpoint routing, authentication, CSRF policy, and live module updates;
 - logical module schemas, domain queries and lifecycle;
 - filesystem paths, database backup, and deployment policy.
 
@@ -69,6 +72,7 @@ Framework owns:
 - portable definitions and validation;
 - Kernel semantics and authorization choke points;
 - context-bound Framework client contracts and their local implementation;
+- optional HTTP client/handler, safe error envelopes, bounded requests and inference stream framing;
 - persistence ports and reference adapters, including [host-defined entities](module-persistence.md);
 - reusable Svelte capability surfaces.
 

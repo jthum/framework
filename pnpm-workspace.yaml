@@ -2,6 +2,7 @@ packages:
   - "."
   - "packages/inference/**"
   - "packages/sqlite/**"
+  - "packages/http"
 
 allowBuilds:
   esbuild: true
