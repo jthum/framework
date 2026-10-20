@@ -12,7 +12,13 @@ its adapter never persists those terms as a second Spec format.
 - Durable execution: [`src/kernel/durable-rules.ts`](../src/kernel/durable-rules.ts)
 - Action and Condition extension points: [`src/kernel/action-registry.ts`](../src/kernel/action-registry.ts) and [`src/kernel/condition-registry.ts`](../src/kernel/condition-registry.ts)
 - Compatibility planning: [`src/kernel/rule-compatibility.ts`](../src/kernel/rule-compatibility.ts)
+- Internal definition traversal shared by compatibility, preflight and diagnostics: [`src/kernel/rule-steps.ts`](../src/kernel/rule-steps.ts)
 - Behavioral tests: [`src/kernel/rules.spec.ts`](../src/kernel/rules.spec.ts), [`src/kernel/durable-rules.spec.ts`](../src/kernel/durable-rules.spec.ts), and [`src/kernel/delegated-rules.spec.ts`](../src/kernel/delegated-rules.spec.ts)
+
+The short runner executes directly; the durable runner retains resumable continuation frames.
+They share Action execution, value resolution and definition traversal. The [parity tests](../src/kernel/rule-parity.spec.ts)
+pin their common results, trace order, compensation and nested-Rule preflight without forcing
+ordinary short Rules through durable checkpoint machinery.
 
 ## Host execution projections
 

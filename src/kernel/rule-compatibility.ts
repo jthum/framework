@@ -1,4 +1,5 @@
 import type { RuleDefinition, RuleStep } from "../spec/model.ts";
+import { walkRuleSteps } from "./rule-steps.ts";
 
 export type RuleCapabilitySupport = "supported" | "emulated" | "unsupported";
 
@@ -47,23 +48,15 @@ export function requiresDurableExecution(
   const visitRule = (item: RuleDefinition): boolean => {
     if (visited.has(item.id)) return false;
     visited.add(item.id);
-    return visitSteps(item.steps);
-  };
-  const visitSteps = (steps: readonly RuleStep[]): boolean =>
-    steps.some((step) => {
+    for (const step of walkRuleSteps(item.steps)) {
       if ("delay" in step || "wait" in step) return true;
       if ("invoke" in step) {
         const target = definitions.get(step.invoke.ruleId);
-        return target ? visitRule(target) : false;
+        if (target && visitRule(target)) return true;
       }
-      if ("gate" in step)
-        return visitSteps(step.gate.pass ?? []) || visitSteps(step.gate.fail ?? []);
-      if ("foreach" in step) return visitSteps(step.foreach.steps);
-      if ("repeat" in step) return visitSteps(step.repeat.steps);
-      if ("parallel" in step)
-        return step.parallel.branches.some((branch) => visitSteps(branch.steps));
-      return false;
-    });
+    }
+    return false;
+  };
   return visitRule(rule);
 }
 
@@ -130,20 +123,8 @@ export function checkRuleCompatibility(
 }
 
 function collectConditions(steps: readonly RuleStep[], conditions: Set<string>): void {
-  for (const step of steps) {
-    if ("gate" in step) {
-      collectPredicateConditions(step.gate.predicate, conditions);
-      collectConditions(step.gate.pass ?? [], conditions);
-      collectConditions(step.gate.fail ?? [], conditions);
-    } else if ("foreach" in step) collectConditions(step.foreach.steps, conditions);
-    else if ("repeat" in step) collectConditions(step.repeat.steps, conditions);
-    else if ("parallel" in step)
-      for (const branch of step.parallel.branches) collectConditions(branch.steps, conditions);
-    else if ("wait" in step) {
-      collectConditions(step.wait.onSignal ?? [], conditions);
-      collectConditions(step.wait.onTimeout ?? [], conditions);
-    }
-  }
+  for (const step of walkRuleSteps(steps))
+    if ("gate" in step) collectPredicateConditions(step.gate.predicate, conditions);
 }
 
 function collectPredicateConditions(
@@ -172,7 +153,7 @@ function collectRequirements(
   capabilities: Set<string>,
   actions: Set<string>,
 ): void {
-  for (const step of steps) {
+  for (const step of walkRuleSteps(steps)) {
     if ("action" in step) {
       actions.add(step.action.key);
       if (step.action.runAs && step.action.runAs !== "trigger") capabilities.add("run_as");
@@ -184,27 +165,13 @@ function collectRequirements(
           capabilities.add("run_as");
       }
     } else if ("invoke" in step) capabilities.add("nested_rules");
-    else if ("gate" in step) {
-      collectRequirements(step.gate.pass ?? [], capabilities, actions);
-      collectRequirements(step.gate.fail ?? [], capabilities, actions);
-    } else if ("foreach" in step || "repeat" in step) {
-      capabilities.add("loops");
-      collectRequirements(
-        "foreach" in step ? step.foreach.steps : step.repeat.steps,
-        capabilities,
-        actions,
-      );
-    } else if ("parallel" in step) {
-      capabilities.add("parallel");
-      for (const branch of step.parallel.branches)
-        collectRequirements(branch.steps, capabilities, actions);
-    } else if ("delay" in step) capabilities.add("durable_waits");
+    else if ("foreach" in step || "repeat" in step) capabilities.add("loops");
+    else if ("parallel" in step) capabilities.add("parallel");
+    else if ("delay" in step) capabilities.add("durable_waits");
     else if ("wait" in step) {
       if (step.wait.request) capabilities.add("actor_requests");
       if (step.wait.signal) capabilities.add("signals");
       if (step.wait.timeout !== undefined) capabilities.add("durable_waits");
-      collectRequirements(step.wait.onSignal ?? [], capabilities, actions);
-      collectRequirements(step.wait.onTimeout ?? [], capabilities, actions);
     }
   }
 }

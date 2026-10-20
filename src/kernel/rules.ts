@@ -1,5 +1,6 @@
 import { ERROR_CODES, FrameworkError, resourceNotFound } from "../errors/error.ts";
 import { setOwnValue } from "../spec/json.ts";
+import { walkRuleSteps } from "./rule-steps.ts";
 import type { CatalogRepository } from "../persistence/catalog.ts";
 import type {
   JsonValue,
@@ -245,9 +246,7 @@ export class RuleService {
           },
           vars: await this.prepareInputs(context, rule, input.input ?? {}),
         }),
-        leaf: (context, rule, step, scope, state) =>
-          this.runSteps(context, rule, [step], scope, state),
-        compound: (context, rule, step, scope, state) =>
+        step: (context, rule, step, scope, state) =>
           this.runSteps(context, rule, [step], scope, state),
         test: (predicate, scope) => this.test(predicate, scope),
         read: resolveReference,
@@ -819,10 +818,11 @@ export class RuleService {
       (diagnostic) => diagnostic.support === "unsupported",
     );
     if (unsupported.length > 0) throw unsupportedRule(rule, unsupported);
-    for (const ruleId of invokedRuleIds(rule.steps)) {
-      const nested = await this.requireRuleById(context, ruleId);
-      await this.assertExecutable(context, nested, events, seen);
-    }
+    for (const step of walkRuleSteps(rule.steps))
+      if ("invoke" in step) {
+        const nested = await this.requireRuleById(context, step.invoke.ruleId);
+        await this.assertExecutable(context, nested, events, seen);
+      }
   }
 
   private async availableRuntimeActionKeys(
@@ -1079,25 +1079,6 @@ function executionLimit(kind: string, maximum: number): FrameworkError {
 
 function disabledRule(rule: RuleDefinition): never {
   throw invalidExecution(`Rule ${rule.key} is disabled.`, { ruleId: rule.id });
-}
-
-function invokedRuleIds(steps: readonly RuleStep[]): string[] {
-  const ids: string[] = [];
-  for (const step of steps) {
-    if ("invoke" in step) ids.push(step.invoke.ruleId);
-    else if ("gate" in step)
-      ids.push(...invokedRuleIds(step.gate.pass ?? []), ...invokedRuleIds(step.gate.fail ?? []));
-    else if ("foreach" in step) ids.push(...invokedRuleIds(step.foreach.steps));
-    else if ("repeat" in step) ids.push(...invokedRuleIds(step.repeat.steps));
-    else if ("parallel" in step)
-      for (const branch of step.parallel.branches) ids.push(...invokedRuleIds(branch.steps));
-    else if ("wait" in step)
-      ids.push(
-        ...invokedRuleIds(step.wait.onSignal ?? []),
-        ...invokedRuleIds(step.wait.onTimeout ?? []),
-      );
-  }
-  return ids;
 }
 
 function unsupportedRule(

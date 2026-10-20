@@ -30,6 +30,7 @@ import type { Clock, IdGenerator } from "./defaults.ts";
 import type { ExecutionContext } from "./model.ts";
 import type { RunRuleInput, RuleStepTrace } from "./rules.ts";
 import { ruleOutputMismatch } from "../spec/rule-output.ts";
+import { walkRuleSteps } from "./rule-steps.ts";
 
 export interface ActorRequest {
   readonly id: string;
@@ -182,14 +183,7 @@ interface ExecutionHooks {
   profile(): RuleRuntimeProfile;
   actionKeys(context: ExecutionContext): Promise<ReadonlySet<string>>;
   scope(context: ExecutionContext, rule: RuleDefinition, input: RunRuleInput): Promise<Scope>;
-  leaf(
-    context: ExecutionContext,
-    rule: RuleDefinition,
-    step: RuleStep,
-    scope: Scope,
-    state: State,
-  ): Promise<void>;
-  compound(
+  step(
     context: ExecutionContext,
     rule: RuleDefinition,
     step: RuleStep,
@@ -337,7 +331,7 @@ export class DurableRuleService {
       if (!compatibility.compatible)
         throw unsupported("The Rule is not compatible with durable execution.");
       setOwnValue(snapshot, definition.id, structuredClone(definition));
-      visitSteps(definition.steps, (step) => {
+      for (const step of walkRuleSteps(definition.steps)) {
         if ("delay" in step) deadline(this.clock.now(), step.delay.duration);
         if ("wait" in step && step.wait.timeout !== undefined)
           deadline(this.clock.now(), step.wait.timeout);
@@ -356,7 +350,7 @@ export class DurableRuleService {
           if (!nested) throw resourceNotFound("Rule", step.invoke.ruleId);
           collect(nested);
         }
-      });
+      }
     };
     collect(root);
     return snapshot;
@@ -753,7 +747,7 @@ export class DurableRuleService {
         const step = frame.steps[frame.index++]!;
         if ("action" in step || "compute" in step) {
           checkpoint.state.depth = lane.frames.length;
-          await this.hooks.leaf(run.execution.context, rule, step, scope, checkpoint.state);
+          await this.hooks.step(run.execution.context, rule, step, scope, checkpoint.state);
         } else {
           if (--checkpoint.state.remaining < 0)
             throw resourceConflict("Durable Rule step limit exceeded.");
@@ -786,8 +780,7 @@ export class DurableRuleService {
               )
             )
               this.startFork(checkpoint, lane, rule, step, frame.scope);
-            else
-              await this.hooks.compound(run.execution.context, rule, step, scope, checkpoint.state);
+            else await this.hooks.step(run.execution.context, rule, step, scope, checkpoint.state);
           } else if ("foreach" in step || "repeat" in step) {
             const config = "foreach" in step ? step.foreach : step.repeat;
             const raw =
@@ -890,8 +883,7 @@ export class DurableRuleService {
               )
             )
               this.startFork(checkpoint, lane, rule, step, frame.scope);
-            else
-              await this.hooks.compound(run.execution.context, rule, step, scope, checkpoint.state);
+            else await this.hooks.step(run.execution.context, rule, step, scope, checkpoint.state);
           } else throw unsupported("Unknown durable Rule step.");
         }
       }
@@ -1127,7 +1119,7 @@ function describe(execution: RuleExecution): RuleExecutionDetails {
   }));
   const labels = new Map<string, string>();
   for (const definition of Object.values(checkpoint.rules))
-    visitSteps(definition.steps, (step) => {
+    for (const step of walkRuleSteps(definition.steps)) {
       labels.set(
         step.id,
         "action" in step
@@ -1149,7 +1141,7 @@ function describe(execution: RuleExecution): RuleExecutionDetails {
                         ? "Repeat steps"
                         : "Parallel branches",
       );
-    });
+    }
   return {
     id: execution.id,
     actorId: execution.context.actorId,
@@ -1197,24 +1189,6 @@ function deadline(now: string, duration: number | string): string {
   )
     throw resourceConflict("Unsupported or out-of-range wait duration.");
   return new Date(timestamp).toISOString();
-}
-function visitSteps(steps: readonly RuleStep[], visit: (step: RuleStep) => void): void {
-  for (const step of steps) {
-    visit(step);
-    const children =
-      "gate" in step
-        ? [step.gate.pass ?? [], step.gate.fail ?? []]
-        : "wait" in step
-          ? [step.wait.onSignal ?? [], step.wait.onTimeout ?? []]
-          : "foreach" in step
-            ? [step.foreach.steps]
-            : "repeat" in step
-              ? [step.repeat.steps]
-              : "parallel" in step
-                ? step.parallel.branches.map((branch) => branch.steps)
-                : [];
-    for (const nested of children) visitSteps(nested, visit);
-  }
 }
 function unsupported(message: string): FrameworkError {
   return new FrameworkError({ code: ERROR_CODES.persistenceUnsupported, message });
