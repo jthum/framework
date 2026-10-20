@@ -17,6 +17,18 @@ export interface RuleExecution {
   readonly updatedAt: string;
 }
 
+/** Bounded history projection. Fetch an execution explicitly for its snapshot and checkpoint. */
+export interface RuleExecutionSummary {
+  readonly id: string;
+  readonly actorId: string;
+  /** Original module placement. Informational, never an authorization grant. */
+  readonly scope?: ScopeHandle;
+  readonly rule: Pick<RuleDefinition, "id" | "key" | "label">;
+  readonly status: RuleExecution["status"];
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
 /** Trusted persistence port. Actor-facing authorization belongs to the Kernel. */
 export interface ExecutionStore {
   /** Bounded assigned attention, including requests in another Actor's execution. */
@@ -30,12 +42,13 @@ export interface ExecutionStore {
   create(execution: RuleExecution): Promise<void>;
   get(workspaceId: string, id: string): Promise<RuleExecution | null>;
   getMany(workspaceId: string, ids: readonly string[]): Promise<readonly RuleExecution[]>;
+  /** History only: never include full definitions, inputs or continuation state. */
   list(
     workspaceId: string,
     actorId: string,
     limit: number,
     offset: number,
-  ): Promise<readonly RuleExecution[]>;
+  ): Promise<readonly RuleExecutionSummary[]>;
   /** Atomically replace revision N with N+1; stale resumes must fail. */
   update(execution: RuleExecution, expectedRevision: number): Promise<void>;
 }
@@ -131,7 +144,7 @@ export class MemoryExecutionStore implements ExecutionStore {
     actorId: string,
     limit: number,
     offset: number,
-  ): Promise<readonly RuleExecution[]> {
+  ): Promise<readonly RuleExecutionSummary[]> {
     return structuredClone(
       [...this.executions.values()]
         .filter(
@@ -148,7 +161,16 @@ export class MemoryExecutionStore implements ExecutionStore {
               ? 1
               : -1,
         )
-        .slice(offset, offset + limit),
+        .slice(offset, offset + limit)
+        .map((execution) => ({
+          id: execution.id,
+          actorId: execution.context.actorId,
+          ...(execution.context.scope ? { scope: execution.context.scope } : {}),
+          rule: { id: execution.rule.id, key: execution.rule.key, label: execution.rule.label },
+          status: execution.status,
+          createdAt: execution.createdAt,
+          updatedAt: execution.updatedAt,
+        })),
     );
   }
 

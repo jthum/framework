@@ -312,19 +312,22 @@ describe("SQLite catalog adapter", () => {
     await kernel.close();
   });
 
-  it("rejects an unknown catalog schema without migrating it", async () => {
-    expect.hasAssertions();
-    const database = openNodeSqlite();
-    await database.execute("PRAGMA user_version = 99");
-    const persistence = new SqlitePersistenceAdapter(() => database);
+  it.each([14, 99])(
+    "rejects unsupported catalog schema %i without migrating it",
+    async (version) => {
+      expect.hasAssertions();
+      const database = openNodeSqlite();
+      await database.execute(`PRAGMA user_version = ${version}`);
+      const persistence = new SqlitePersistenceAdapter(() => database);
 
-    await expect(persistence.open()).rejects.toMatchObject({
-      code: ERROR_CODES.persistenceUnsupported,
-      details: { actualVersion: 99, supportedVersion: 14 },
-    });
+      await expect(persistence.open()).rejects.toMatchObject({
+        code: ERROR_CODES.persistenceUnsupported,
+        details: { actualVersion: version, supportedVersion: 15 },
+      });
 
-    await expect(database.get("SELECT 1")).rejects.toThrow();
-  });
+      await expect(database.get("SELECT 1")).rejects.toThrow();
+    },
+  );
 });
 
 async function openKernel(path: string): Promise<Kernel> {

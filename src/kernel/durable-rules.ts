@@ -6,7 +6,12 @@ import {
   resourceNotFound,
   asFrameworkError,
 } from "../errors/error.ts";
-import type { ExecutionStore, RuleExecution } from "../persistence/executions.ts";
+import type {
+  ExecutionStore,
+  RuleExecution,
+  RuleExecutionSummary,
+} from "../persistence/executions.ts";
+export type { RuleExecutionSummary } from "../persistence/executions.ts";
 import { setOwnValue } from "../spec/json.ts";
 import { durationMilliseconds } from "../spec/duration.ts";
 import type {
@@ -22,7 +27,7 @@ import {
   type RuleRuntimeProfile,
 } from "./rule-compatibility.ts";
 import type { Clock, IdGenerator } from "./defaults.ts";
-import type { ExecutionContext, ScopeHandle } from "./model.ts";
+import type { ExecutionContext } from "./model.ts";
 import type { RunRuleInput, RuleStepTrace } from "./rules.ts";
 import { ruleOutputMismatch } from "../spec/rule-output.ts";
 
@@ -46,15 +51,7 @@ export interface ResumeRuleInput {
 }
 
 /** Stable UI projection; continuation frames and variable scopes remain Kernel-owned. */
-export interface RuleExecutionDetails {
-  readonly id: string;
-  readonly actorId: string;
-  /** Original module placement. Informational, never an authorization grant. */
-  readonly scope?: ScopeHandle;
-  readonly rule: { readonly id: string; readonly key: string; readonly label: string };
-  readonly status: RuleExecution["status"];
-  readonly createdAt: string;
-  readonly updatedAt: string;
+export interface RuleExecutionDetails extends RuleExecutionSummary {
   readonly trace: readonly (RuleStepTrace & { readonly label?: string })[];
   /** Root Rule variables at this checkpoint. No internal continuation scopes. */
   readonly vars?: Readonly<Record<string, JsonValue>>;
@@ -77,11 +74,6 @@ export interface RuleExecutionDetails {
     readonly failure?: string;
   }[];
 }
-
-export type RuleExecutionSummary = Pick<
-  RuleExecutionDetails,
-  "id" | "actorId" | "scope" | "rule" | "status" | "createdAt" | "updatedAt"
->;
 
 /** Trusted host projection notifications, not an Event outbox or an authorization shortcut. */
 export interface RuleExecutionChange {
@@ -425,17 +417,7 @@ export class DurableRuleService {
       throw resourceConflict(
         "Execution pagination requires a limit of 1–100 and a non-negative offset.",
       );
-    return (await this.store.list(context.workspaceId, context.actorId, limit, offset)).map(
-      (execution) => ({
-        id: execution.id,
-        actorId: execution.context.actorId,
-        ...(execution.context.scope ? { scope: structuredClone(execution.context.scope) } : {}),
-        rule: { id: execution.rule.id, key: execution.rule.key, label: execution.rule.label },
-        status: execution.status,
-        createdAt: execution.createdAt,
-        updatedAt: execution.updatedAt,
-      }),
-    );
+    return this.store.list(context.workspaceId, context.actorId, limit, offset);
   }
 
   async getRequest(

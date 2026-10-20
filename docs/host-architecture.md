@@ -63,6 +63,12 @@ adapters. A host may use the included in-memory adapter, a SQLite gateway, or an
 passes the shared contracts. Analytics engines may sit beside primary persistence as Sources; they
 do not have to replace transactional storage.
 
+`ExecutionStore.list` returns history summaries, while `get`/`getMany` return complete executions
+for inspection and resume. Keep list projections bounded and avoid fetching continuation state
+just to discard it. SQLite stores scalar history metadata beside checkpoint JSON and commits both
+atomically. Its catalog schema is version 15; older experimental catalogs are rejected, not
+migrated or reset.
+
 Host-defined entities use `PersistenceSession.modules`, obtained through trusted
 `Kernel.openModuleStorage`. Modules own schemas and product queries; providers implement the
 shared [module persistence contract](module-persistence.md), including transaction and query

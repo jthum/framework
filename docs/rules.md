@@ -16,6 +16,13 @@ its adapter never persists those terms as a second Spec format.
 
 ## Host execution projections
 
+History reads return bounded `RuleExecutionSummary` pages from the execution persistence port.
+SQLite selects native summary columns using the Workspace/Actor/creation-order index, without
+loading Rule snapshots or checkpoint JSON. Summary metadata and the full execution commit together;
+inspection and resume explicitly fetch the full execution. Memory implements the same projection.
+The client-facing summary shape is unchanged. See the [shared execution contracts](../src/persistence/executions.spec.ts)
+and [SQLite history query test](../src/sqlite/executions.spec.ts).
+
 Loop `max` is bounded to 1,000 by Spec validation. Every repeat iteration spends the shared
 execution budget, including an empty body; durable loops check their count before allocating.
 Durations use non-negative numeric seconds or explicit `ms`, `s`, `m`, `h`, `d` units.
