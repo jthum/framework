@@ -19,5 +19,10 @@ describe("installable packages", () => {
     expect(manifest.scripts.prepack).toBe(
       directory === "." ? "vp pack" : `vp run --filter ${manifest.name}... build`,
     );
+    if (directory !== ".") {
+      expect(manifest.peerDependencies["@jthum/framework"]).toBe("0.0.0");
+      expect(manifest.devDependencies["@jthum/framework"]).toBe("workspace:*");
+      expect(manifest.dependencies?.["@jthum/framework"]).toBeUndefined();
+    }
   });
 });

@@ -22,8 +22,12 @@
     "check": "vp check",
     "test": "vp test"
   },
-  "dependencies": {
+  "devDependencies": {
     "@jthum/framework": "workspace:*",
     "@jthum/yair": "workspace:*"
+  },
+  "peerDependencies": {
+    "@jthum/framework": "0.0.0",
+    "@jthum/yair": "0.0.0"
   }
 }

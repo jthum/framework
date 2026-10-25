@@ -22,7 +22,10 @@
     "check": "vp check",
     "test": "vp test"
   },
-  "dependencies": {
+  "devDependencies": {
     "@jthum/framework": "workspace:*"
+  },
+  "peerDependencies": {
+    "@jthum/framework": "0.0.0"
   }
 }

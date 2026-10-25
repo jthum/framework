@@ -23,7 +23,12 @@
     "test": "vp test"
   },
   "dependencies": {
-    "@jthum/framework": "workspace:*",
     "wa-sqlite": "^1.0.0"
+  },
+  "devDependencies": {
+    "@jthum/framework": "workspace:*"
+  },
+  "peerDependencies": {
+    "@jthum/framework": "0.0.0"
   }
 }

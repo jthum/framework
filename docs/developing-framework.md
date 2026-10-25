@@ -40,10 +40,10 @@ Each package's `prepack` script builds its compiled exports and required workspa
 before Git installation packages it. Vite+ must be available on the build machine.
 
 Packed packages include `src` as well as `dist`: development exports and Svelte's source-level
-relative imports must resolve without a repository checkout. Workspace dependencies are converted
-to package versions during packing. Until these packages are available in a registry, consumers
-must override those package names to the same pinned Git sources to avoid registry resolution
-and duplicate Framework identities.
+relative imports must resolve without a repository checkout. Optional packages declare Framework
+and YAIR as peers, supplied by the consumer, to share one installed identity. Workspace development
+dependencies provide those peers while building this repository. Consumers should install all
+required peers directly and pin related Git packages to the same commit.
 
 Test packaging from a clean consumer directory, not only through workspace links. A successful
 workspace build does not establish that a packed package contains all its runtime and source exports.

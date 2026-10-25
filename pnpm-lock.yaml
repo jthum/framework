@@ -267,19 +267,19 @@ importers:
         version: 0.3.0(@types/node@26.6.0)(@voidzero-dev/vite-plus-core@0.3.0(@types/node@26.6.0)(typescript@6.0.3))(svelte@5.57.1)(typescript@6.0.3)
 
   packages/http:
-    dependencies:
+    devDependencies:
       '@jthum/framework':
         specifier: workspace:*
         version: link:../..
 
   packages/inference/yair/core:
-    dependencies:
+    devDependencies:
       '@jthum/framework':
         specifier: workspace:*
         version: link:../../../..
 
   packages/inference/yair/providers/openai:
-    dependencies:
+    devDependencies:
       '@jthum/framework':
         specifier: workspace:*
         version: link:../../../../..
@@ -289,12 +289,13 @@ importers:
 
   packages/sqlite/browser:
     dependencies:
-      '@jthum/framework':
-        specifier: workspace:*
-        version: link:../../..
       wa-sqlite:
         specifier: ^1.0.0
         version: 1.0.0
+    devDependencies:
+      '@jthum/framework':
+        specifier: workspace:*
+        version: link:../../..
 
 packages:
 
