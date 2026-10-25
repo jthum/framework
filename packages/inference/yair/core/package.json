@@ -5,6 +5,7 @@
   "description": "Yet Another Inference Runtime.",
   "files": [
     "dist",
+    "src",
     "README.md"
   ],
   "type": "module",
@@ -16,6 +17,7 @@
     }
   },
   "scripts": {
+    "prepack": "vp run --filter @jthum/yair... build",
     "build": "vp pack",
     "check": "vp check",
     "test": "vp test"

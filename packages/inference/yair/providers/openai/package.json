@@ -5,6 +5,7 @@
   "description": "OpenAI-compatible model provider for YAIR.",
   "files": [
     "dist",
+    "src",
     "README.md"
   ],
   "type": "module",
@@ -16,6 +17,7 @@
     }
   },
   "scripts": {
+    "prepack": "vp run --filter @jthum/yair-openai... build",
     "build": "vp pack",
     "check": "vp check",
     "test": "vp test"

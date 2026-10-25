@@ -5,6 +5,7 @@
   "description": "Optional Fetch-based WorkspaceClient transport for Framework.",
   "files": [
     "dist",
+    "src",
     "README.md"
   ],
   "type": "module",
@@ -16,6 +17,7 @@
     }
   },
   "scripts": {
+    "prepack": "vp run --filter @jthum/framework-http... build",
     "build": "vp pack",
     "check": "vp check",
     "test": "vp test"

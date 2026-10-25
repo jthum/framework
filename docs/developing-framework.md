@@ -32,6 +32,22 @@ leave a missing cross-layer capability in host code merely to avoid changing a p
 
 ## Optional packages
 
+### Installing from Git
+
+Consumers can pin the root package to a Git commit and optional packages to the same commit with
+pnpm's `path:` selector, for example `github:jthum/framework#<commit>&path:packages/http`.
+Each package's `prepack` script builds its compiled exports and required workspace dependencies
+before Git installation packages it. Vite+ must be available on the build machine.
+
+Packed packages include `src` as well as `dist`: development exports and Svelte's source-level
+relative imports must resolve without a repository checkout. Workspace dependencies are converted
+to package versions during packing. Until these packages are available in a registry, consumers
+must override those package names to the same pinned Git sources to avoid registry resolution
+and duplicate Framework identities.
+
+Test packaging from a clean consumer directory, not only through workspace links. A successful
+workspace build does not establish that a packed package contains all its runtime and source exports.
+
 An integration belongs in an optional package when it implements a Framework port but brings an
 environment, provider, SDK, WASM asset, or dependency that ordinary Framework consumers should not
 install. Keep the core contract in the root package and the concrete integration under `packages`.

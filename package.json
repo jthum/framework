@@ -5,7 +5,7 @@
   "description": "A portable information-system specification and reference TypeScript kernel.",
   "files": [
     "dist",
-    "src/svelte",
+    "src",
     "docs",
     "README.md",
     "LICENSE"
@@ -143,6 +143,7 @@
     }
   },
   "scripts": {
+    "prepack": "vp pack",
     "build": "vp pack",
     "check": "vp check",
     "check:svelte": "svelte-check --tsconfig ./tsconfig.svelte.json",
