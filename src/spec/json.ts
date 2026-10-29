@@ -1,5 +1,16 @@
 import type { JsonValue } from "./model.ts";
 
+/** Compare portable JSON structurally: object property order is not definition identity. */
+export function canonicalJson(value: unknown): string | undefined {
+  return JSON.stringify(value, (_key, item: unknown) =>
+    item !== null && typeof item === "object" && !Array.isArray(item)
+      ? Object.fromEntries(
+          Object.entries(item).sort(([left], [right]) => left.localeCompare(right)),
+        )
+      : item,
+  );
+}
+
 export function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== "object") return false;
   const prototype = Object.getPrototypeOf(value);

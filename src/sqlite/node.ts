@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 
-import type { SqliteConnection, SqliteDatabase, SqliteParameters, SqliteValue } from "./gateway.ts";
+import type { SqliteConnection, SqliteDatabase, SqliteParameters } from "./gateway.ts";
 
 export function openNodeSqlite(path = ":memory:"): SqliteDatabase {
   return new NodeSqliteDatabase(new DatabaseSync(path), path);
@@ -70,24 +70,18 @@ class NodeSqliteConnection implements SqliteConnection {
   }
 
   async run(sql: string, parameters: SqliteParameters = []): Promise<void> {
-    this.database.prepare(sql).run(...toNodeParameters(parameters));
+    this.database.prepare(sql).run(...parameters);
   }
 
   async get<T extends object>(sql: string, parameters: SqliteParameters = []): Promise<T | null> {
-    return (
-      (this.database.prepare(sql).get(...toNodeParameters(parameters)) as T | undefined) ?? null
-    );
+    return (this.database.prepare(sql).get(...parameters) as T | undefined) ?? null;
   }
 
   async all<T extends object>(sql: string, parameters: SqliteParameters = []): Promise<T[]> {
-    return this.database.prepare(sql).all(...toNodeParameters(parameters)) as T[];
+    return this.database.prepare(sql).all(...parameters) as T[];
   }
 
   close(): void {
     this.database.close();
   }
-}
-
-function toNodeParameters(parameters: SqliteParameters): Array<SqliteValue> {
-  return [...parameters];
 }

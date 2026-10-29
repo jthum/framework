@@ -1,5 +1,6 @@
 import { ERROR_CODES, FrameworkError } from "../errors/error.ts";
 import { projectValues, projectionKey } from "../spec/projection.ts";
+import { allQueryPaths } from "../spec/query-paths.ts";
 import type { RecordQueryRelation, RecordValues } from "../persistence/records.ts";
 import type {
   CollectionDefinition,
@@ -400,30 +401,7 @@ function rootField(schema: SourceSchema, path: readonly string[]): FieldDefiniti
 }
 
 function uniquePaths(query: SourceQueryDefinition): readonly (readonly string[])[] {
-  const paths = [
-    ...filterPaths(query.filter),
-    ...(query.sort?.map((item) => item.path) ?? []),
-    ...(query.select?.map((item) => item.path) ?? []),
-    ...(query.aggregate
-      ? [
-          query.aggregate.group.path,
-          ...(query.aggregate.group.labelPath ? [query.aggregate.group.labelPath] : []),
-          ...query.aggregate.measures.flatMap((measure) => [
-            ...(measure.path ? [measure.path] : []),
-            ...(measure.paths ?? []),
-          ]),
-        ]
-      : []),
-  ];
-  return [...new Map(paths.map((path) => [pathKey(path), path])).values()];
-}
-
-function filterPaths(filter: SourceFilter | undefined): readonly (readonly string[])[] {
-  if (!filter) return [];
-  if ("all" in filter) return filter.all.flatMap(filterPaths);
-  if ("any" in filter) return filter.any.flatMap(filterPaths);
-  if ("not" in filter) return filterPaths(filter.not);
-  return [filter.path];
+  return [...new Map(allQueryPaths(query).map((path) => [pathKey(path), path])).values()];
 }
 
 function evaluateFilter(

@@ -23,6 +23,7 @@ import {
 } from "./field-storage.ts";
 import { compileFilter, querySqliteRecords } from "./record-query.ts";
 import { queryRelatedSqliteRecords, type PhysicalQueryRelation } from "./related-query.ts";
+import { canonicalJson } from "../spec/json.ts";
 
 interface SchemaRow {
   workspace_id: string;
@@ -157,15 +158,7 @@ export class SqliteRecordStore implements RecordStore {
       [record.id],
     );
     if (!row) return this.createWith(connection, workspaceId, collection, record);
-    const canonical = (value: unknown) =>
-      JSON.stringify(value, (_key, item: unknown) =>
-        item !== null && typeof item === "object" && !Array.isArray(item)
-          ? Object.fromEntries(
-              Object.entries(item).sort(([left], [right]) => left.localeCompare(right)),
-            )
-          : item,
-      );
-    if (canonical(decodeRecord(row, collection)) !== canonical(record))
+    if (canonicalJson(decodeRecord(row, collection)) !== canonicalJson(record))
       throw resourceConflict("Lifecycle seed conflicts with an existing record.");
   }
 

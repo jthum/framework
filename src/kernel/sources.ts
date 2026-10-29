@@ -13,6 +13,7 @@ import type {
   SourceQueryDefinition,
 } from "../spec/model.ts";
 import { assertValidSourceQuery } from "../spec/validate.ts";
+import { allQueryPaths, queryPaths } from "../spec/query-paths.ts";
 import type { AttachmentService } from "./attachments.ts";
 import type { AuthorizationRequest } from "./authorization.ts";
 import type { RecordPolicyService } from "./record-policy.ts";
@@ -507,36 +508,4 @@ function rejectRelationPaths(query: SourceQueryDefinition): void {
       message: "Attached Sources do not expose related Collections implicitly.",
     });
   }
-}
-
-function queryPaths(query: SourceQueryDefinition): readonly (readonly string[])[] {
-  return [
-    ...filterPaths(query.filter),
-    ...(query.sort?.map((item) => item.path) ?? []),
-    ...(query.select?.map((item) => item.path) ?? []),
-  ];
-}
-
-function allQueryPaths(query: SourceQueryDefinition): readonly (readonly string[])[] {
-  return [
-    ...queryPaths(query),
-    ...(query.aggregate
-      ? [
-          query.aggregate.group.path,
-          ...(query.aggregate.group.labelPath ? [query.aggregate.group.labelPath] : []),
-          ...query.aggregate.measures.flatMap((measure) => [
-            ...(measure.path ? [measure.path] : []),
-            ...(measure.paths ?? []),
-          ]),
-        ]
-      : []),
-  ];
-}
-
-function filterPaths(filter: SourceQueryDefinition["filter"]): readonly (readonly string[])[] {
-  if (!filter) return [];
-  if ("all" in filter) return filter.all.flatMap(filterPaths);
-  if ("any" in filter) return filter.any.flatMap(filterPaths);
-  if ("not" in filter) return filterPaths(filter.not);
-  return [filter.path];
 }

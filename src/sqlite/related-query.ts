@@ -10,6 +10,7 @@ import type {
 import type { SqliteDatabase, SqliteValue } from "./gateway.ts";
 import { compileFilter, querySqliteRecords } from "./record-query.ts";
 import { isStructuredField } from "./field-storage.ts";
+import { allQueryPaths } from "../spec/query-paths.ts";
 
 export interface PhysicalQueryRelation extends RecordQueryRelation {
   readonly table: string;
@@ -26,7 +27,7 @@ export async function queryRelatedSqliteRecords(
 ): Promise<RecordQueryResult> {
   const paths = [
     ...new Map(
-      allPaths(query)
+      allQueryPaths(query)
         .filter((path) => path.length > 1)
         .map((path) => [key(path), path]),
     ).values(),
@@ -187,31 +188,6 @@ function rewriteFilter(
   if ("any" in filter) return { any: filter.any.map((item) => rewriteFilter(item, rewrite)) };
   if ("not" in filter) return { not: rewriteFilter(filter.not, rewrite) };
   return { ...filter, path: rewrite(filter.path) };
-}
-
-function allPaths(query: SourceQueryDefinition): readonly (readonly string[])[] {
-  const filterPaths = (filter: SourceFilter | undefined): readonly (readonly string[])[] => {
-    if (!filter) return [];
-    if ("all" in filter) return filter.all.flatMap(filterPaths);
-    if ("any" in filter) return filter.any.flatMap(filterPaths);
-    if ("not" in filter) return filterPaths(filter.not);
-    return [filter.path];
-  };
-  return [
-    ...filterPaths(query.filter),
-    ...(query.sort?.map((item) => item.path) ?? []),
-    ...(query.select?.map((item) => item.path) ?? []),
-    ...(query.aggregate
-      ? [
-          query.aggregate.group.path,
-          ...(query.aggregate.group.labelPath ? [query.aggregate.group.labelPath] : []),
-          ...query.aggregate.measures.flatMap((measure) => [
-            ...(measure.path ? [measure.path] : []),
-            ...(measure.paths ?? []),
-          ]),
-        ]
-      : []),
-  ];
 }
 
 function uniqueFieldId(collection: CollectionDefinition, index: number): string {

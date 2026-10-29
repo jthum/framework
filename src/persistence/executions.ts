@@ -2,6 +2,7 @@ import { resourceConflict } from "../errors/error.ts";
 import type { ExecutionContext, ScopeHandle } from "../kernel/model.ts";
 import type { JsonValue, RuleDefinition } from "../spec/model.ts";
 import type { ActorRequest } from "../kernel/durable-rules.ts";
+import { canonicalJson } from "../spec/json.ts";
 
 /** Instance state, not portable Spec. The Rule snapshot fixes the meaning of a resumed run. */
 export interface RuleExecution {
@@ -80,17 +81,6 @@ export function assertExecutionUpdate(
     current.createdAt !== next.createdAt
   )
     throw resourceConflict("RuleExecution changed or its identity does not match.");
-}
-
-/** Compare portable JSON structurally: object property order is not definition identity. */
-function canonicalJson(value: unknown): string | undefined {
-  return JSON.stringify(value, (_key, item: unknown) =>
-    item !== null && typeof item === "object" && !Array.isArray(item)
-      ? Object.fromEntries(
-          Object.entries(item).sort(([left], [right]) => left.localeCompare(right)),
-        )
-      : item,
-  );
 }
 
 export class MemoryExecutionStore implements ExecutionStore {
@@ -196,7 +186,6 @@ export class MemoryExecutionStore implements ExecutionStore {
   }
 
   async update(execution: RuleExecution, expectedRevision: number): Promise<void> {
-    assertExecutionRevision(execution, expectedRevision);
     const current = this.executions.get(execution.id);
     assertExecutionUpdate(current, execution, expectedRevision);
     this.executions.set(execution.id, structuredClone(execution));
