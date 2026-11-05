@@ -16,6 +16,7 @@ import type { ScopeStore } from "./scopes.ts";
 import type { RuleSubscriptionStore } from "./subscriptions.ts";
 import type { WorkspaceConfigStore } from "./workspace-config.ts";
 import type { ModulePersistence } from "./modules.ts";
+import type { MemberPage, MemberQuery } from "../kernel/member-query.ts";
 
 export interface CollectionSeed {
   readonly collection: CollectionDefinition;
@@ -34,6 +35,7 @@ export interface CatalogReader {
   listModelConfigs(workspaceId: string): Promise<ModelConfig[]>;
   getAgentConfig(actorId: string): Promise<AgentConfig | null>;
   listMembers(workspaceId: string): Promise<Actor[]>;
+  queryMembers(workspaceId: string, query: MemberQuery): Promise<MemberPage>;
   getMembership(actorId: string, workspaceId: string): Promise<Membership | null>;
   listMembershipsForActor(actorId: string): Promise<Membership[]>;
   listMembershipsForWorkspace(workspaceId: string): Promise<Membership[]>;

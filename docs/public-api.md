@@ -39,6 +39,9 @@ guides explain semantics and ownership.
 | `@jthum/framework/svelte/settings/settings-layout` | Host-defined settings layout and typed value helpers       | [`src/svelte/settings/settings-layout.ts`](../src/svelte/settings/settings-layout.ts)             | [`src/svelte/settings/settings-layout.spec.ts`](../src/svelte/settings/settings-layout.spec.ts) |
 | `@jthum/framework/svelte/settings/*`               | Granular, code-splittable settings components              | [`src/svelte/settings`](../src/svelte/settings)                                                   | focused settings rendering tests                                                                |
 | `@jthum/framework/svelte/ui/*`                     | Granular semantic UI primitives                            | [`src/svelte/ui`](../src/svelte/ui)                                                               | Svelte check and accessibility review                                                           |
+| `@jthum/framework/svelte/people`                   | Optional member roster and permission controls             | [`src/svelte/people/index.ts`](../src/svelte/people/index.ts), [guide](people.md)                 | rendering and bundle tests                                                                      |
+| `@jthum/framework/svelte/people/*`                 | Granular, code-splittable People components                | [`src/svelte/people`](../src/svelte/people)                                                       | rendering and bundle tests                                                                      |
+| `@jthum/framework/svelte/people/data`              | Host-fed row types and access presentation helpers         | [`src/svelte/people/data.ts`](../src/svelte/people/data.ts)                                       | People rendering tests                                                                          |
 
 The root aggregate deliberately excludes Svelte. Prefer subpath imports in library and host code so
 dependency direction remains visible.
@@ -49,6 +52,10 @@ provides `getRuleExecutionDetailsMany`; see [execution projections](rules.md#hos
 for ordering, authorization, failure isolation and delivery limits.
 
 ## Canonical symbols
+
+`ActorClient.queryMembers`, `MembershipClient.getMembership`, `MemberQuery`, `MemberPage`, and
+`WorkspaceMember` are defined by the [client](../src/client/workspace-client.ts) and
+[member query](../src/kernel/member-query.ts) contracts.
 
 | Concern                          | Read these symbols                                                                                                                                                                            | Source                                                                                                 |
 | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |

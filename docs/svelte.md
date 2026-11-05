@@ -11,6 +11,7 @@ The portable Spec and Kernel do not depend on Svelte.
 - Operational surfaces: [`src/svelte/operations`](../src/svelte/operations)
 - Settings surfaces: [`src/svelte/settings`](../src/svelte/settings)
 - Record presentation: [`src/svelte/records`](../src/svelte/records)
+- Optional people and membership surfaces: [`src/svelte/people`](../src/svelte/people), [guide](people.md)
 - Public hooks: [`src/svelte/hooks`](../src/svelte/hooks)
 - Private shared implementation: [`src/svelte/internal`](../src/svelte/internal)
 - Exact package exports: [`package.json`](../package.json)
@@ -24,6 +25,7 @@ The portable Spec and Kernel do not depend on Svelte.
 | `@jthum/framework/svelte/operations` | Rule execution history, inspectors, launchers, and ActorRequest interaction                 |
 | `@jthum/framework/svelte/settings`   | Host-arranged and user-defined Workspace setting surfaces                                   |
 | `@jthum/framework/svelte/records`    | Host-fed record details and non-modal panels                                                |
+| `@jthum/framework/svelte/people`     | Optional host-fed member directory, query filters and permission selection                  |
 | Implementing app                     | Routes, product shell, navigation, app screens, product policy, and app-specific components |
 
 An implementing app does not move all of its Svelte code into Framework. A component belongs in

@@ -10,6 +10,7 @@ export * from "./environment.ts";
 export * from "./forms.ts";
 export * from "./kernel.ts";
 export * from "./model.ts";
+export type { MemberQuery, MemberPage, WorkspaceMember } from "./member-query.ts";
 export * from "./pages.ts";
 export * from "./record-values.ts";
 export { evaluateCondition } from "../spec/conditions.ts";

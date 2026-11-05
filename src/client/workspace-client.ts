@@ -1,4 +1,6 @@
 import type { FormSubmission, SubmitFormInput } from "../kernel/forms.ts";
+import type { MemberPage, MemberQuery } from "../kernel/member-query.ts";
+export type { MemberPage, MemberQuery, WorkspaceMember } from "../kernel/member-query.ts";
 import type { InferenceEvent, InferenceInput, InferenceTool } from "../kernel/inference-runtime.ts";
 import type {
   AgentBootstrap,
@@ -99,10 +101,12 @@ export interface ActorClient {
   createMember(input: CreateMemberInput): Promise<{ actor: Actor; membership: Membership }>;
   listActorsByOrigin(originId?: string): Promise<readonly Actor[]>;
   listMembers(workspaceId?: string): Promise<readonly Actor[]>;
+  queryMembers(query?: MemberQuery): Promise<MemberPage>;
 }
 
 /** Context-bound participation and permission assignments. */
 export interface MembershipClient {
+  getMembership(actorId: string, workspaceId?: string): Promise<Membership | null>;
   listMembershipsForActor(actorId: string): Promise<readonly Membership[]>;
   listMembershipsForWorkspace(workspaceId?: string): Promise<readonly Membership[]>;
   addMembership(input: AddMembershipInput): Promise<Membership>;
@@ -260,12 +264,20 @@ class LocalWorkspaceClient implements WorkspaceClient {
     return this.kernel.listMembers(this.context, workspaceId);
   }
 
+  queryMembers(query?: MemberQuery) {
+    return this.kernel.queryMembers(this.context, query);
+  }
+
   listMembershipsForActor(actorId: string) {
     return this.kernel.listMembershipsForActor(this.context, actorId);
   }
 
   listMembershipsForWorkspace(workspaceId?: string) {
     return this.kernel.listMembershipsForWorkspace(this.context, workspaceId);
+  }
+
+  getMembership(actorId: string, workspaceId?: string) {
+    return this.kernel.getMembership(this.context, actorId, workspaceId);
   }
 
   addMembership(input: AddMembershipInput) {

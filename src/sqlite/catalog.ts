@@ -20,6 +20,8 @@ import type {
   PersistenceSession,
 } from "../persistence/catalog.ts";
 import { SqliteRecordStore } from "./records.ts";
+import type { MemberPage, MemberQuery } from "../kernel/member-query.ts";
+import type { SqliteValue } from "./gateway.ts";
 import { SqliteScopeStore } from "./scopes.ts";
 import { SqliteRuleSubscriptionStore } from "./subscriptions.ts";
 import { SqliteExecutionStore } from "./executions.ts";
@@ -235,6 +237,12 @@ export class SqliteCatalogRepository implements CatalogRepository {
     return reader(this.database).listMembers(workspaceId);
   }
 
+  queryMembers(workspaceId: string, query: MemberQuery): Promise<MemberPage> {
+    return this.database.transaction((connection) =>
+      reader(connection).queryMembers(workspaceId, query),
+    );
+  }
+
   getMembership(actorId: string, workspaceId: string): Promise<Membership | null> {
     return reader(this.database).getMembership(actorId, workspaceId);
   }
@@ -339,6 +347,10 @@ class SqliteCatalogTransaction implements CatalogTransaction {
 
   listMembers(workspaceId: string): Promise<Actor[]> {
     return reader(this.connection).listMembers(workspaceId);
+  }
+
+  queryMembers(workspaceId: string, query: MemberQuery): Promise<MemberPage> {
+    return reader(this.connection).queryMembers(workspaceId, query);
   }
 
   getMembership(actorId: string, workspaceId: string): Promise<Membership | null> {
@@ -653,6 +665,58 @@ class SqliteCatalogReader {
         [workspaceId],
       )
     ).map(actorFromRow);
+  }
+
+  async queryMembers(workspaceId: string, query: MemberQuery): Promise<MemberPage> {
+    const conditions = ["m.workspace_id = ?"];
+    const parameters: SqliteValue[] = [workspaceId];
+    if (query.search) {
+      conditions.push(
+        "(instr(lower(actors.name), lower(?)) > 0 OR instr(lower(COALESCE(actors.email, '')), lower(?)) > 0)",
+      );
+      parameters.push(query.search, query.search);
+    }
+    if (query.kind) {
+      conditions.push("actors.kind = ?");
+      parameters.push(query.kind);
+    }
+    if (query.permission === "none") conditions.push("json_array_length(m.permissions_json) = 0");
+    else if (query.permission) {
+      conditions.push("EXISTS (SELECT 1 FROM json_each(m.permissions_json) WHERE value = ?)");
+      parameters.push(query.permission);
+    }
+    if (query.memberOf) {
+      conditions.push(
+        "EXISTS (SELECT 1 FROM memberships other WHERE other.actor_id = actors.id AND other.workspace_id = ? AND EXISTS (SELECT 1 FROM json_each(other.permissions_json) WHERE value = 'read'))",
+      );
+      parameters.push(query.memberOf);
+    }
+    const from = `FROM actors JOIN memberships m ON m.actor_id = actors.id WHERE ${conditions.join(" AND ")}`;
+    const total = (await this.connection.get<{ total: number }>(
+      `SELECT COUNT(*) AS total ${from}`,
+      parameters,
+    ))!.total;
+    const order = {
+      name_asc: "lower(actors.name) ASC",
+      name_desc: "lower(actors.name) DESC",
+      newest: "m.created_at DESC",
+      oldest: "m.created_at ASC",
+    }[query.sort ?? "name_asc"];
+    const limit = query.limit ?? 25;
+    const offset = query.offset ?? 0;
+    const rows = await this.connection.all<ActorRow & { membership_json: string }>(
+      `SELECT actors.*, json_object('id', m.id, 'actorId', m.actor_id, 'workspaceId', m.workspace_id, 'roles', json(m.roles_json), 'permissions', json(m.permissions_json), 'createdAt', m.created_at, 'updatedAt', m.updated_at) AS membership_json ${from} ORDER BY ${order}, actors.id ASC LIMIT ? OFFSET ?`,
+      [...parameters, limit, offset],
+    );
+    return {
+      members: rows.map((row) => ({
+        actor: actorFromRow(row),
+        membership: JSON.parse(row.membership_json) as Membership,
+      })),
+      total,
+      limit,
+      offset,
+    };
   }
 
   async getMembership(actorId: string, workspaceId: string): Promise<Membership | null> {

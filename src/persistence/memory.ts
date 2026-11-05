@@ -1,4 +1,5 @@
 import { resourceConflict, resourceNotFound } from "../errors/error.ts";
+import type { MemberPage, MemberQuery, WorkspaceMember } from "../kernel/member-query.ts";
 import { MemoryExecutionStore } from "./executions.ts";
 import { MemoryScopeStore } from "./scopes.ts";
 import { MemoryRuleSubscriptionStore } from "./subscriptions.ts";
@@ -242,6 +243,59 @@ export class MemoryCatalogRepository implements CatalogRepository, CatalogTransa
         (item) => item.actorId === actorId && item.workspaceId === workspaceId,
       ) ?? null
     );
+  }
+
+  async queryMembers(workspaceId: string, query: MemberQuery): Promise<MemberPage> {
+    const search = lowerAscii(query.search ?? "");
+    const readableActors = query.memberOf
+      ? new Set(
+          [...this.state.memberships.values()]
+            .filter(
+              (item) => item.workspaceId === query.memberOf && item.permissions.includes("read"),
+            )
+            .map((item) => item.actorId),
+        )
+      : undefined;
+    const members: WorkspaceMember[] = [];
+    for (const membership of this.state.memberships.values()) {
+      if (membership.workspaceId !== workspaceId) continue;
+      const actor = this.state.actors.get(membership.actorId)!;
+      if (query.kind && actor.kind !== query.kind) continue;
+      if (
+        search &&
+        !lowerAscii(actor.name).includes(search) &&
+        !lowerAscii(actor.email ?? "").includes(search)
+      )
+        continue;
+      if (
+        query.permission === "none"
+          ? membership.permissions.length > 0
+          : query.permission && !membership.permissions.includes(query.permission)
+      )
+        continue;
+      if (readableActors && !readableActors.has(actor.id)) continue;
+      members.push({ actor, membership });
+    }
+    const sort = query.sort ?? "name_asc";
+    members.sort((a, b) => {
+      const left =
+        sort === "newest" || sort === "oldest" ? a.membership.createdAt : lowerAscii(a.actor.name);
+      const right =
+        sort === "newest" || sort === "oldest" ? b.membership.createdAt : lowerAscii(b.actor.name);
+      const direction = sort === "newest" || sort === "name_desc" ? -1 : 1;
+      return (
+        direction * (left < right ? -1 : left > right ? 1 : 0) ||
+        (a.actor.id < b.actor.id ? -1 : a.actor.id > b.actor.id ? 1 : 0)
+      );
+    });
+    const limit = query.limit ?? 25;
+    const offset = query.offset ?? 0;
+    return structuredClone({
+      members: members.slice(offset, offset + limit),
+      total: members.length,
+      limit,
+      offset,
+    });
   }
 
   async listMembershipsForActor(actorId: string): Promise<Membership[]> {
@@ -584,6 +638,11 @@ function migrateMemoryRecords(
     }
     records.set(id, clone({ ...record, collectionId: next.id, values }));
   }
+}
+
+/** Match SQLite's built-in lower(), without inventing adapter-specific Unicode folding. */
+function lowerAscii(value: string): string {
+  return value.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
 }
 
 function schemaDefault(

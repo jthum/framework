@@ -1,5 +1,6 @@
 import { WorkspaceLifecycleService } from "./workspace-lifecycle.ts";
 import { ActorLifecycleService } from "./actor-lifecycle.ts";
+import type { MemberPage, MemberQuery } from "./member-query.ts";
 import { SpecLifecycleService } from "./spec-lifecycle.ts";
 import type {
   CreateRootWorkspaceInput,
@@ -1112,6 +1113,17 @@ export class Kernel {
     });
   }
 
+  async queryMembers(context: ExecutionContext, query: MemberQuery = {}): Promise<MemberPage> {
+    return protectOperation(async () => {
+      await this.authorizeCatalogRead(context, "actors.listMembers", context.workspaceId);
+      const { normalizeMemberQuery } = await import("./member-query.ts");
+      const normalized = normalizeMemberQuery(query);
+      if (normalized.memberOf)
+        await this.authorizeCatalogRead(context, "actors.listMembers", normalized.memberOf);
+      return this.catalog.queryMembers(context.workspaceId, normalized);
+    });
+  }
+
   async listMembershipsForActor(context: ExecutionContext, actorId: string): Promise<Membership[]> {
     return protectOperation(async () => {
       await this.authorizeActorRead(context, "memberships.listForActor", actorId);
@@ -1129,6 +1141,17 @@ export class Kernel {
     return protectOperation(async () => {
       await this.authorizeCatalogRead(context, "memberships.listForWorkspace", workspaceId);
       return this.catalog.listMembershipsForWorkspace(workspaceId);
+    });
+  }
+
+  async getMembership(
+    context: ExecutionContext,
+    actorId: string,
+    workspaceId = context.workspaceId,
+  ): Promise<Membership | null> {
+    return protectOperation(async () => {
+      await this.authorizeCatalogRead(context, "memberships.listForWorkspace", workspaceId);
+      return this.catalog.getMembership(actorId, workspaceId);
     });
   }
 

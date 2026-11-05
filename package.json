@@ -62,6 +62,20 @@
       "development": "./src/sqlite/node-index.ts",
       "import": "./dist/sqlite/node-index.mjs"
     },
+    "./svelte/people": {
+      "types": "./src/svelte/people/index.ts",
+      "svelte": "./src/svelte/people/index.ts",
+      "import": "./src/svelte/people/index.ts"
+    },
+    "./svelte/people/data": {
+      "types": "./src/svelte/people/data.ts",
+      "import": "./src/svelte/people/data.ts"
+    },
+    "./svelte/people/*": {
+      "types": "./src/svelte/people/*.svelte",
+      "svelte": "./src/svelte/people/*.svelte",
+      "import": "./src/svelte/people/*.svelte"
+    },
     "./svelte/utils": {
       "types": "./src/svelte/utils.ts",
       "import": "./src/svelte/utils.ts"
