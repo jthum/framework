@@ -27,6 +27,7 @@ export type {
   RuleExecutionObserver,
 } from "./durable-rules.ts";
 export * from "./sources.ts";
+export { executeSourceQuery } from "./source-query.ts";
 export * from "./views.ts";
 export * from "./workspace-config.ts";
 export * from "./workspace-config-service.ts";

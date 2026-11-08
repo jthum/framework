@@ -66,13 +66,13 @@ export interface RecordStore {
     filter: SourceFilter,
     page?: RecordListPage,
   ): Promise<CollectionRecord[]>;
-  /** A storage-executed query. Adapters that implement this must not materialize the Collection. */
+  /** Adapter-owned query execution. Providers declare their execution strategy and resource limits. */
   query?(
     workspaceId: string,
     collection: CollectionDefinition,
     query: SourceQueryDefinition,
   ): Promise<RecordQueryResult>;
-  /** Execute a query across declared, authorized relationship hops without loading root rows. */
+  /** Execute a query across declared, authorized relationship hops using the provider's strategy. */
   queryRelated?(
     workspaceId: string,
     collection: CollectionDefinition,

@@ -27,3 +27,8 @@ have committed partial effects) and cancelled streams; it is not a durable Event
 
 No Node, SvelteKit, SQLite, authentication library or inference SDK dependency is introduced.
 Module-owned clients may use the exported JSON request/response helpers with their own contracts.
+
+Hosts whose endpoint API does not expose Fetch `Request`/`Response` can use `parseCall`,
+`workspaceMethods`, and `WorkspaceMethod` to reuse the same allowlist and argument validation.
+Authenticate and bind the client before dispatch; never accept Actor or Workspace authority from
+caller-supplied arguments. Streaming inference still requires a host transport that supports it.

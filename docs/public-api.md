@@ -110,3 +110,9 @@ or the execution owner's authority; see [Agents](agents.md) and the durable Rule
 When documentation and code disagree, first determine whether the implementation or the intended
 contract is wrong. Do not silently edit prose to bless accidental behavior; update the canonical
 contract, tests, and guide together.
+
+Adapter implementations can reuse catalog invariants exported from
+[`src/persistence/catalog-integrity.ts`](../src/persistence/catalog-integrity.ts).
+`executeSourceQuery`, exported by the Kernel entry point, provides the canonical logical query
+evaluator when an adapter's declared strategy uses bounded materialization. The adapter owns
+query execution and resource limits; SQL adapters continue to execute supported queries in SQL.

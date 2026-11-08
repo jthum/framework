@@ -86,7 +86,10 @@ export function asFrameworkError(error: unknown): FrameworkError {
     {
       code: ERROR_CODES.internalUnexpected,
       message: "Something went wrong. Please try again.",
-      errorId: createErrorId(),
+      // Formatting an unexpected fault must also work in hosts without native random bytes.
+      ...(typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function"
+        ? { errorId: createErrorId() }
+        : {}),
     },
     { cause: error },
   );
